@@ -53,6 +53,31 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 - `error`: 错误信息
 - `warning`: 警告信息（例如页面被 403 拒绝但 icon 抓取成功）
 
+## 代理支持（HTTP / SOCKS5）
+
+服务请求目标网站时支持代理，读取标准环境变量：
+
+- `HTTP_PROXY`
+- `HTTPS_PROXY`
+- `ALL_PROXY`
+- `NO_PROXY`
+
+### 示例
+
+HTTP 代理：
+
+```bash
+export HTTP_PROXY=http://user:pass@127.0.0.1:7890
+export HTTPS_PROXY=http://user:pass@127.0.0.1:7890
+```
+
+SOCKS5 代理（推荐 `socks5h`，DNS 也走代理）：
+
+```bash
+export ALL_PROXY=socks5h://user:pass@127.0.0.1:1080
+export NO_PROXY=127.0.0.1,localhost
+```
+
 ## Debian 13 Docker 部署
 
 ### 部署要求
@@ -61,6 +86,7 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 2. 服务器允许访问外网（需要抓取目标网站 HTML/icon）。
 3. 服务器开放应用端口（默认 `8000`）。
 4. 项目目录可写（用于 `data/` 和 `ICON/` 持久化）。
+5. 当前 `Dockerfile` 基础镜像已改为私有代理地址：`docker.freeba.org/gfcr.ip/...`。
 
 ### Debian 13 安装 Docker（如未安装）
 
@@ -84,6 +110,8 @@ cd Nav_Loacl
 ```bash
 docker compose up -d --build
 ```
+
+如需代理，先在同一 shell 设置环境变量再执行上面的启动命令。
 
 3. 查看状态：
 
