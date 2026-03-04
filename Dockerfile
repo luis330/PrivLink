@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+FROM docker.freeba.org/gfcr.ip/astral-sh/uv:python3.12-bookworm-slim
 
 WORKDIR /app
 

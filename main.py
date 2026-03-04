@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
-from urllib import error, parse, request
+from urllib import parse
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +29,7 @@ FRONTEND_PATH = Path("index.html")
 ICON_MAX_BYTES = 2 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_RETRIES = 2
+MAX_REDIRECTS = 5
 USER_AGENT = "NavLocalBot/1.0 (+https://localhost)"
 ALLOWED_SCHEMES = {"http", "https"}
 ALLOWED_ICON_EXTENSIONS = {
@@ -117,23 +119,6 @@ class SiteHTMLParser(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._in_title:
             self.title_parts.append(data)
-
-
-class SafeRedirectHandler(request.HTTPRedirectHandler):
-    def redirect_request(
-        self,
-        req: request.Request,
-        fp: Any,
-        code: int,
-        msg: str,
-        headers: Any,
-        newurl: str,
-    ) -> request.Request:
-        validate_remote_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-URL_OPENER = request.build_opener(SafeRedirectHandler())
 
 
 def utc_now() -> str:
@@ -249,18 +234,59 @@ def is_disallowed_ip(value: str) -> bool:
     )
 
 
-def read_with_limit(stream: Any, max_bytes: int) -> bytes:
+def read_with_limit(byte_stream: Any, max_bytes: int) -> bytes:
     chunks: list[bytes] = []
     total = 0
-    while True:
-        piece = stream.read(64 * 1024)
+    for piece in byte_stream:
         if not piece:
-            break
+            continue
         total += len(piece)
         if total > max_bytes:
             raise ValueError(f"Response exceeds limit ({max_bytes} bytes)")
         chunks.append(piece)
     return b"".join(chunks)
+
+
+def format_http_error(response: httpx.Response) -> str:
+    reason = (response.reason_phrase or "").strip()
+    if not reason:
+        return f"HTTP Error {response.status_code}"
+    return f"HTTP Error {response.status_code}: {reason}"
+
+
+def fetch_once_with_client(
+    client: httpx.Client,
+    target_url: str,
+    *,
+    max_bytes: int,
+    headers: dict[str, str],
+) -> tuple[str, bytes, str]:
+    current_url = target_url
+    for redirect_count in range(MAX_REDIRECTS + 1):
+        validate_remote_url(current_url)
+        with client.stream("GET", current_url, headers=headers, follow_redirects=False) as response:
+            status_code = response.status_code
+            if status_code in (301, 302, 303, 307, 308):
+                location = (response.headers.get("Location") or "").strip()
+                if not location:
+                    raise RuntimeError("Redirect response missing Location header")
+                next_url = parse.urljoin(current_url, location)
+                current_url = normalize_url(next_url)
+                continue
+            if status_code >= 400:
+                raise RuntimeError(format_http_error(response))
+
+            raw_content_type = (response.headers.get("Content-Type") or "").strip().lower()
+            content_type = raw_content_type.split(";")[0].strip()
+            content_length = (response.headers.get("Content-Length") or "").strip()
+            if content_length.isdigit() and int(content_length) > max_bytes:
+                raise ValueError(f"Response exceeds limit ({max_bytes} bytes)")
+
+            body = read_with_limit(response.iter_bytes(chunk_size=64 * 1024), max_bytes=max_bytes)
+            final_url = normalize_url(str(response.url))
+            return final_url, body, content_type
+
+    raise RuntimeError(f"Too many redirects (>{MAX_REDIRECTS})")
 
 
 def fetch_url(
@@ -273,20 +299,19 @@ def fetch_url(
     last_error: Exception | None = None
     for attempt in range(MAX_RETRIES + 1):
         try:
-            req = request.Request(target_url, headers=headers, method="GET")
-            with URL_OPENER.open(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
-                final_url = normalize_url(resp.geturl())
-                raw_content_type = (resp.headers.get("Content-Type") or "").strip().lower()
-                content_type = raw_content_type.split(";")[0].strip()
-                body = read_with_limit(resp, max_bytes=max_bytes)
-                return final_url, body, content_type
+            with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, trust_env=True) as client:
+                return fetch_once_with_client(
+                    client,
+                    target_url,
+                    max_bytes=max_bytes,
+                    headers=headers,
+                )
         except (
-            error.URLError,
-            error.HTTPError,
-            TimeoutError,
-            socket.timeout,
+            httpx.TimeoutException,
+            httpx.TransportError,
             ValueError,
             SSRFBlockedError,
+            RuntimeError,
         ) as exc:
             last_error = exc
             if attempt >= MAX_RETRIES:

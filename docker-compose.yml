@@ -5,6 +5,11 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-127.0.0.1,localhost}
     volumes:
       - ./data:/app/data
       - ./ICON:/app/ICON
