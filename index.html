@@ -180,6 +180,10 @@
         color: var(--accent-2);
       }
 
+      .msg.warning {
+        color: #8a6200;
+      }
+
       @media (max-width: 640px) {
         form {
           grid-template-columns: 1fr;
@@ -216,6 +220,7 @@
           <img id="icon" class="icon" alt="icon 预览" />
           <span>icon 预览</span>
         </div>
+        <div id="warning" class="msg warning"></div>
         <div id="error" class="msg"></div>
       </section>
     </main>
@@ -226,6 +231,7 @@
       const submitBtn = document.getElementById("submit-btn");
       const resultCard = document.getElementById("result");
       const statusEl = document.getElementById("status");
+      const warningEl = document.getElementById("warning");
       const errorEl = document.getElementById("error");
       const iconWrapEl = document.getElementById("icon-wrap");
       const iconEl = document.getElementById("icon");
@@ -262,7 +268,13 @@
         statusEl.textContent = "状态: " + statusValue;
 
         fields.forEach((key) => setFieldValue(key, data[key] || ""));
-        errorEl.textContent = data.error || "";
+        const warningText = data.warning || (statusValue === "success" ? (data.error || "") : "");
+        warningEl.textContent = warningText;
+        if (statusValue === "success") {
+          errorEl.textContent = "";
+        } else {
+          errorEl.textContent = data.error || "";
+        }
 
         const iconPath = (data.icon_rel_path || "").trim();
         if (iconPath) {

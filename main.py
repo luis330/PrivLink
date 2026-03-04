@@ -486,6 +486,7 @@ def process_site_url(raw_url: str) -> dict[str, str]:
         "icon_source_url": "",
         "status": "failed",
         "error": "",
+        "warning": "",
     }
     errors: list[str] = []
 
@@ -495,6 +496,7 @@ def process_site_url(raw_url: str) -> dict[str, str]:
     except Exception as exc:  # noqa: BLE001
         result["status"] = "invalid"
         result["error"] = str(exc)
+        result["warning"] = ""
         return result
 
     final_url = normalized_url
@@ -527,7 +529,10 @@ def process_site_url(raw_url: str) -> dict[str, str]:
     else:
         status = "failed"
 
-    error_text = "; ".join(part for part in errors if part)
+    warning_text = "; ".join(part for part in errors if part)
+    error_text = warning_text
+    if status == "success":
+        error_text = ""
     old_icon = upsert_site_record(
         url=normalized_url,
         site_name=site_name,
@@ -547,6 +552,7 @@ def process_site_url(raw_url: str) -> dict[str, str]:
             "icon_source_url": icon_source_url,
             "status": status,
             "error": error_text,
+            "warning": warning_text if status == "success" else "",
         }
     )
     return result
@@ -564,6 +570,7 @@ class ParseResponse(BaseModel):
     icon_source_url: str
     status: str
     error: str
+    warning: str
 
 
 def error_payload(message: str) -> dict[str, str]:
@@ -575,6 +582,7 @@ def error_payload(message: str) -> dict[str, str]:
         "icon_source_url": "",
         "status": "failed",
         "error": message,
+        "warning": "",
     }
 
 
