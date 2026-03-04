@@ -1,0 +1,10 @@
+services:
+  nav-local:
+    build: .
+    container_name: nav-local
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./ICON:/app/ICON

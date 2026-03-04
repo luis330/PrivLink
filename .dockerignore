@@ -1,0 +1,8 @@
+.git
+.venv
+__pycache__/
+*.pyc
+data/
+ICON/
+1.jpg
+2.jpg

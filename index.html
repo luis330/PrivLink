@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>网站记录采集</title>
+    <style>
+      :root {
+        --bg-start: #f7f3eb;
+        --bg-end: #e5efe9;
+        --panel: #ffffffcc;
+        --text: #1b2a30;
+        --muted: #56707a;
+        --accent: #0b7a75;
+        --accent-2: #c65d3b;
+        --border: #1b2a301f;
+        --ok: #156f3d;
+        --warn: #9d6b00;
+        --bad: #9f1c1c;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "IBM Plex Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 85% 15%, #f4d7c4 0, #f4d7c400 30%),
+          radial-gradient(circle at 10% 90%, #c5ded1 0, #c5ded100 35%),
+          linear-gradient(135deg, var(--bg-start), var(--bg-end));
+        display: grid;
+        place-items: center;
+        padding: 20px;
+      }
+
+      .panel {
+        width: min(760px, 100%);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--panel);
+        backdrop-filter: blur(6px);
+        box-shadow: 0 16px 40px #12232e26;
+        padding: 22px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(26px, 3vw, 34px);
+        letter-spacing: 0.02em;
+      }
+
+      .desc {
+        margin: 0 0 16px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      form {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+      }
+
+      input[type="text"] {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        font-size: 16px;
+        outline: none;
+        background: #fff;
+      }
+
+      input[type="text"]:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px #0b7a7520;
+      }
+
+      button {
+        border: none;
+        border-radius: 12px;
+        padding: 12px 18px;
+        font-size: 15px;
+        color: #fff;
+        background: linear-gradient(135deg, var(--accent), #09635f);
+        cursor: pointer;
+      }
+
+      button:hover {
+        filter: brightness(1.05);
+      }
+
+      button:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+      }
+
+      .hint {
+        margin: 10px 2px 0;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .result {
+        margin-top: 18px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        background: #fffc;
+      }
+
+      .status {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 10px;
+      }
+
+      .status.success {
+        color: var(--ok);
+        background: #c7f3da;
+      }
+
+      .status.partial {
+        color: var(--warn);
+        background: #ffeeb6;
+      }
+
+      .status.failed,
+      .status.invalid {
+        color: var(--bad);
+        background: #ffd9d9;
+      }
+
+      .rows {
+        display: grid;
+        gap: 8px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 122px 1fr;
+        gap: 10px;
+        font-size: 14px;
+        align-items: start;
+      }
+
+      .k {
+        color: var(--muted);
+      }
+
+      .v {
+        word-break: break-all;
+      }
+
+      .icon-wrap {
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .icon {
+        width: 42px;
+        height: 42px;
+        border-radius: 9px;
+        border: 1px solid var(--border);
+        background: #fff;
+        object-fit: contain;
+      }
+
+      .msg {
+        margin-top: 10px;
+        font-size: 13px;
+        color: var(--accent-2);
+      }
+
+      @media (max-width: 640px) {
+        form {
+          grid-template-columns: 1fr;
+        }
+
+        .row {
+          grid-template-columns: 1fr;
+          gap: 3px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <h1>网站记录采集</h1>
+      <p class="desc">输入网址后点击“获取”，系统会解析站点名称和图标并写入本地 SQLite。</p>
+
+      <form id="parse-form">
+        <input id="url-input" type="text" placeholder="例如：https://example.com" autocomplete="off" />
+        <button id="submit-btn" type="submit">获取</button>
+      </form>
+      <p class="hint">可直接输入域名，页面会自动补全为 https://</p>
+
+      <section id="result" class="result" hidden>
+        <span id="status" class="status">unknown</span>
+        <div class="rows">
+          <div class="row"><div class="k">URL</div><div id="url" class="v">-</div></div>
+          <div class="row"><div class="k">Final URL</div><div id="final_url" class="v">-</div></div>
+          <div class="row"><div class="k">网站名称</div><div id="site_name" class="v">-</div></div>
+          <div class="row"><div class="k">Icon 路径</div><div id="icon_rel_path" class="v">-</div></div>
+          <div class="row"><div class="k">Icon 来源</div><div id="icon_source_url" class="v">-</div></div>
+        </div>
+        <div id="icon-wrap" class="icon-wrap" hidden>
+          <img id="icon" class="icon" alt="icon 预览" />
+          <span>icon 预览</span>
+        </div>
+        <div id="error" class="msg"></div>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("parse-form");
+      const urlInput = document.getElementById("url-input");
+      const submitBtn = document.getElementById("submit-btn");
+      const resultCard = document.getElementById("result");
+      const statusEl = document.getElementById("status");
+      const errorEl = document.getElementById("error");
+      const iconWrapEl = document.getElementById("icon-wrap");
+      const iconEl = document.getElementById("icon");
+      const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
+
+      function getApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/site/parse";
+        }
+        return "/api/site/parse";
+      }
+
+      function normalizeInputUrl(raw) {
+        const value = raw.trim();
+        if (!value) return "";
+        if (/^https?:\/\//i.test(value)) return value;
+        return "https://" + value;
+      }
+
+      function setLoading(loading) {
+        submitBtn.disabled = loading;
+        submitBtn.textContent = loading ? "获取中..." : "获取";
+      }
+
+      function setFieldValue(key, value) {
+        const node = document.getElementById(key);
+        node.textContent = value || "-";
+      }
+
+      function renderResult(data) {
+        resultCard.hidden = false;
+        const statusValue = data.status || "failed";
+        statusEl.className = "status " + statusValue;
+        statusEl.textContent = "状态: " + statusValue;
+
+        fields.forEach((key) => setFieldValue(key, data[key] || ""));
+        errorEl.textContent = data.error || "";
+
+        const iconPath = (data.icon_rel_path || "").trim();
+        if (iconPath) {
+          iconWrapEl.hidden = false;
+          iconEl.src = "/" + iconPath.replace(/^\/+/, "");
+        } else {
+          iconWrapEl.hidden = true;
+          iconEl.removeAttribute("src");
+        }
+      }
+
+      async function submitUrl(event) {
+        event.preventDefault();
+        const preparedUrl = normalizeInputUrl(urlInput.value);
+        if (!preparedUrl) {
+          renderResult({ status: "invalid", error: "请输入网址" });
+          return;
+        }
+
+        setLoading(true);
+        try {
+          const response = await fetch(getApiUrl(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: preparedUrl }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok && !data.error) {
+            data.error = "请求失败，状态码: " + response.status;
+          }
+          renderResult(data);
+        } catch (error) {
+          renderResult({
+            status: "failed",
+            error: "网络错误: " + (error && error.message ? error.message : String(error)),
+          });
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      form.addEventListener("submit", submitUrl);
+    </script>
+  </body>
+</html>
