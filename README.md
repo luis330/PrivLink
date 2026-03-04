@@ -51,6 +51,7 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 - `icon_source_url`: icon 下载来源 URL
 - `status`: `success | partial | failed | invalid`
 - `error`: 错误信息
+- `warning`: 警告信息（例如页面被 403 拒绝但 icon 抓取成功）
 
 ## Debian 13 Docker 部署
 
@@ -107,6 +108,31 @@ docker compose down
 
 # 升级后重建
 docker compose up -d --build
+```
+
+### 升级代码与镜像
+
+是的，通常需要先 `git pull` 拉取最新代码，再重建并重启容器。
+
+```bash
+# 1) 进入项目目录
+cd Nav_Loacl
+
+# 2) 拉取最新代码
+git pull
+
+# 3) 重建并启动最新容器
+docker compose up -d --build
+
+# 4) 查看运行状态
+docker compose ps
+docker compose logs -f --tail=100
+```
+
+如果只是重启服务（代码和镜像都没变），可直接：
+
+```bash
+docker compose restart
 ```
 
 ## 运行策略说明
