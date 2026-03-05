@@ -598,6 +598,13 @@ class ParseResponse(BaseModel):
     warning: str
 
 
+class SiteItem(BaseModel):
+    url: str
+    site_name: str
+    icon_rel_path: str
+    updated_at: str
+
+
 def error_payload(message: str) -> dict[str, str]:
     return {
         "url": "",
@@ -658,6 +665,33 @@ async def parse_site(payload: ParseRequest) -> JSONResponse:
     result = process_site_url(raw_url)
     status_code = 400 if result["status"] == "invalid" else 200
     return JSONResponse(status_code=status_code, content=result)
+
+
+@app.get("/api/sites", response_model=list[SiteItem])
+async def list_sites() -> list[dict[str, str]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT url, site_name, icon_rel_path, updated_at
+            FROM sites
+            ORDER BY updated_at DESC, id DESC;
+            """
+        ).fetchall()
+
+    items: list[dict[str, str]] = []
+    for row in rows:
+        site_name = (row[1] or "").strip()
+        if not site_name:
+            site_name = (parse.urlsplit(row[0]).hostname or row[0]).strip()
+        items.append(
+            {
+                "url": (row[0] or "").strip(),
+                "site_name": site_name,
+                "icon_rel_path": (row[2] or "").strip(),
+                "updated_at": (row[3] or "").strip(),
+            }
+        )
+    return items
 
 
 def main() -> None:
