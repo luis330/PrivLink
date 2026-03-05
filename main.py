@@ -599,10 +599,20 @@ class ParseResponse(BaseModel):
 
 
 class SiteItem(BaseModel):
+    id: int
     url: str
     site_name: str
     icon_rel_path: str
     updated_at: str
+
+
+class SiteUpdateRequest(BaseModel):
+    site_name: str = Field(min_length=1)
+    url: str = Field(min_length=1)
+
+
+class MessageResponse(BaseModel):
+    message: str
 
 
 def error_payload(message: str) -> dict[str, str]:
@@ -615,6 +625,19 @@ def error_payload(message: str) -> dict[str, str]:
         "status": "failed",
         "error": message,
         "warning": "",
+    }
+
+
+def to_site_item(row: sqlite3.Row | tuple[Any, ...]) -> dict[str, Any]:
+    site_name = (row[2] or "").strip()
+    if not site_name:
+        site_name = (parse.urlsplit(row[1]).hostname or row[1]).strip()
+    return {
+        "id": int(row[0]),
+        "url": (row[1] or "").strip(),
+        "site_name": site_name,
+        "icon_rel_path": (row[3] or "").strip(),
+        "updated_at": (row[4] or "").strip(),
     }
 
 
@@ -668,30 +691,81 @@ async def parse_site(payload: ParseRequest) -> JSONResponse:
 
 
 @app.get("/api/sites", response_model=list[SiteItem])
-async def list_sites() -> list[dict[str, str]]:
+async def list_sites() -> list[dict[str, Any]]:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             """
-            SELECT url, site_name, icon_rel_path, updated_at
+            SELECT id, url, site_name, icon_rel_path, updated_at
             FROM sites
             ORDER BY updated_at DESC, id DESC;
             """
         ).fetchall()
 
-    items: list[dict[str, str]] = []
-    for row in rows:
-        site_name = (row[1] or "").strip()
-        if not site_name:
-            site_name = (parse.urlsplit(row[0]).hostname or row[0]).strip()
-        items.append(
-            {
-                "url": (row[0] or "").strip(),
-                "site_name": site_name,
-                "icon_rel_path": (row[2] or "").strip(),
-                "updated_at": (row[3] or "").strip(),
-            }
-        )
-    return items
+    return [to_site_item(row) for row in rows]
+
+
+@app.put("/api/sites/{site_id}", response_model=SiteItem)
+async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict[str, Any]:
+    next_name = (payload.site_name or "").strip()
+    raw_url = (payload.url or "").strip()
+    if not next_name or not raw_url:
+        return JSONResponse(status_code=400, content={"error": "名称和网址不能为空"})
+    try:
+        normalized_url = normalize_url(raw_url)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    now = utc_now()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            """
+            SELECT id, url, site_name, icon_rel_path, updated_at
+            FROM sites
+            WHERE id = ?;
+            """,
+            (site_id,),
+        ).fetchone()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "网站不存在"})
+        try:
+            conn.execute(
+                """
+                UPDATE sites
+                SET url = ?, site_name = ?, updated_at = ?
+                WHERE id = ?;
+                """,
+                (normalized_url, next_name, now, site_id),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            return JSONResponse(status_code=409, content={"error": "该网址已存在"})
+
+        updated_row = conn.execute(
+            """
+            SELECT id, url, site_name, icon_rel_path, updated_at
+            FROM sites
+            WHERE id = ?;
+            """,
+            (site_id,),
+        ).fetchone()
+    if not updated_row:
+        return JSONResponse(status_code=404, content={"error": "网站不存在"})
+    return to_site_item(updated_row)
+
+
+@app.delete("/api/sites/{site_id}", response_model=MessageResponse)
+async def delete_site(site_id: int) -> JSONResponse:
+    icon_rel_path = ""
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute("SELECT icon_rel_path FROM sites WHERE id = ?;", (site_id,)).fetchone()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "网站不存在"})
+        icon_rel_path = (row[0] or "").strip()
+        conn.execute("DELETE FROM sites WHERE id = ?;", (site_id,))
+        conn.commit()
+
+    maybe_remove_old_icon(icon_rel_path, "")
+    return JSONResponse(status_code=200, content={"message": "ok"})
 
 
 def main() -> None:

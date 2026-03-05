@@ -21,6 +21,12 @@
         --ok: #156f3d;
         --warn: #9d6b00;
         --bad: #9f1c1c;
+        --overlay-bg: #0000005c;
+        --modal-bg: #f5f6fb;
+        --modal-text: #1a2433;
+        --modal-border: #d6d9e5;
+        --menu-bg: #f4f4f6;
+        --menu-item-hover: #e9eaef;
       }
 
       * {
@@ -36,7 +42,7 @@
           radial-gradient(circle at 12% 16%, #5cb8ff5c 0, #5cb8ff00 34%),
           radial-gradient(circle at 88% 84%, #2d56ea73 0, #2d56ea00 42%),
           linear-gradient(138deg, var(--bg-a), var(--bg-b));
-        padding: 18px;
+        padding: 18px 18px 310px;
       }
 
       .app {
@@ -85,8 +91,10 @@
 
       .nav-grid {
         margin-top: 14px;
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-content: flex-start;
         gap: 14px 16px;
       }
 
@@ -96,6 +104,8 @@
         display: grid;
         justify-items: center;
         gap: 8px;
+        width: 96px;
+        flex: 0 0 96px;
       }
 
       .nav-item:hover .icon-shell {
@@ -112,6 +122,7 @@
         display: grid;
         place-items: center;
         transition: transform 0.16s ease, background-color 0.16s ease;
+        cursor: pointer;
       }
 
       .nav-icon {
@@ -282,13 +293,181 @@
         color: #8a6200;
       }
 
+      .add-panel {
+        position: fixed;
+        left: 50%;
+        bottom: 14px;
+        transform: translateX(-50%);
+        width: min(980px, calc(100% - 24px));
+        max-height: min(64vh, 560px);
+        overflow: auto;
+        z-index: 30;
+      }
+
+      .context-menu {
+        position: fixed;
+        width: 170px;
+        border-radius: 12px;
+        border: 1px solid var(--modal-border);
+        background: var(--menu-bg);
+        box-shadow: 0 16px 30px #0f1f4f33;
+        padding: 8px;
+        z-index: 80;
+      }
+
+      .context-menu[hidden] {
+        display: none;
+      }
+
+      .menu-item {
+        width: 100%;
+        border: none;
+        background: transparent;
+        border-radius: 9px;
+        color: #1e2430;
+        font-size: 15px;
+        text-align: left;
+        padding: 12px;
+        cursor: pointer;
+      }
+
+      .menu-item:hover {
+        background: var(--menu-item-hover);
+      }
+
+      .menu-item.danger {
+        color: #6d1313;
+      }
+
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: var(--overlay-bg);
+        z-index: 90;
+      }
+
+      .modal-overlay[hidden] {
+        display: none;
+      }
+
+      .modal-card {
+        width: min(760px, 100%);
+        border-radius: 20px;
+        border: 1px solid var(--modal-border);
+        background: var(--modal-bg);
+        color: var(--modal-text);
+        box-shadow: 0 24px 44px #0e1b4429;
+        padding: 22px;
+      }
+
+      .modal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+
+      .modal-title {
+        margin: 0;
+        font-size: 34px;
+        font-weight: 700;
+      }
+
+      .close-btn {
+        border: none;
+        background: transparent;
+        color: #2d3240;
+        font-size: 34px;
+        line-height: 1;
+        padding: 0;
+        cursor: pointer;
+      }
+
+      .modal-form {
+        display: grid;
+        gap: 14px;
+      }
+
+      .modal-label {
+        font-size: 30px;
+        font-weight: 700;
+        margin: 4px 0 0;
+      }
+
+      .modal-input {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid #d2d7e8;
+        padding: 12px 14px;
+        font-size: 16px;
+        background: #fff;
+        color: #202734;
+      }
+
+      .modal-input:focus {
+        border-color: #6366f1;
+        box-shadow: 0 0 0 3px #6366f133;
+      }
+
+      .modal-error {
+        min-height: 18px;
+        color: #9b2020;
+        font-size: 13px;
+      }
+
+      .modal-actions {
+        margin-top: 6px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+
+      .ghost-btn {
+        border-radius: 999px;
+        border: 1px solid #7678b8;
+        padding: 10px 22px;
+        background: #fff;
+        color: #4a4f96;
+        cursor: pointer;
+        font-size: 16px;
+      }
+
+      .primary-btn {
+        border-radius: 999px;
+        border: none;
+        padding: 10px 24px;
+        background: linear-gradient(135deg, #4f56ea, #3f46df);
+        color: #fff;
+        cursor: pointer;
+        font-size: 16px;
+      }
+
+      .danger-btn {
+        border-radius: 999px;
+        border: none;
+        padding: 10px 24px;
+        background: #c92f2f;
+        color: #fff;
+        cursor: pointer;
+        font-size: 16px;
+      }
+
+      .confirm-text {
+        margin: 0;
+        color: #2b3242;
+        font-size: 16px;
+      }
+
       @media (max-width: 640px) {
         body {
-          padding: 12px;
+          padding: 12px 12px 350px;
         }
 
         .nav-grid {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 14px 10px;
         }
 
@@ -299,6 +478,19 @@
         .row {
           grid-template-columns: 1fr;
           gap: 4px;
+        }
+
+        .add-panel {
+          width: calc(100% - 12px);
+          bottom: 8px;
+        }
+
+        .modal-title {
+          font-size: 24px;
+        }
+
+        .modal-label {
+          font-size: 18px;
         }
       }
     </style>
@@ -312,7 +504,7 @@
         <section id="nav-grid" class="nav-grid" aria-label="网站导航列表"></section>
       </section>
 
-      <section class="panel">
+      <section class="panel add-panel">
         <h2 class="add-title">添加网站</h2>
         <p class="add-desc">输入网址后点击“获取”，系统会解析站点名称和图标并写入本地 SQLite。</p>
 
@@ -341,6 +533,45 @@
       </section>
     </main>
 
+    <div id="context-menu" class="context-menu" hidden>
+      <button id="menu-edit" class="menu-item" type="button">修改网站</button>
+      <button id="menu-delete" class="menu-item danger" type="button">删除</button>
+    </div>
+
+    <div id="edit-modal" class="modal-overlay" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+        <div class="modal-head">
+          <h2 id="edit-title" class="modal-title">修改网站</h2>
+          <button id="edit-close-btn" class="close-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <form id="edit-form" class="modal-form">
+          <label class="modal-label" for="edit-name-input">名称</label>
+          <input id="edit-name-input" class="modal-input" type="text" autocomplete="off" />
+          <label class="modal-label" for="edit-url-input">网址</label>
+          <input id="edit-url-input" class="modal-input" type="text" autocomplete="off" />
+          <div id="edit-error" class="modal-error"></div>
+          <div class="modal-actions">
+            <button id="edit-cancel-btn" class="ghost-btn" type="button">取消</button>
+            <button id="edit-save-btn" class="primary-btn" type="submit">保存更改</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div id="delete-modal" class="modal-overlay" hidden>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+        <div class="modal-head">
+          <h2 id="delete-title" class="modal-title">删除网站</h2>
+          <button id="delete-close-btn" class="close-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="confirm-text">确定删除该网站吗？此操作不可撤销。</p>
+        <div class="modal-actions">
+          <button id="delete-cancel-btn" class="ghost-btn" type="button">取消</button>
+          <button id="delete-confirm-btn" class="danger-btn" type="button">删除</button>
+        </div>
+      </section>
+    </div>
+
     <script>
       const form = document.getElementById("parse-form");
       const urlInput = document.getElementById("url-input");
@@ -353,7 +584,28 @@
       const iconEl = document.getElementById("icon");
       const navGridEl = document.getElementById("nav-grid");
       const navStateEl = document.getElementById("nav-state");
+      const contextMenuEl = document.getElementById("context-menu");
+      const menuEditBtn = document.getElementById("menu-edit");
+      const menuDeleteBtn = document.getElementById("menu-delete");
+      const editModalEl = document.getElementById("edit-modal");
+      const editForm = document.getElementById("edit-form");
+      const editNameInput = document.getElementById("edit-name-input");
+      const editUrlInput = document.getElementById("edit-url-input");
+      const editErrorEl = document.getElementById("edit-error");
+      const editCloseBtn = document.getElementById("edit-close-btn");
+      const editCancelBtn = document.getElementById("edit-cancel-btn");
+      const editSaveBtn = document.getElementById("edit-save-btn");
+      const deleteModalEl = document.getElementById("delete-modal");
+      const deleteCloseBtn = document.getElementById("delete-close-btn");
+      const deleteCancelBtn = document.getElementById("delete-cancel-btn");
+      const deleteConfirmBtn = document.getElementById("delete-confirm-btn");
       const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
+      let sitesCache = [];
+      let menuSiteId = 0;
+      let editSiteId = 0;
+      let deleteSiteId = 0;
+      let editSaving = false;
+      let deleteSubmitting = false;
 
       function getParseApiUrl() {
         if (window.location.protocol === "file:") {
@@ -369,6 +621,14 @@
         return "/api/sites";
       }
 
+      function getSiteApiUrl(siteId) {
+        const sitePath = "/api/sites/" + encodeURIComponent(String(siteId));
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000" + sitePath;
+        }
+        return sitePath;
+      }
+
       function normalizeInputUrl(raw) {
         const value = raw.trim();
         if (!value) return "";
@@ -376,9 +636,30 @@
         return "https://" + value;
       }
 
+      function isHttpUrl(raw) {
+        try {
+          const parsed = new URL(raw);
+          return parsed.protocol === "http:" || parsed.protocol === "https:";
+        } catch (error) {
+          return false;
+        }
+      }
+
       function setLoading(loading) {
         submitBtn.disabled = loading;
         submitBtn.textContent = loading ? "获取中..." : "获取";
+      }
+
+      function setEditSaving(loading) {
+        editSaving = loading;
+        editSaveBtn.disabled = loading;
+        editSaveBtn.textContent = loading ? "保存中..." : "保存更改";
+      }
+
+      function setDeleteSubmitting(loading) {
+        deleteSubmitting = loading;
+        deleteConfirmBtn.disabled = loading;
+        deleteConfirmBtn.textContent = loading ? "删除中..." : "删除";
       }
 
       function setFieldValue(key, value) {
@@ -417,6 +698,27 @@
         }
       }
 
+      function cloneSite(site) {
+        return {
+          id: Number(site.id) || 0,
+          url: site.url || "",
+          site_name: site.site_name || "",
+          icon_rel_path: site.icon_rel_path || "",
+          updated_at: site.updated_at || "",
+        };
+      }
+
+      function findSiteIndexById(siteId) {
+        const normalized = Number(siteId);
+        return sitesCache.findIndex((site) => Number(site.id) === normalized);
+      }
+
+      function getSiteById(siteId) {
+        const index = findSiteIndexById(siteId);
+        if (index < 0) return null;
+        return sitesCache[index];
+      }
+
       function setNavState(message, canRetry) {
         navStateEl.textContent = message || "";
         if (canRetry) {
@@ -430,6 +732,58 @@
         }
       }
 
+      function hideContextMenu() {
+        contextMenuEl.hidden = true;
+        menuSiteId = 0;
+      }
+
+      function showContextMenu(x, y, siteId) {
+        menuSiteId = Number(siteId) || 0;
+        contextMenuEl.hidden = false;
+        const viewportPadding = 8;
+        const rect = contextMenuEl.getBoundingClientRect();
+        let left = x;
+        let top = y;
+        if (left + rect.width + viewportPadding > window.innerWidth) {
+          left = window.innerWidth - rect.width - viewportPadding;
+        }
+        if (top + rect.height + viewportPadding > window.innerHeight) {
+          top = window.innerHeight - rect.height - viewportPadding;
+        }
+        left = Math.max(viewportPadding, left);
+        top = Math.max(viewportPadding, top);
+        contextMenuEl.style.left = left + "px";
+        contextMenuEl.style.top = top + "px";
+      }
+
+      function closeEditModal() {
+        editModalEl.hidden = true;
+        editErrorEl.textContent = "";
+        editSiteId = 0;
+      }
+
+      function openEditModal(site) {
+        editSiteId = Number(site.id) || 0;
+        editNameInput.value = (site.site_name || "").trim();
+        editUrlInput.value = (site.url || "").trim();
+        editErrorEl.textContent = "";
+        editModalEl.hidden = false;
+        setTimeout(() => {
+          editNameInput.focus();
+          editNameInput.select();
+        }, 0);
+      }
+
+      function closeDeleteModal() {
+        deleteModalEl.hidden = true;
+        deleteSiteId = 0;
+      }
+
+      function openDeleteModal(siteId) {
+        deleteSiteId = Number(siteId) || 0;
+        deleteModalEl.hidden = false;
+      }
+
       function createNavItem(site) {
         const link = document.createElement("a");
         link.className = "nav-item";
@@ -440,6 +794,11 @@
 
         const iconShell = document.createElement("span");
         iconShell.className = "icon-shell";
+        iconShell.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          showContextMenu(event.clientX, event.clientY, site.id);
+        });
 
         const iconUrl = toIconUrl(site.icon_rel_path || "");
         if (iconUrl) {
@@ -485,6 +844,16 @@
         });
       }
 
+      function setSitesCache(sites) {
+        if (!Array.isArray(sites)) {
+          sitesCache = [];
+          renderSites(sitesCache);
+          return;
+        }
+        sitesCache = sites.map((site) => cloneSite(site));
+        renderSites(sitesCache);
+      }
+
       async function loadSites() {
         setNavState("加载中...", false);
         try {
@@ -493,10 +862,107 @@
           if (!response.ok) {
             throw new Error("请求失败，状态码: " + response.status);
           }
-          renderSites(data);
+          setSitesCache(data);
         } catch (error) {
           setNavState("导航加载失败", true);
+          sitesCache = [];
           navGridEl.innerHTML = "";
+        }
+      }
+
+      async function submitEdit(event) {
+        event.preventDefault();
+        if (editSaving) return;
+        const siteId = Number(editSiteId) || 0;
+        const index = findSiteIndexById(siteId);
+        if (siteId <= 0 || index < 0) {
+          closeEditModal();
+          return;
+        }
+
+        const nextName = editNameInput.value.trim();
+        const nextUrl = editUrlInput.value.trim();
+        if (!nextName || !nextUrl) {
+          editErrorEl.textContent = "名称和网址不能为空";
+          return;
+        }
+        if (!isHttpUrl(nextUrl)) {
+          editErrorEl.textContent = "网址必须以 http:// 或 https:// 开头";
+          return;
+        }
+
+        const original = cloneSite(sitesCache[index]);
+        const optimistic = cloneSite(sitesCache[index]);
+        optimistic.site_name = nextName;
+        optimistic.url = nextUrl;
+        sitesCache[index] = optimistic;
+        renderSites(sitesCache);
+
+        closeEditModal();
+        setEditSaving(true);
+        try {
+          const response = await fetch(getSiteApiUrl(siteId), {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ site_name: nextName, url: nextUrl }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || "请求失败，状态码: " + response.status);
+          }
+          const freshIndex = findSiteIndexById(siteId);
+          if (freshIndex >= 0 && data && typeof data === "object") {
+            sitesCache[freshIndex] = cloneSite({ ...sitesCache[freshIndex], ...data });
+            renderSites(sitesCache);
+          }
+        } catch (error) {
+          const rollbackIndex = findSiteIndexById(siteId);
+          if (rollbackIndex >= 0) {
+            sitesCache[rollbackIndex] = original;
+          } else {
+            sitesCache.splice(index, 0, original);
+          }
+          renderSites(sitesCache);
+          window.alert(
+            "修改失败，已回滚："
+              + (error && error.message ? error.message : String(error))
+          );
+        } finally {
+          setEditSaving(false);
+        }
+      }
+
+      async function confirmDeleteSite() {
+        if (deleteSubmitting) return;
+        const siteId = Number(deleteSiteId) || 0;
+        const index = findSiteIndexById(siteId);
+        if (siteId <= 0 || index < 0) {
+          closeDeleteModal();
+          return;
+        }
+
+        const removed = cloneSite(sitesCache[index]);
+        sitesCache.splice(index, 1);
+        renderSites(sitesCache);
+        closeDeleteModal();
+
+        setDeleteSubmitting(true);
+        try {
+          const response = await fetch(getSiteApiUrl(siteId), { method: "DELETE" });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || "请求失败，状态码: " + response.status);
+          }
+        } catch (error) {
+          const rollbackIndex = Math.min(index, sitesCache.length);
+          sitesCache.splice(rollbackIndex, 0, removed);
+          renderSites(sitesCache);
+          window.alert(
+            "删除失败，已回滚："
+              + (error && error.message ? error.message : String(error))
+          );
+        } finally {
+          setDeleteSubmitting(false);
         }
       }
 
@@ -532,6 +998,56 @@
           setLoading(false);
         }
       }
+
+      menuEditBtn.addEventListener("click", () => {
+        const site = getSiteById(menuSiteId);
+        hideContextMenu();
+        if (!site) return;
+        openEditModal(site);
+      });
+
+      menuDeleteBtn.addEventListener("click", () => {
+        const site = getSiteById(menuSiteId);
+        hideContextMenu();
+        if (!site) return;
+        openDeleteModal(site.id);
+      });
+
+      editCloseBtn.addEventListener("click", closeEditModal);
+      editCancelBtn.addEventListener("click", closeEditModal);
+      editForm.addEventListener("submit", submitEdit);
+      editModalEl.addEventListener("click", (event) => {
+        if (event.target === editModalEl) {
+          closeEditModal();
+        }
+      });
+
+      deleteCloseBtn.addEventListener("click", closeDeleteModal);
+      deleteCancelBtn.addEventListener("click", closeDeleteModal);
+      deleteConfirmBtn.addEventListener("click", confirmDeleteSite);
+      deleteModalEl.addEventListener("click", (event) => {
+        if (event.target === deleteModalEl) {
+          closeDeleteModal();
+        }
+      });
+
+      document.addEventListener("click", (event) => {
+        if (!contextMenuEl.hidden && !contextMenuEl.contains(event.target)) {
+          hideContextMenu();
+        }
+      });
+      window.addEventListener("resize", hideContextMenu);
+      window.addEventListener("scroll", hideContextMenu, true);
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        hideContextMenu();
+        if (!editModalEl.hidden) {
+          closeEditModal();
+        }
+        if (!deleteModalEl.hidden) {
+          closeDeleteModal();
+        }
+      });
 
       form.addEventListener("submit", submitUrl);
       loadSites();
