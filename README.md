@@ -111,7 +111,14 @@ cd Nav_Loacl
 docker compose up -d --build
 ```
 
-如需代理，先在同一 shell 设置环境变量再执行上面的启动命令。
+当前仓库默认采用“写死代理地址”模式（不依赖外部环境变量）：
+
+```yaml
+environment:
+  - HTTP_PROXY=http://192.168.50.16:7890
+  - HTTPS_PROXY=http://192.168.50.16:7890
+  - NO_PROXY=127.0.0.1,localhost,::1
+```
 
 3. 查看状态：
 
