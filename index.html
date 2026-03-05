@@ -3,17 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>网站记录采集</title>
+    <title>网站导航</title>
     <style>
       :root {
-        --bg-start: #f7f3eb;
-        --bg-end: #e5efe9;
-        --panel: #ffffffcc;
-        --text: #1b2a30;
-        --muted: #56707a;
-        --accent: #0b7a75;
-        --accent-2: #c65d3b;
-        --border: #1b2a301f;
+        --bg-a: #0a46b6;
+        --bg-b: #1d81db;
+        --panel-bg: #ffffff1f;
+        --panel-border: #ffffff40;
+        --text-main: #f4f8ff;
+        --text-subtle: #d0defb;
+        --card-bg: #ffffff1f;
+        --card-hover: #ffffff30;
+        --input-bg: #f7faff;
+        --input-text: #1b2a30;
+        --button-bg: #0f7cf0;
+        --button-hover: #0b69cd;
         --ok: #156f3d;
         --warn: #9d6b00;
         --bad: #9f1c1c;
@@ -27,89 +31,183 @@
         margin: 0;
         min-height: 100vh;
         font-family: "IBM Plex Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif;
-        color: var(--text);
+        color: var(--text-main);
         background:
-          radial-gradient(circle at 85% 15%, #f4d7c4 0, #f4d7c400 30%),
-          radial-gradient(circle at 10% 90%, #c5ded1 0, #c5ded100 35%),
-          linear-gradient(135deg, var(--bg-start), var(--bg-end));
+          radial-gradient(circle at 12% 16%, #5cb8ff5c 0, #5cb8ff00 34%),
+          radial-gradient(circle at 88% 84%, #2d56ea73 0, #2d56ea00 42%),
+          linear-gradient(138deg, var(--bg-a), var(--bg-b));
+        padding: 18px;
+      }
+
+      .app {
+        width: min(980px, 100%);
+        margin: 0 auto;
         display: grid;
-        place-items: center;
-        padding: 20px;
+        gap: 14px;
       }
 
       .panel {
-        width: min(760px, 100%);
-        border: 1px solid var(--border);
+        border: 1px solid var(--panel-border);
         border-radius: 18px;
-        background: var(--panel);
-        backdrop-filter: blur(6px);
-        box-shadow: 0 16px 40px #12232e26;
-        padding: 22px;
+        background: var(--panel-bg);
+        backdrop-filter: blur(8px);
+        box-shadow: 0 14px 32px #0d27644d;
+        padding: 16px;
       }
 
-      h1 {
-        margin: 0 0 8px;
-        font-size: clamp(26px, 3vw, 34px);
+      .title {
+        margin: 0;
+        font-size: clamp(24px, 3.4vw, 34px);
         letter-spacing: 0.02em;
       }
 
       .desc {
-        margin: 0 0 16px;
-        color: var(--muted);
+        margin: 8px 0 0;
+        color: var(--text-subtle);
         font-size: 14px;
       }
 
+      .nav-state {
+        margin-top: 12px;
+        color: var(--text-subtle);
+        font-size: 13px;
+      }
+
+      .nav-state button {
+        margin-left: 10px;
+        border: 1px solid #ffffff5e;
+        border-radius: 8px;
+        color: #fff;
+        background: #ffffff26;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+
+      .nav-grid {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        gap: 14px 16px;
+      }
+
+      .nav-item {
+        text-decoration: none;
+        color: #fff;
+        display: grid;
+        justify-items: center;
+        gap: 8px;
+      }
+
+      .nav-item:hover .icon-shell {
+        transform: translateY(-2px);
+        background: var(--card-hover);
+      }
+
+      .icon-shell {
+        width: 56px;
+        height: 56px;
+        border-radius: 16px;
+        background: var(--card-bg);
+        border: 1px solid #ffffff52;
+        display: grid;
+        place-items: center;
+        transition: transform 0.16s ease, background-color 0.16s ease;
+      }
+
+      .nav-icon {
+        width: 32px;
+        height: 32px;
+        object-fit: contain;
+        border-radius: 8px;
+      }
+
+      .nav-fallback {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        color: #0f4ca8;
+        background: #d9e9ff;
+        display: grid;
+        place-items: center;
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      .nav-title {
+        width: 100%;
+        text-align: center;
+        font-size: 13px;
+        color: #f8fbff;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .add-title {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .add-desc {
+        margin: 8px 0 0;
+        color: var(--text-subtle);
+        font-size: 13px;
+      }
+
       form {
+        margin-top: 12px;
         display: grid;
         grid-template-columns: 1fr auto;
         gap: 10px;
       }
 
       input[type="text"] {
-        border: 1px solid var(--border);
+        border: 1px solid #ffffff66;
         border-radius: 12px;
         padding: 12px 14px;
-        font-size: 16px;
+        font-size: 15px;
         outline: none;
-        background: #fff;
+        background: var(--input-bg);
+        color: var(--input-text);
       }
 
       input[type="text"]:focus {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px #0b7a7520;
+        border-color: #7ec0ff;
+        box-shadow: 0 0 0 3px #7ec0ff33;
       }
 
-      button {
+      .action-btn {
         border: none;
         border-radius: 12px;
         padding: 12px 18px;
         font-size: 15px;
         color: #fff;
-        background: linear-gradient(135deg, var(--accent), #09635f);
+        background: linear-gradient(135deg, var(--button-bg), var(--button-hover));
         cursor: pointer;
       }
 
-      button:hover {
-        filter: brightness(1.05);
+      .action-btn:hover {
+        filter: brightness(1.06);
       }
 
-      button:disabled {
-        opacity: 0.65;
+      .action-btn:disabled {
+        opacity: 0.72;
         cursor: not-allowed;
       }
 
       .hint {
         margin: 10px 2px 0;
         font-size: 13px;
-        color: var(--muted);
+        color: var(--text-subtle);
       }
 
       .result {
-        margin-top: 18px;
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        padding: 14px;
-        background: #fffc;
+        margin-top: 14px;
+        border: 1px solid #ffffff4d;
+        border-radius: 12px;
+        padding: 12px;
+        background: #ffffffdd;
+        color: #12253d;
       }
 
       .status {
@@ -151,7 +249,7 @@
       }
 
       .k {
-        color: var(--muted);
+        color: #496178;
       }
 
       .v {
@@ -165,11 +263,11 @@
         gap: 10px;
       }
 
-      .icon {
+      .icon-preview {
         width: 42px;
         height: 42px;
         border-radius: 9px;
-        border: 1px solid var(--border);
+        border: 1px solid #cad7e3;
         background: #fff;
         object-fit: contain;
       }
@@ -177,7 +275,7 @@
       .msg {
         margin-top: 10px;
         font-size: 13px;
-        color: var(--accent-2);
+        color: #8f2214;
       }
 
       .msg.warning {
@@ -185,43 +283,61 @@
       }
 
       @media (max-width: 640px) {
+        body {
+          padding: 12px;
+        }
+
+        .nav-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 14px 10px;
+        }
+
         form {
           grid-template-columns: 1fr;
         }
 
         .row {
           grid-template-columns: 1fr;
-          gap: 3px;
+          gap: 4px;
         }
       }
     </style>
   </head>
   <body>
-    <main class="panel">
-      <h1>网站记录采集</h1>
-      <p class="desc">输入网址后点击“获取”，系统会解析站点名称和图标并写入本地 SQLite。</p>
+    <main class="app">
+      <section class="panel">
+        <h1 class="title">网站导航</h1>
+        <p class="desc">点击下方按钮即可在新页面打开目标网站。</p>
+        <div id="nav-state" class="nav-state">加载中...</div>
+        <section id="nav-grid" class="nav-grid" aria-label="网站导航列表"></section>
+      </section>
 
-      <form id="parse-form">
-        <input id="url-input" type="text" placeholder="例如：https://example.com" autocomplete="off" />
-        <button id="submit-btn" type="submit">获取</button>
-      </form>
-      <p class="hint">可直接输入域名，页面会自动补全为 https://</p>
+      <section class="panel">
+        <h2 class="add-title">添加网站</h2>
+        <p class="add-desc">输入网址后点击“获取”，系统会解析站点名称和图标并写入本地 SQLite。</p>
 
-      <section id="result" class="result" hidden>
-        <span id="status" class="status">unknown</span>
-        <div class="rows">
-          <div class="row"><div class="k">URL</div><div id="url" class="v">-</div></div>
-          <div class="row"><div class="k">Final URL</div><div id="final_url" class="v">-</div></div>
-          <div class="row"><div class="k">网站名称</div><div id="site_name" class="v">-</div></div>
-          <div class="row"><div class="k">Icon 路径</div><div id="icon_rel_path" class="v">-</div></div>
-          <div class="row"><div class="k">Icon 来源</div><div id="icon_source_url" class="v">-</div></div>
-        </div>
-        <div id="icon-wrap" class="icon-wrap" hidden>
-          <img id="icon" class="icon" alt="icon 预览" />
-          <span>icon 预览</span>
-        </div>
-        <div id="warning" class="msg warning"></div>
-        <div id="error" class="msg"></div>
+        <form id="parse-form">
+          <input id="url-input" type="text" placeholder="例如：https://example.com" autocomplete="off" />
+          <button id="submit-btn" class="action-btn" type="submit">获取</button>
+        </form>
+        <p class="hint">可直接输入域名，页面会自动补全为 https://</p>
+
+        <section id="result" class="result" hidden>
+          <span id="status" class="status">unknown</span>
+          <div class="rows">
+            <div class="row"><div class="k">URL</div><div id="url" class="v">-</div></div>
+            <div class="row"><div class="k">Final URL</div><div id="final_url" class="v">-</div></div>
+            <div class="row"><div class="k">网站名称</div><div id="site_name" class="v">-</div></div>
+            <div class="row"><div class="k">Icon 路径</div><div id="icon_rel_path" class="v">-</div></div>
+            <div class="row"><div class="k">Icon 来源</div><div id="icon_source_url" class="v">-</div></div>
+          </div>
+          <div id="icon-wrap" class="icon-wrap" hidden>
+            <img id="icon" class="icon-preview" alt="icon 预览" />
+            <span>icon 预览</span>
+          </div>
+          <div id="warning" class="msg warning"></div>
+          <div id="error" class="msg"></div>
+        </section>
       </section>
     </main>
 
@@ -235,13 +351,22 @@
       const errorEl = document.getElementById("error");
       const iconWrapEl = document.getElementById("icon-wrap");
       const iconEl = document.getElementById("icon");
+      const navGridEl = document.getElementById("nav-grid");
+      const navStateEl = document.getElementById("nav-state");
       const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
 
-      function getApiUrl() {
+      function getParseApiUrl() {
         if (window.location.protocol === "file:") {
           return "http://127.0.0.1:8000/api/site/parse";
         }
         return "/api/site/parse";
+      }
+
+      function getSitesApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/sites";
+        }
+        return "/api/sites";
       }
 
       function normalizeInputUrl(raw) {
@@ -261,6 +386,12 @@
         node.textContent = value || "-";
       }
 
+      function toIconUrl(iconPath) {
+        const cleanPath = (iconPath || "").trim();
+        if (!cleanPath) return "";
+        return "/" + cleanPath.replace(/^\/+/, "");
+      }
+
       function renderResult(data) {
         resultCard.hidden = false;
         const statusValue = data.status || "failed";
@@ -268,7 +399,7 @@
         statusEl.textContent = "状态: " + statusValue;
 
         fields.forEach((key) => setFieldValue(key, data[key] || ""));
-        const warningText = data.warning || (statusValue === "success" ? (data.error || "") : "");
+        const warningText = data.warning || (statusValue === "success" ? data.error || "" : "");
         warningEl.textContent = warningText;
         if (statusValue === "success") {
           errorEl.textContent = "";
@@ -276,13 +407,96 @@
           errorEl.textContent = data.error || "";
         }
 
-        const iconPath = (data.icon_rel_path || "").trim();
-        if (iconPath) {
+        const iconUrl = toIconUrl(data.icon_rel_path || "");
+        if (iconUrl) {
           iconWrapEl.hidden = false;
-          iconEl.src = "/" + iconPath.replace(/^\/+/, "");
+          iconEl.src = iconUrl;
         } else {
           iconWrapEl.hidden = true;
           iconEl.removeAttribute("src");
+        }
+      }
+
+      function setNavState(message, canRetry) {
+        navStateEl.textContent = message || "";
+        if (canRetry) {
+          const retry = document.createElement("button");
+          retry.type = "button";
+          retry.textContent = "重试";
+          retry.addEventListener("click", () => {
+            loadSites();
+          });
+          navStateEl.appendChild(retry);
+        }
+      }
+
+      function createNavItem(site) {
+        const link = document.createElement("a");
+        link.className = "nav-item";
+        link.href = site.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.title = site.site_name || site.url;
+
+        const iconShell = document.createElement("span");
+        iconShell.className = "icon-shell";
+
+        const iconUrl = toIconUrl(site.icon_rel_path || "");
+        if (iconUrl) {
+          const img = document.createElement("img");
+          img.className = "nav-icon";
+          img.src = iconUrl;
+          img.alt = "";
+          img.loading = "lazy";
+          img.referrerPolicy = "no-referrer";
+          img.addEventListener("error", () => {
+            img.remove();
+            const fallback = document.createElement("span");
+            fallback.className = "nav-fallback";
+            fallback.textContent = "网";
+            iconShell.appendChild(fallback);
+          });
+          iconShell.appendChild(img);
+        } else {
+          const fallback = document.createElement("span");
+          fallback.className = "nav-fallback";
+          fallback.textContent = "网";
+          iconShell.appendChild(fallback);
+        }
+
+        const name = document.createElement("span");
+        name.className = "nav-title";
+        name.textContent = site.site_name || site.url;
+
+        link.appendChild(iconShell);
+        link.appendChild(name);
+        return link;
+      }
+
+      function renderSites(sites) {
+        navGridEl.innerHTML = "";
+        if (!Array.isArray(sites) || sites.length === 0) {
+          setNavState("暂无网站，请先添加", false);
+          return;
+        }
+        setNavState("", false);
+        sites.forEach((site) => {
+          navGridEl.appendChild(createNavItem(site));
+        });
+      }
+
+      async function loadSites() {
+        setNavState("加载中...", false);
+        try {
+          const response = await fetch(getSitesApiUrl(), { method: "GET" });
+          const data = await response.json().catch(() => []);
+          if (!response.ok) {
+            throw new Error("请求失败，状态码: " + response.status);
+          }
+          renderSites(data);
+        } catch (error) {
+          setNavState("导航加载失败", true);
+          navGridEl.innerHTML = "";
         }
       }
 
@@ -296,7 +510,7 @@
 
         setLoading(true);
         try {
-          const response = await fetch(getApiUrl(), {
+          const response = await fetch(getParseApiUrl(), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ url: preparedUrl }),
@@ -306,6 +520,9 @@
             data.error = "请求失败，状态码: " + response.status;
           }
           renderResult(data);
+          if (response.ok) {
+            await loadSites();
+          }
         } catch (error) {
           renderResult({
             status: "failed",
@@ -317,6 +534,7 @@
       }
 
       form.addEventListener("submit", submitUrl);
+      loadSites();
     </script>
   </body>
 </html>
