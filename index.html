@@ -61,6 +61,13 @@
         padding: 16px;
       }
 
+      .nav-panel {
+        border: none;
+        background: transparent;
+        backdrop-filter: none;
+        box-shadow: none;
+      }
+
       .title {
         margin: 0;
         font-size: clamp(24px, 3.4vw, 34px);
@@ -77,6 +84,10 @@
         margin-top: 12px;
         color: var(--text-subtle);
         font-size: 13px;
+      }
+
+      .nav-panel .nav-state {
+        margin-top: 0;
       }
 
       .nav-state button {
@@ -497,9 +508,7 @@
   </head>
   <body>
     <main class="app">
-      <section class="panel">
-        <h1 class="title">网站导航</h1>
-        <p class="desc">点击下方按钮即可在新页面打开目标网站。</p>
+      <section class="panel nav-panel">
         <div id="nav-state" class="nav-state">加载中...</div>
         <section id="nav-grid" class="nav-grid" aria-label="网站导航列表"></section>
       </section>
