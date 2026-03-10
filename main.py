@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import shutil
 import socket
 import sqlite3
 import time
@@ -25,6 +26,7 @@ APP_HOST = "0.0.0.0"
 APP_PORT = 8000
 DB_PATH = Path("data") / "sites.db"
 ICON_DIR = Path("ICON")
+ICONS_LIB_DIR = Path("icons")
 FRONTEND_PATH = Path("index.html")
 ICON_MAX_BYTES = 2 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 10
@@ -421,6 +423,16 @@ def icon_filename(normalized_url: str, extension: str) -> str:
     return f"{digest}{extension}"
 
 
+def copy_library_icon(icon_file: str) -> str:
+    source = ICONS_LIB_DIR / icon_file
+    key = "icon-lib:" + icon_file
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+    filename = f"{digest}.svg"
+    dest = ICON_DIR / filename
+    shutil.copy2(str(source), str(dest))
+    return (Path("ICON") / filename).as_posix()
+
+
 def download_icon(candidates: list[IconCandidate], normalized_url: str) -> tuple[str, str, str]:
     last_error = ""
     for candidate in candidates:
@@ -614,6 +626,7 @@ class SiteItem(BaseModel):
 class SiteUpdateRequest(BaseModel):
     site_name: str = Field(min_length=1)
     url: str = Field(min_length=1)
+    icon_file: str | None = None
 
 
 class MessageResponse(BaseModel):
@@ -646,9 +659,30 @@ def to_site_item(row: sqlite3.Row | tuple[Any, ...]) -> dict[str, Any]:
     }
 
 
+_icons_cache: list[dict[str, str]] = []
+
+
+def scan_icons_library() -> list[dict[str, str]]:
+    if not ICONS_LIB_DIR.is_dir():
+        return []
+    items: list[dict[str, str]] = []
+    for f in sorted(ICONS_LIB_DIR.iterdir()):
+        if f.suffix.lower() != ".svg" or not f.is_file():
+            continue
+        stem = f.stem
+        if "_" in stem:
+            name, keyword = stem.split("_", 1)
+        else:
+            name, keyword = stem, stem
+        items.append({"name": name, "keyword": keyword, "file": f.name})
+    return items
+
+
 @asynccontextmanager
 async def app_lifespan(_: FastAPI):
+    global _icons_cache
     init_storage()
+    _icons_cache = scan_icons_library()
     yield
 
 
@@ -661,6 +695,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.mount("/ICON", StaticFiles(directory=str(ICON_DIR), check_dir=False), name="icon")
+app.mount("/icons", StaticFiles(directory=str(ICONS_LIB_DIR)), name="icon-lib")
 
 
 @app.exception_handler(RequestValidationError)
@@ -709,6 +744,18 @@ async def list_sites() -> list[dict[str, Any]]:
     return [to_site_item(row) for row in rows]
 
 
+@app.get("/api/icons")
+async def list_icons(q: str = "") -> list[dict[str, str]]:
+    query = q.strip().lower()
+    if not query:
+        return _icons_cache
+    return [
+        item
+        for item in _icons_cache
+        if query in item["name"].lower() or query in item["keyword"].lower()
+    ]
+
+
 @app.put("/api/sites/{site_id}", response_model=SiteItem)
 async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict[str, Any]:
     next_name = (payload.site_name or "").strip()
@@ -719,6 +766,15 @@ async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse 
         normalized_url = normalize_url(raw_url)
     except Exception as exc:  # noqa: BLE001
         return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    icon_file = (payload.icon_file or "").strip()
+    new_icon_rel_path = ""
+    if icon_file:
+        if "/" in icon_file or "\\" in icon_file or ".." in icon_file:
+            return JSONResponse(status_code=400, content={"error": "无效的图标文件名"})
+        if not (ICONS_LIB_DIR / icon_file).is_file():
+            return JSONResponse(status_code=400, content={"error": "图标文件不存在"})
+        new_icon_rel_path = copy_library_icon(icon_file)
 
     now = utc_now()
     with sqlite3.connect(DB_PATH) as conn:
@@ -732,15 +788,28 @@ async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse 
         ).fetchone()
         if not row:
             return JSONResponse(status_code=404, content={"error": "网站不存在"})
+        old_icon_path = (row[3] or "").strip()
         try:
-            conn.execute(
-                """
-                UPDATE sites
-                SET url = ?, site_name = ?, updated_at = ?
-                WHERE id = ?;
-                """,
-                (normalized_url, next_name, now, site_id),
-            )
+            if new_icon_rel_path:
+                conn.execute(
+                    """
+                    UPDATE sites
+                    SET url = ?, site_name = ?, icon_rel_path = ?,
+                        icon_source_url = ?, updated_at = ?
+                    WHERE id = ?;
+                    """,
+                    (normalized_url, next_name, new_icon_rel_path,
+                     f"icon-lib://{icon_file}", now, site_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE sites
+                    SET url = ?, site_name = ?, updated_at = ?
+                    WHERE id = ?;
+                    """,
+                    (normalized_url, next_name, now, site_id),
+                )
             conn.commit()
         except sqlite3.IntegrityError:
             return JSONResponse(status_code=409, content={"error": "该网址已存在"})
@@ -753,6 +822,9 @@ async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse 
             """,
             (site_id,),
         ).fetchone()
+
+    if new_icon_rel_path:
+        maybe_remove_old_icon(old_icon_path, new_icon_rel_path)
     if not updated_row:
         return JSONResponse(status_code=404, content={"error": "网站不存在"})
     return to_site_item(updated_row)

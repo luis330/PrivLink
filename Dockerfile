@@ -10,6 +10,7 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev
 
 COPY main.py index.html ./
+COPY icons/ ./icons/
 RUN mkdir -p /app/data /app/ICON
 
 EXPOSE 8000
