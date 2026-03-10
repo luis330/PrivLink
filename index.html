@@ -1064,9 +1064,10 @@
 
         const original = cloneSite(sitesCache[index]);
         const optimistic = cloneSite(sitesCache[index]);
+        const iconFileToSend = selectedIconFile;
         optimistic.site_name = nextName;
         optimistic.url = nextUrl;
-        if (selectedIconFile) {
+        if (iconFileToSend) {
           optimistic.icon_rel_path = "__pending__";
         }
         sitesCache[index] = optimistic;
@@ -1076,8 +1077,8 @@
         setEditSaving(true);
         try {
           const body = { site_name: nextName, url: nextUrl };
-          if (selectedIconFile) {
-            body.icon_file = selectedIconFile;
+          if (iconFileToSend) {
+            body.icon_file = iconFileToSend;
           }
           const response = await fetch(getSiteApiUrl(siteId), {
             method: "PUT",
