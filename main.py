@@ -32,6 +32,9 @@ MAX_RETRIES = 2
 MAX_REDIRECTS = 5
 USER_AGENT = "NavLocalBot/1.0 (+https://localhost)"
 ALLOWED_SCHEMES = {"http", "https"}
+ALLOWED_PRIVATE_NETWORKS = (
+    ipaddress.ip_network("192.168.50.0/24"),
+)
 ALLOWED_ICON_EXTENSIONS = {
     ".ico",
     ".png",
@@ -223,6 +226,8 @@ def is_disallowed_ip(value: str) -> bool:
     try:
         ip = ipaddress.ip_address(value)
     except ValueError:
+        return False
+    if any(ip in network for network in ALLOWED_PRIVATE_NETWORKS):
         return False
     return (
         ip.is_private
