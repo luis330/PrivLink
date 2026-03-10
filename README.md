@@ -174,5 +174,5 @@ docker compose restart
 
 - `url` 冲突时执行 upsert 更新。
 - 启动时自动创建 `data/`、`ICON/`、数据表。
-- 启用 SSRF 防护，默认禁止本机/内网地址。
+- 启用 SSRF 防护，默认禁止本机/内网地址；放行 `192.168.50.0/24` 网段。
 - Docker 默认单实例运行（`workers=1`），适配 SQLite。
