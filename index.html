@@ -473,6 +473,63 @@
         font-size: 16px;
       }
 
+      .icon-edit-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .icon-edit-preview {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        border: 1px solid #d2d7e8;
+        background: #fff;
+        object-fit: contain;
+      }
+
+      .icon-picker {
+        margin-top: 8px;
+      }
+
+      .icon-grid {
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        gap: 6px;
+        max-height: 320px;
+        overflow-y: auto;
+        margin-top: 8px;
+        padding: 4px;
+      }
+
+      .icon-grid-item {
+        width: 48px;
+        height: 48px;
+        border-radius: 10px;
+        border: 2px solid transparent;
+        background: #fff;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        transition: border-color 0.12s ease;
+      }
+
+      .icon-grid-item:hover {
+        border-color: #a0b4f0;
+        background: #eef2ff;
+      }
+
+      .icon-grid-item.selected {
+        border-color: #4f56ea;
+        background: #eef2ff;
+      }
+
+      .icon-grid-item img {
+        width: 32px;
+        height: 32px;
+        object-fit: contain;
+      }
+
       @media (max-width: 640px) {
         body {
           padding: 12px 12px 350px;
@@ -502,6 +559,10 @@
 
         .modal-label {
           font-size: 18px;
+        }
+
+        .icon-grid {
+          grid-template-columns: repeat(5, 1fr);
         }
       }
     </style>
@@ -558,6 +619,16 @@
           <input id="edit-name-input" class="modal-input" type="text" autocomplete="off" />
           <label class="modal-label" for="edit-url-input">网址</label>
           <input id="edit-url-input" class="modal-input" type="text" autocomplete="off" />
+          <label class="modal-label">图标</label>
+          <div class="icon-edit-row">
+            <img id="edit-icon-preview" class="icon-edit-preview" src="" alt="" />
+            <span id="edit-icon-fallback" class="nav-fallback" style="display:none">网</span>
+            <button id="edit-icon-btn" class="ghost-btn" type="button">修改图标</button>
+          </div>
+          <div id="icon-picker" class="icon-picker" hidden>
+            <input id="icon-search" class="modal-input" type="text" placeholder="搜索图标..." autocomplete="off" />
+            <div id="icon-grid" class="icon-grid"></div>
+          </div>
           <div id="edit-error" class="modal-error"></div>
           <div class="modal-actions">
             <button id="edit-cancel-btn" class="ghost-btn" type="button">取消</button>
@@ -604,6 +675,12 @@
       const editCloseBtn = document.getElementById("edit-close-btn");
       const editCancelBtn = document.getElementById("edit-cancel-btn");
       const editSaveBtn = document.getElementById("edit-save-btn");
+      const editIconPreview = document.getElementById("edit-icon-preview");
+      const editIconFallback = document.getElementById("edit-icon-fallback");
+      const editIconBtn = document.getElementById("edit-icon-btn");
+      const iconPickerEl = document.getElementById("icon-picker");
+      const iconSearchInput = document.getElementById("icon-search");
+      const iconGridEl = document.getElementById("icon-grid");
       const deleteModalEl = document.getElementById("delete-modal");
       const deleteCloseBtn = document.getElementById("delete-close-btn");
       const deleteCancelBtn = document.getElementById("delete-cancel-btn");
@@ -615,6 +692,9 @@
       let deleteSiteId = 0;
       let editSaving = false;
       let deleteSubmitting = false;
+      let iconsCache = null;
+      let selectedIconFile = "";
+      let iconSearchTimer = null;
 
       function getParseApiUrl() {
         if (window.location.protocol === "file:") {
@@ -636,6 +716,73 @@
           return "http://127.0.0.1:8000" + sitePath;
         }
         return sitePath;
+      }
+
+      function getIconsApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/icons";
+        }
+        return "/api/icons";
+      }
+
+      function getIconLibUrl(filename) {
+        const base = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+        return base + "/icons/" + encodeURIComponent(filename);
+      }
+
+      async function loadIconLibrary() {
+        if (iconsCache !== null) return;
+        try {
+          const response = await fetch(getIconsApiUrl(), { method: "GET" });
+          iconsCache = await response.json();
+        } catch (error) {
+          iconsCache = [];
+        }
+        renderIconGrid(iconsCache);
+      }
+
+      function renderIconGrid(icons) {
+        iconGridEl.innerHTML = "";
+        if (!Array.isArray(icons) || icons.length === 0) {
+          iconGridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#888;padding:20px">无匹配图标</div>';
+          return;
+        }
+        icons.forEach((item) => {
+          const div = document.createElement("div");
+          div.className = "icon-grid-item" + (selectedIconFile === item.file ? " selected" : "");
+          div.title = item.name + " (" + item.keyword + ")";
+          const img = document.createElement("img");
+          img.src = getIconLibUrl(item.file);
+          img.alt = item.name;
+          img.loading = "lazy";
+          div.appendChild(img);
+          div.addEventListener("click", () => selectIcon(item.file));
+          iconGridEl.appendChild(div);
+        });
+      }
+
+      function filterIcons(query) {
+        if (!iconsCache) return;
+        const q = (query || "").trim().toLowerCase();
+        if (!q) {
+          renderIconGrid(iconsCache);
+          return;
+        }
+        const filtered = iconsCache.filter(
+          (item) => item.name.toLowerCase().includes(q) || item.keyword.toLowerCase().includes(q)
+        );
+        renderIconGrid(filtered);
+      }
+
+      function selectIcon(iconFile) {
+        selectedIconFile = iconFile;
+        editIconPreview.src = getIconLibUrl(iconFile);
+        editIconPreview.style.display = "";
+        editIconFallback.style.display = "none";
+        const items = iconGridEl.querySelectorAll(".icon-grid-item");
+        items.forEach((el) => {
+          el.classList.toggle("selected", el.querySelector("img")?.src === editIconPreview.src);
+        });
       }
 
       function normalizeInputUrl(raw) {
@@ -769,6 +916,9 @@
         editModalEl.hidden = true;
         editErrorEl.textContent = "";
         editSiteId = 0;
+        selectedIconFile = "";
+        iconPickerEl.hidden = true;
+        iconSearchInput.value = "";
       }
 
       function openEditModal(site) {
@@ -776,6 +926,18 @@
         editNameInput.value = (site.site_name || "").trim();
         editUrlInput.value = (site.url || "").trim();
         editErrorEl.textContent = "";
+        selectedIconFile = "";
+        iconPickerEl.hidden = true;
+        iconSearchInput.value = "";
+        const iconUrl = toIconUrl(site.icon_rel_path || "");
+        if (iconUrl) {
+          editIconPreview.src = iconUrl;
+          editIconPreview.style.display = "";
+          editIconFallback.style.display = "none";
+        } else {
+          editIconPreview.style.display = "none";
+          editIconFallback.style.display = "";
+        }
         editModalEl.hidden = false;
         setTimeout(() => {
           editNameInput.focus();
@@ -904,16 +1066,23 @@
         const optimistic = cloneSite(sitesCache[index]);
         optimistic.site_name = nextName;
         optimistic.url = nextUrl;
+        if (selectedIconFile) {
+          optimistic.icon_rel_path = "__pending__";
+        }
         sitesCache[index] = optimistic;
         renderSites(sitesCache);
 
         closeEditModal();
         setEditSaving(true);
         try {
+          const body = { site_name: nextName, url: nextUrl };
+          if (selectedIconFile) {
+            body.icon_file = selectedIconFile;
+          }
           const response = await fetch(getSiteApiUrl(siteId), {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ site_name: nextName, url: nextUrl }),
+            body: JSON.stringify(body),
           });
           const data = await response.json().catch(() => ({}));
           if (!response.ok) {
@@ -1029,6 +1198,23 @@
         if (event.target === editModalEl) {
           closeEditModal();
         }
+      });
+
+      editIconBtn.addEventListener("click", () => {
+        if (iconPickerEl.hidden) {
+          iconPickerEl.hidden = false;
+          loadIconLibrary();
+          iconSearchInput.focus();
+        } else {
+          iconPickerEl.hidden = true;
+        }
+      });
+
+      iconSearchInput.addEventListener("input", () => {
+        clearTimeout(iconSearchTimer);
+        iconSearchTimer = setTimeout(() => {
+          filterIcons(iconSearchInput.value);
+        }, 150);
       });
 
       deleteCloseBtn.addEventListener("click", closeDeleteModal);
