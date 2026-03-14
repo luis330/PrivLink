@@ -15,7 +15,7 @@ from typing import Any
 from urllib import parse
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -29,6 +29,7 @@ ICON_DIR = Path("ICON")
 ICONS_LIB_DIR = Path("icons")
 FRONTEND_PATH = Path("index.html")
 ICON_MAX_BYTES = 2 * 1024 * 1024
+ICON_UPLOAD_MAX_BYTES = 512 * 1024
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_RETRIES = 2
 MAX_REDIRECTS = 5
@@ -59,6 +60,7 @@ CONTENT_TYPE_TO_EXT = {
     "image/bmp": ".bmp",
     "image/avif": ".avif",
 }
+ALLOWED_UPLOAD_ICON_EXTENSIONS = {".ico"}
 
 
 class SSRFBlockedError(ValueError):
@@ -421,6 +423,11 @@ def choose_extension(icon_url: str, content_type: str) -> str:
 def icon_filename(normalized_url: str, extension: str) -> str:
     digest = hashlib.sha256(normalized_url.encode("utf-8")).hexdigest()[:24]
     return f"{digest}{extension}"
+
+
+def icon_upload_filename(content: bytes) -> str:
+    digest = hashlib.sha256(content).hexdigest()[:24]
+    return f"upload-{digest}.ico"
 
 
 def copy_library_icon(icon_file: str) -> str:
@@ -825,6 +832,61 @@ async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse 
 
     if new_icon_rel_path:
         maybe_remove_old_icon(old_icon_path, new_icon_rel_path)
+    if not updated_row:
+        return JSONResponse(status_code=404, content={"error": "网站不存在"})
+    return to_site_item(updated_row)
+
+
+@app.post("/api/sites/{site_id}/icon", response_model=SiteItem)
+async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONResponse | dict[str, Any]:
+    filename = (icon.filename or "").strip()
+    if not filename:
+        return JSONResponse(status_code=400, content={"error": "请上传 .ico 图标"})
+    if Path(filename).suffix.lower() not in ALLOWED_UPLOAD_ICON_EXTENSIONS:
+        return JSONResponse(status_code=400, content={"error": "仅支持 .ico 格式图标"})
+
+    content = await icon.read()
+    if not content:
+        return JSONResponse(status_code=400, content={"error": "图标内容为空"})
+    if len(content) > ICON_UPLOAD_MAX_BYTES:
+        return JSONResponse(status_code=400, content={"error": "图标大小不能超过 512KB"})
+
+    relative_path = Path("ICON") / icon_upload_filename(content)
+    absolute_path = Path.cwd() / relative_path
+    absolute_path.write_bytes(content)
+
+    now = utc_now()
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            """
+            SELECT id, url, site_name, icon_rel_path, updated_at
+            FROM sites
+            WHERE id = ?;
+            """,
+            (site_id,),
+        ).fetchone()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "网站不存在"})
+        old_icon_path = (row[3] or "").strip()
+        conn.execute(
+            """
+            UPDATE sites
+            SET icon_rel_path = ?, icon_source_url = ?, updated_at = ?
+            WHERE id = ?;
+            """,
+            (relative_path.as_posix(), f"upload://{relative_path.name}", now, site_id),
+        )
+        conn.commit()
+        updated_row = conn.execute(
+            """
+            SELECT id, url, site_name, icon_rel_path, updated_at
+            FROM sites
+            WHERE id = ?;
+            """,
+            (site_id,),
+        ).fetchone()
+
+    maybe_remove_old_icon(old_icon_path, relative_path.as_posix())
     if not updated_row:
         return JSONResponse(status_code=404, content={"error": "网站不存在"})
     return to_site_item(updated_row)
