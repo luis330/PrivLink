@@ -29,7 +29,7 @@ ICON_DIR = Path("ICON")
 ICONS_LIB_DIR = Path("icons")
 FRONTEND_PATH = Path("index.html")
 ICON_MAX_BYTES = 2 * 1024 * 1024
-ICON_UPLOAD_MAX_BYTES = 512 * 1024
+ICON_UPLOAD_MAX_BYTES = 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_RETRIES = 2
 MAX_REDIRECTS = 5
@@ -60,7 +60,7 @@ CONTENT_TYPE_TO_EXT = {
     "image/bmp": ".bmp",
     "image/avif": ".avif",
 }
-ALLOWED_UPLOAD_ICON_EXTENSIONS = {".ico"}
+ALLOWED_UPLOAD_ICON_EXTENSIONS = {".ico", ".png", ".svg"}
 
 
 class SSRFBlockedError(ValueError):
@@ -425,9 +425,10 @@ def icon_filename(normalized_url: str, extension: str) -> str:
     return f"{digest}{extension}"
 
 
-def icon_upload_filename(content: bytes) -> str:
+def icon_upload_filename(content: bytes, original_name: str) -> str:
+    ext = Path(original_name).suffix.lower() or ".ico"
     digest = hashlib.sha256(content).hexdigest()[:24]
-    return f"upload-{digest}.ico"
+    return f"upload-{digest}{ext}"
 
 
 def copy_library_icon(icon_file: str) -> str:
@@ -841,17 +842,17 @@ async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse 
 async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONResponse | dict[str, Any]:
     filename = (icon.filename or "").strip()
     if not filename:
-        return JSONResponse(status_code=400, content={"error": "请上传 .ico 图标"})
+        return JSONResponse(status_code=400, content={"error": "请上传图标文件"})
     if Path(filename).suffix.lower() not in ALLOWED_UPLOAD_ICON_EXTENSIONS:
-        return JSONResponse(status_code=400, content={"error": "仅支持 .ico 格式图标"})
+        return JSONResponse(status_code=400, content={"error": "仅支持 ico、png、svg 格式图标"})
 
     content = await icon.read()
     if not content:
         return JSONResponse(status_code=400, content={"error": "图标内容为空"})
     if len(content) > ICON_UPLOAD_MAX_BYTES:
-        return JSONResponse(status_code=400, content={"error": "图标大小不能超过 512KB"})
+        return JSONResponse(status_code=400, content={"error": "图标大小不能超过 1MB"})
 
-    relative_path = Path("ICON") / icon_upload_filename(content)
+    relative_path = Path("ICON") / icon_upload_filename(content, filename)
     absolute_path = Path.cwd() / relative_path
     absolute_path.write_bytes(content)
 
