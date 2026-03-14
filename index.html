@@ -624,6 +624,8 @@
             <img id="edit-icon-preview" class="icon-edit-preview" src="" alt="" />
             <span id="edit-icon-fallback" class="nav-fallback" style="display:none">网</span>
             <button id="edit-icon-btn" class="ghost-btn" type="button">修改图标</button>
+            <button id="upload-icon-btn" class="ghost-btn" type="button">上传图标</button>
+            <input id="upload-icon-input" type="file" accept=".ico" hidden />
           </div>
           <div id="icon-picker" class="icon-picker" hidden>
             <input id="icon-search" class="modal-input" type="text" placeholder="搜索图标..." autocomplete="off" />
@@ -685,6 +687,8 @@
       const deleteCloseBtn = document.getElementById("delete-close-btn");
       const deleteCancelBtn = document.getElementById("delete-cancel-btn");
       const deleteConfirmBtn = document.getElementById("delete-confirm-btn");
+      const uploadIconBtn = document.getElementById("upload-icon-btn");
+      const uploadIconInput = document.getElementById("upload-icon-input");
       const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
       let sitesCache = [];
       let menuSiteId = 0;
@@ -695,6 +699,7 @@
       let iconsCache = null;
       let selectedIconFile = "";
       let iconSearchTimer = null;
+      const ICON_UPLOAD_MAX_BYTES = 512 * 1024;
 
       function getParseApiUrl() {
         if (window.location.protocol === "file:") {
@@ -712,6 +717,14 @@
 
       function getSiteApiUrl(siteId) {
         const sitePath = "/api/sites/" + encodeURIComponent(String(siteId));
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000" + sitePath;
+        }
+        return sitePath;
+      }
+
+      function getSiteIconUploadUrl(siteId) {
+        const sitePath = "/api/sites/" + encodeURIComponent(String(siteId)) + "/icon";
         if (window.location.protocol === "file:") {
           return "http://127.0.0.1:8000" + sitePath;
         }
@@ -1208,6 +1221,66 @@
           iconSearchInput.focus();
         } else {
           iconPickerEl.hidden = true;
+        }
+      });
+
+      uploadIconBtn.addEventListener("click", () => {
+        if (!editSiteId) {
+          window.alert("请先选择要修改的网站");
+          return;
+        }
+        uploadIconInput.click();
+      });
+
+      uploadIconInput.addEventListener("change", async () => {
+        const file = uploadIconInput.files && uploadIconInput.files[0];
+        uploadIconInput.value = "";
+        if (!file) return;
+        if (!/\.ico$/i.test(file.name)) {
+          window.alert("仅支持 .ico 格式图标");
+          return;
+        }
+        if (file.size > ICON_UPLOAD_MAX_BYTES) {
+          window.alert("图标大小不能超过 512KB");
+          return;
+        }
+
+        const siteId = Number(editSiteId) || 0;
+        if (siteId <= 0) {
+          window.alert("请先选择要修改的网站");
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("icon", file);
+
+        try {
+          const response = await fetch(getSiteIconUploadUrl(siteId), {
+            method: "POST",
+            body: formData,
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || "上传失败，状态码: " + response.status);
+          }
+          const index = findSiteIndexById(siteId);
+          if (index >= 0) {
+            sitesCache[index] = cloneSite({ ...sitesCache[index], ...data });
+            renderSites(sitesCache);
+          }
+          if (data && data.icon_rel_path) {
+            const iconUrl = toIconUrl(data.icon_rel_path);
+            editIconPreview.src = iconUrl;
+            editIconPreview.style.display = "";
+            editIconFallback.style.display = "none";
+          }
+          selectedIconFile = "";
+          window.alert("图标上传成功");
+        } catch (error) {
+          window.alert(
+            "图标上传失败："
+              + (error && error.message ? error.message : String(error))
+          );
         }
       });
 
