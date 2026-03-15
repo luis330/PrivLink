@@ -153,6 +153,24 @@ def init_storage() -> None:
         )
         conn.commit()
 
+        # 迁移：添加 sort_order 列
+        try:
+            conn.execute("ALTER TABLE sites ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
+        # 初始化已有数据的 sort_order（仅所有值都为 0 时执行）
+        all_zero = conn.execute("SELECT COUNT(*) FROM sites WHERE sort_order != 0").fetchone()[0]
+        if all_zero == 0:
+            rows = conn.execute(
+                "SELECT id FROM sites ORDER BY updated_at DESC, id DESC"
+            ).fetchall()
+            for idx, row in enumerate(rows, start=1):
+                conn.execute("UPDATE sites SET sort_order = ? WHERE id = ?", (idx, row[0]))
+            if rows:
+                conn.commit()
+
 
 def normalize_url(raw_url: str) -> str:
     value = (raw_url or "").strip()
@@ -491,9 +509,10 @@ def upsert_site_record(
                 created_at,
                 updated_at,
                 last_status,
-                last_error
+                last_error,
+                sort_order
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
             ON CONFLICT(url) DO UPDATE SET
                 site_name = excluded.site_name,
                 icon_rel_path = excluded.icon_rel_path,
@@ -629,6 +648,7 @@ class SiteItem(BaseModel):
     site_name: str
     icon_rel_path: str
     updated_at: str
+    sort_order: int
 
 
 class SiteUpdateRequest(BaseModel):
@@ -664,6 +684,7 @@ def to_site_item(row: sqlite3.Row | tuple[Any, ...]) -> dict[str, Any]:
         "site_name": site_name,
         "icon_rel_path": (row[3] or "").strip(),
         "updated_at": (row[4] or "").strip(),
+        "sort_order": int(row[5]),
     }
 
 
@@ -743,9 +764,9 @@ async def list_sites() -> list[dict[str, Any]]:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             """
-            SELECT id, url, site_name, icon_rel_path, updated_at
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
             FROM sites
-            ORDER BY updated_at DESC, id DESC;
+            ORDER BY sort_order ASC, id ASC;
             """
         ).fetchall()
 
@@ -762,6 +783,33 @@ async def list_icons(q: str = "") -> list[dict[str, str]]:
         for item in _icons_cache
         if query in item["name"].lower() or query in item["keyword"].lower()
     ]
+
+
+class ReorderRequest(BaseModel):
+    site_ids: list[int] = Field(min_length=1)
+
+
+@app.put("/api/sites/reorder", response_model=MessageResponse)
+async def reorder_sites(payload: ReorderRequest) -> JSONResponse:
+    site_ids = payload.site_ids
+    with sqlite3.connect(DB_PATH) as conn:
+        existing_ids = {
+            row[0]
+            for row in conn.execute("SELECT id FROM sites").fetchall()
+        }
+        for sid in site_ids:
+            if sid not in existing_ids:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"网站 ID {sid} 不存在"},
+                )
+        for idx, sid in enumerate(site_ids, start=1):
+            conn.execute(
+                "UPDATE sites SET sort_order = ? WHERE id = ?",
+                (idx, sid),
+            )
+        conn.commit()
+    return JSONResponse(status_code=200, content={"message": "ok"})
 
 
 @app.put("/api/sites/{site_id}", response_model=SiteItem)
@@ -788,7 +836,7 @@ async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse 
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
             """
-            SELECT id, url, site_name, icon_rel_path, updated_at
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
             FROM sites
             WHERE id = ?;
             """,
@@ -824,7 +872,7 @@ async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse 
 
         updated_row = conn.execute(
             """
-            SELECT id, url, site_name, icon_rel_path, updated_at
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
             FROM sites
             WHERE id = ?;
             """,
@@ -860,7 +908,7 @@ async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONRe
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute(
             """
-            SELECT id, url, site_name, icon_rel_path, updated_at
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
             FROM sites
             WHERE id = ?;
             """,
@@ -880,7 +928,7 @@ async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONRe
         conn.commit()
         updated_row = conn.execute(
             """
-            SELECT id, url, site_name, icon_rel_path, updated_at
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
             FROM sites
             WHERE id = ?;
             """,

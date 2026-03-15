@@ -530,6 +530,18 @@
         object-fit: contain;
       }
 
+      .nav-item.dragging {
+        opacity: 0.4;
+      }
+
+      .nav-item.drag-over-left {
+        box-shadow: -3px 0 0 0 #3b82f6;
+      }
+
+      .nav-item.drag-over-right {
+        box-shadow: 3px 0 0 0 #3b82f6;
+      }
+
       @media (max-width: 640px) {
         body {
           padding: 12px 12px 350px;
@@ -700,6 +712,9 @@
       let selectedIconFile = "";
       let iconSearchTimer = null;
       const ICON_UPLOAD_MAX_BYTES = 512 * 1024;
+      let dragSrcIndex = -1;
+      let isDragging = false;
+      let reorderTimer = null;
 
       function getParseApiUrl() {
         if (window.location.protocol === "file:") {
@@ -736,6 +751,13 @@
           return "http://127.0.0.1:8000/api/icons";
         }
         return "/api/icons";
+      }
+
+      function getReorderApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/sites/reorder";
+        }
+        return "/api/sites/reorder";
       }
 
       function getIconLibUrl(filename) {
@@ -874,6 +896,7 @@
           site_name: site.site_name || "",
           icon_rel_path: site.icon_rel_path || "",
           updated_at: site.updated_at || "",
+          sort_order: Number(site.sort_order) || 0,
         };
       }
 
@@ -968,13 +991,56 @@
         deleteModalEl.hidden = false;
       }
 
-      function createNavItem(site) {
+      function createNavItem(site, index) {
         const link = document.createElement("a");
         link.className = "nav-item";
         link.href = site.url;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
         link.title = site.site_name || site.url;
+        link.draggable = true;
+        link.dataset.index = String(index);
+
+        link.addEventListener("dragstart", (e) => {
+          dragSrcIndex = index;
+          isDragging = true;
+          link.classList.add("dragging");
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", String(index));
+        });
+
+        link.addEventListener("dragend", () => {
+          isDragging = false;
+          link.classList.remove("dragging");
+          document.querySelectorAll(".nav-item").forEach((el) => {
+            el.classList.remove("drag-over-left", "drag-over-right");
+          });
+        });
+
+        link.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          if (!isDragging || dragSrcIndex === index) return;
+          link.classList.remove("drag-over-left", "drag-over-right");
+          if (index < dragSrcIndex) {
+            link.classList.add("drag-over-left");
+          } else {
+            link.classList.add("drag-over-right");
+          }
+        });
+
+        link.addEventListener("dragleave", () => {
+          link.classList.remove("drag-over-left", "drag-over-right");
+        });
+
+        link.addEventListener("drop", (e) => {
+          e.preventDefault();
+          link.classList.remove("drag-over-left", "drag-over-right");
+          const fromIndex = dragSrcIndex;
+          const toIndex = index;
+          if (fromIndex === toIndex || fromIndex < 0) return;
+          handleReorder(fromIndex, toIndex);
+        });
 
         const iconShell = document.createElement("span");
         iconShell.className = "icon-shell";
@@ -1023,9 +1089,33 @@
           return;
         }
         setNavState("", false);
-        sites.forEach((site) => {
-          navGridEl.appendChild(createNavItem(site));
+        sites.forEach((site, index) => {
+          navGridEl.appendChild(createNavItem(site, index));
         });
+      }
+
+      function handleReorder(fromIndex, toIndex) {
+        if (fromIndex === toIndex) return;
+        const item = sitesCache.splice(fromIndex, 1)[0];
+        sitesCache.splice(toIndex, 0, item);
+        renderSites(sitesCache);
+        saveReorder();
+      }
+
+      function saveReorder() {
+        clearTimeout(reorderTimer);
+        reorderTimer = setTimeout(async () => {
+          const siteIds = sitesCache.map((s) => s.id);
+          try {
+            await fetch(getReorderApiUrl(), {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ site_ids: siteIds }),
+            });
+          } catch (_) {
+            // 静默处理
+          }
+        }, 500);
       }
 
       function setSitesCache(sites) {
