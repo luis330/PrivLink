@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import logging
 import shutil
 import socket
 import sqlite3
@@ -61,6 +62,13 @@ CONTENT_TYPE_TO_EXT = {
     "image/avif": ".avif",
 }
 ALLOWED_UPLOAD_ICON_EXTENSIONS = {".ico", ".png", ".svg"}
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("nav-local")
 
 
 class SSRFBlockedError(ValueError):
@@ -343,7 +351,9 @@ def fetch_url(
             last_error = exc
             if attempt >= MAX_RETRIES:
                 break
+            logger.warning("请求 %s 第 %d 次失败: %s，重试中...", target_url, attempt + 1, exc)
             time.sleep(0.2 * (attempt + 1))
+    logger.error("请求 %s 最终失败: %s", target_url, last_error)
     raise RuntimeError(f"Failed to fetch URL: {last_error}")
 
 
@@ -479,10 +489,13 @@ def download_icon(candidates: list[IconCandidate], normalized_url: str) -> tuple
             relative_path = Path("ICON") / filename
             absolute_path = Path.cwd() / relative_path
             absolute_path.write_bytes(body)
+            logger.info("图标下载成功: %s -> %s", candidate.url, relative_path)
             return relative_path.as_posix(), final_icon_url, ""
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc)
+            logger.debug("图标候选 %s 下载失败: %s", candidate.url, last_error)
             continue
+    logger.warning("所有图标候选均失败 (%s): %s", normalized_url, last_error)
     return "", "", last_error
 
 
@@ -533,6 +546,7 @@ def upsert_site_record(
             ),
         )
         conn.commit()
+        logger.info("数据库写入成功: %s (状态: %s)", url, status)
     return old_icon_path
 
 
@@ -547,6 +561,7 @@ def maybe_remove_old_icon(old_icon_path: str, new_icon_path: str) -> None:
 
 
 def process_site_url(raw_url: str) -> dict[str, str]:
+    logger.info("开始处理网站: %s", raw_url)
     result = {
         "url": (raw_url or "").strip(),
         "final_url": "",
@@ -566,6 +581,7 @@ def process_site_url(raw_url: str) -> dict[str, str]:
         result["status"] = "invalid"
         result["error"] = str(exc)
         result["warning"] = ""
+        logger.warning("URL 验证失败 (%s): %s", raw_url, exc)
         return result
 
     final_url = normalized_url
@@ -582,6 +598,7 @@ def process_site_url(raw_url: str) -> dict[str, str]:
         parser.feed(decode_html(html_body))
     except Exception as exc:  # noqa: BLE001
         errors.append(str(exc))
+        logger.warning("抓取页面失败 (%s): %s", normalized_url, exc)
 
     site_name = choose_site_name(parser, final_url)
     icon_candidates = build_icon_candidates(parser, final_url)
@@ -611,6 +628,7 @@ def process_site_url(raw_url: str) -> dict[str, str]:
         error_text=error_text,
     )
     maybe_remove_old_icon(old_icon, icon_rel_path)
+    logger.info("网站处理完成: %s [%s] 名称=%s 图标=%s", normalized_url, status, site_name, icon_rel_path or "无")
 
     result.update(
         {
@@ -712,6 +730,7 @@ async def app_lifespan(_: FastAPI):
     global _icons_cache
     init_storage()
     _icons_cache = scan_icons_library()
+    logger.info("服务启动完成，图标库加载 %d 个图标", len(_icons_cache))
     yield
 
 
@@ -734,6 +753,7 @@ async def validation_exception_handler(_: Request, exc: RequestValidationError) 
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(_: Request, exc: Exception) -> JSONResponse:
+    logger.error("未捕获异常: %s", exc, exc_info=True)
     return JSONResponse(status_code=500, content=error_payload(f"Internal server error: {exc}"))
 
 
@@ -750,7 +770,7 @@ async def index_page_alias():
 
 
 @app.post("/api/site/parse", response_model=ParseResponse)
-async def parse_site(payload: ParseRequest) -> JSONResponse:
+def parse_site(payload: ParseRequest) -> JSONResponse:
     raw_url = payload.url.strip()
     if not raw_url:
         return JSONResponse(status_code=400, content=error_payload("Field 'url' is required"))
@@ -760,7 +780,7 @@ async def parse_site(payload: ParseRequest) -> JSONResponse:
 
 
 @app.get("/api/sites", response_model=list[SiteItem])
-async def list_sites() -> list[dict[str, Any]]:
+def list_sites() -> list[dict[str, Any]]:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
             """
@@ -790,7 +810,7 @@ class ReorderRequest(BaseModel):
 
 
 @app.put("/api/sites/reorder", response_model=MessageResponse)
-async def reorder_sites(payload: ReorderRequest) -> JSONResponse:
+def reorder_sites(payload: ReorderRequest) -> JSONResponse:
     site_ids = payload.site_ids
     with sqlite3.connect(DB_PATH) as conn:
         existing_ids = {
@@ -813,7 +833,7 @@ async def reorder_sites(payload: ReorderRequest) -> JSONResponse:
 
 
 @app.put("/api/sites/{site_id}", response_model=SiteItem)
-async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict[str, Any]:
+def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict[str, Any]:
     next_name = (payload.site_name or "").strip()
     raw_url = (payload.url or "").strip()
     if not next_name or not raw_url:
@@ -942,7 +962,7 @@ async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONRe
 
 
 @app.delete("/api/sites/{site_id}", response_model=MessageResponse)
-async def delete_site(site_id: int) -> JSONResponse:
+def delete_site(site_id: int) -> JSONResponse:
     icon_rel_path = ""
     with sqlite3.connect(DB_PATH) as conn:
         row = conn.execute("SELECT icon_rel_path FROM sites WHERE id = ?;", (site_id,)).fetchone()
@@ -953,6 +973,7 @@ async def delete_site(site_id: int) -> JSONResponse:
         conn.commit()
 
     maybe_remove_old_icon(icon_rel_path, "")
+    logger.info("删除网站: id=%d", site_id)
     return JSONResponse(status_code=200, content={"message": "ok"})
 
 
