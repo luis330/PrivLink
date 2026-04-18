@@ -140,10 +140,40 @@ def utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+TAG_NAME_MAX_LEN = 20
+
+
+def db_connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def normalize_tag_name(raw: str) -> str:
+    collapsed = " ".join((raw or "").split())
+    return collapsed
+
+
+def normalize_tag_list(raw_tags: list[str] | None) -> list[str]:
+    if not raw_tags:
+        return []
+    seen: dict[str, str] = {}
+    for item in raw_tags:
+        name = normalize_tag_name(str(item))
+        if not name:
+            continue
+        if len(name) > TAG_NAME_MAX_LEN:
+            raise ValueError(f"标签长度不能超过 {TAG_NAME_MAX_LEN} 个字符")
+        key = name.lower()
+        if key not in seen:
+            seen[key] = name
+    return list(seen.values())
+
+
 def init_storage() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     ICON_DIR.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sites (
@@ -178,6 +208,31 @@ def init_storage() -> None:
                 conn.execute("UPDATE sites SET sort_order = ? WHERE id = ?", (idx, row[0]))
             if rows:
                 conn.commit()
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS site_tags (
+                site_id INTEGER NOT NULL,
+                tag_id INTEGER NOT NULL,
+                PRIMARY KEY (site_id, tag_id),
+                FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
+                FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+            );
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_site_tags_tag ON site_tags(tag_id);"
+        )
+        conn.commit()
 
 
 def normalize_url(raw_url: str) -> str:
@@ -509,7 +564,7 @@ def upsert_site_record(
     error_text: str,
 ) -> str:
     now = utc_now()
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect() as conn:
         old_row = conn.execute("SELECT icon_rel_path FROM sites WHERE url = ?;", (url,)).fetchone()
         old_icon_path = (old_row[0] or "").strip() if old_row else ""
         conn.execute(
@@ -667,12 +722,14 @@ class SiteItem(BaseModel):
     icon_rel_path: str
     updated_at: str
     sort_order: int
+    tags: list[str] = []
 
 
 class SiteUpdateRequest(BaseModel):
     site_name: str = Field(min_length=1)
     url: str = Field(min_length=1)
     icon_file: str | None = None
+    tags: list[str] | None = None
 
 
 class MessageResponse(BaseModel):
@@ -692,7 +749,10 @@ def error_payload(message: str) -> dict[str, str]:
     }
 
 
-def to_site_item(row: sqlite3.Row | tuple[Any, ...]) -> dict[str, Any]:
+def to_site_item(
+    row: sqlite3.Row | tuple[Any, ...],
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
     site_name = (row[2] or "").strip()
     if not site_name:
         site_name = (parse.urlsplit(row[1]).hostname or row[1]).strip()
@@ -703,7 +763,63 @@ def to_site_item(row: sqlite3.Row | tuple[Any, ...]) -> dict[str, Any]:
         "icon_rel_path": (row[3] or "").strip(),
         "updated_at": (row[4] or "").strip(),
         "sort_order": int(row[5]),
+        "tags": list(tags) if tags else [],
     }
+
+
+def fetch_site_tags(conn: sqlite3.Connection, site_id: int) -> list[str]:
+    rows = conn.execute(
+        """
+        SELECT tags.name
+        FROM site_tags
+        JOIN tags ON tags.id = site_tags.tag_id
+        WHERE site_tags.site_id = ?
+        ORDER BY tags.name COLLATE NOCASE ASC;
+        """,
+        (site_id,),
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def fetch_all_site_tags(conn: sqlite3.Connection) -> dict[int, list[str]]:
+    rows = conn.execute(
+        """
+        SELECT site_tags.site_id, tags.name
+        FROM site_tags
+        JOIN tags ON tags.id = site_tags.tag_id
+        ORDER BY tags.name COLLATE NOCASE ASC;
+        """
+    ).fetchall()
+    result: dict[int, list[str]] = {}
+    for site_id, name in rows:
+        result.setdefault(int(site_id), []).append(name)
+    return result
+
+
+def replace_site_tags(
+    conn: sqlite3.Connection,
+    site_id: int,
+    names: list[str],
+    now: str,
+) -> None:
+    conn.execute("DELETE FROM site_tags WHERE site_id = ?", (site_id,))
+    if not names:
+        return
+    for name in names:
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (name, created_at) VALUES (?, ?)",
+            (name, now),
+        )
+    placeholders = ",".join("?" for _ in names)
+    tag_rows = conn.execute(
+        f"SELECT id, name FROM tags WHERE name IN ({placeholders}) COLLATE NOCASE",
+        names,
+    ).fetchall()
+    for tag_id, _ in tag_rows:
+        conn.execute(
+            "INSERT OR IGNORE INTO site_tags (site_id, tag_id) VALUES (?, ?)",
+            (site_id, tag_id),
+        )
 
 
 _icons_cache: list[dict[str, str]] = []
@@ -781,7 +897,7 @@ def parse_site(payload: ParseRequest) -> JSONResponse:
 
 @app.get("/api/sites", response_model=list[SiteItem])
 def list_sites() -> list[dict[str, Any]]:
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect() as conn:
         rows = conn.execute(
             """
             SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
@@ -789,8 +905,9 @@ def list_sites() -> list[dict[str, Any]]:
             ORDER BY sort_order ASC, id ASC;
             """
         ).fetchall()
+        tags_by_site = fetch_all_site_tags(conn)
 
-    return [to_site_item(row) for row in rows]
+    return [to_site_item(row, tags_by_site.get(int(row[0]), [])) for row in rows]
 
 
 @app.get("/api/icons")
@@ -805,6 +922,26 @@ async def list_icons(q: str = "") -> list[dict[str, str]]:
     ]
 
 
+class TagItem(BaseModel):
+    name: str
+    count: int
+
+
+@app.get("/api/tags", response_model=list[TagItem])
+def list_tags() -> list[dict[str, Any]]:
+    with db_connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT tags.name, COUNT(site_tags.site_id) AS usage_count
+            FROM tags
+            LEFT JOIN site_tags ON site_tags.tag_id = tags.id
+            GROUP BY tags.id
+            ORDER BY tags.name COLLATE NOCASE ASC;
+            """
+        ).fetchall()
+    return [{"name": row[0], "count": int(row[1])} for row in rows]
+
+
 class ReorderRequest(BaseModel):
     site_ids: list[int] = Field(min_length=1)
 
@@ -812,7 +949,7 @@ class ReorderRequest(BaseModel):
 @app.put("/api/sites/reorder", response_model=MessageResponse)
 def reorder_sites(payload: ReorderRequest) -> JSONResponse:
     site_ids = payload.site_ids
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect() as conn:
         existing_ids = {
             row[0]
             for row in conn.execute("SELECT id FROM sites").fetchall()
@@ -852,8 +989,15 @@ def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict
             return JSONResponse(status_code=400, content={"error": "图标文件不存在"})
         new_icon_rel_path = copy_library_icon(icon_file)
 
+    try:
+        normalized_tags = (
+            normalize_tag_list(payload.tags) if payload.tags is not None else None
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
     now = utc_now()
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect() as conn:
         row = conn.execute(
             """
             SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
@@ -886,6 +1030,8 @@ def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict
                     """,
                     (normalized_url, next_name, now, site_id),
                 )
+            if normalized_tags is not None:
+                replace_site_tags(conn, site_id, normalized_tags, now)
             conn.commit()
         except sqlite3.IntegrityError:
             return JSONResponse(status_code=409, content={"error": "该网址已存在"})
@@ -898,12 +1044,13 @@ def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict
             """,
             (site_id,),
         ).fetchone()
+        updated_tags = fetch_site_tags(conn, site_id) if updated_row else []
 
     if new_icon_rel_path:
         maybe_remove_old_icon(old_icon_path, new_icon_rel_path)
     if not updated_row:
         return JSONResponse(status_code=404, content={"error": "网站不存在"})
-    return to_site_item(updated_row)
+    return to_site_item(updated_row, updated_tags)
 
 
 @app.post("/api/sites/{site_id}/icon", response_model=SiteItem)
@@ -925,7 +1072,7 @@ async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONRe
     absolute_path.write_bytes(content)
 
     now = utc_now()
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect() as conn:
         row = conn.execute(
             """
             SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
@@ -954,17 +1101,18 @@ async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONRe
             """,
             (site_id,),
         ).fetchone()
+        updated_tags = fetch_site_tags(conn, site_id) if updated_row else []
 
     maybe_remove_old_icon(old_icon_path, relative_path.as_posix())
     if not updated_row:
         return JSONResponse(status_code=404, content={"error": "网站不存在"})
-    return to_site_item(updated_row)
+    return to_site_item(updated_row, updated_tags)
 
 
 @app.delete("/api/sites/{site_id}", response_model=MessageResponse)
 def delete_site(site_id: int) -> JSONResponse:
     icon_rel_path = ""
-    with sqlite3.connect(DB_PATH) as conn:
+    with db_connect() as conn:
         row = conn.execute("SELECT icon_rel_path FROM sites WHERE id = ?;", (site_id,)).fetchone()
         if not row:
             return JSONResponse(status_code=404, content={"error": "网站不存在"})
