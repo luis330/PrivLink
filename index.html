@@ -109,6 +109,39 @@
         gap: 20px 0px;
       }
 
+      .tag-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .tag-btn {
+        padding: 5px 14px;
+        border: 1px solid #ffffff5e;
+        border-radius: 999px;
+        color: #fff;
+        background: #ffffff1f;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease;
+      }
+
+      .tag-btn:hover {
+        background: #ffffff33;
+      }
+
+      .tag-btn.active {
+        background: #0f7cf0;
+        border-color: #0f7cf0;
+      }
+
+      .tag-btn .tag-count {
+        margin-left: 6px;
+        opacity: 0.72;
+        font-size: 12px;
+      }
+
       .nav-item {
         text-decoration: none;
         color: #fff;
@@ -430,6 +463,81 @@
         font-size: 13px;
       }
 
+      .tag-edit-wrap {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .tag-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-height: 0;
+      }
+
+      .tag-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 4px 4px 10px;
+        border-radius: 999px;
+        background: #e6eaf8;
+        color: #1a2433;
+        font-size: 13px;
+      }
+
+      .tag-chip .chip-x {
+        width: 18px;
+        height: 18px;
+        line-height: 16px;
+        text-align: center;
+        border-radius: 50%;
+        border: none;
+        background: #0000001a;
+        color: #1a2433;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 0;
+      }
+
+      .tag-chip .chip-x:hover {
+        background: #0000002e;
+      }
+
+      .tag-suggest {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 100%;
+        margin-top: 4px;
+        max-height: 200px;
+        overflow: auto;
+        background: #fff;
+        border: 1px solid #d6d9e5;
+        border-radius: 10px;
+        box-shadow: 0 10px 24px #0d276433;
+        z-index: 5;
+      }
+
+      .tag-suggest-item {
+        padding: 8px 14px;
+        font-size: 14px;
+        color: #1a2433;
+        cursor: pointer;
+      }
+
+      .tag-suggest-item:hover,
+      .tag-suggest-item.active {
+        background: #e6eaf8;
+      }
+
+      .tag-suggest-item.create-new {
+        border-top: 1px solid #e5e7f0;
+        color: #0f7cf0;
+      }
+
       .modal-actions {
         margin-top: 6px;
         display: flex;
@@ -583,6 +691,7 @@
     <main class="app">
       <section class="panel nav-panel">
         <div id="nav-state" class="nav-state">加载中...</div>
+        <nav id="tag-bar" class="tag-bar" aria-label="网站分类"></nav>
         <section id="nav-grid" class="nav-grid" aria-label="网站导航列表"></section>
       </section>
 
@@ -643,6 +752,12 @@
             <input id="icon-search" class="modal-input" type="text" placeholder="搜索图标..." autocomplete="off" />
             <div id="icon-grid" class="icon-grid"></div>
           </div>
+          <label class="modal-label" for="edit-tags-input">标签</label>
+          <div id="edit-tags-wrap" class="tag-edit-wrap">
+            <div id="edit-tags-chips" class="tag-chips"></div>
+            <input id="edit-tags-input" class="modal-input" type="text" placeholder="输入新标签或从下拉选择..." autocomplete="off" />
+            <div id="edit-tags-suggest" class="tag-suggest" hidden></div>
+          </div>
           <div id="edit-error" class="modal-error"></div>
           <div class="modal-actions">
             <button id="edit-cancel-btn" class="ghost-btn" type="button">取消</button>
@@ -701,7 +816,14 @@
       const deleteConfirmBtn = document.getElementById("delete-confirm-btn");
       const uploadIconBtn = document.getElementById("upload-icon-btn");
       const uploadIconInput = document.getElementById("upload-icon-input");
+      const tagBarEl = document.getElementById("tag-bar");
+      const editTagsWrapEl = document.getElementById("edit-tags-wrap");
+      const editTagsChipsEl = document.getElementById("edit-tags-chips");
+      const editTagsInputEl = document.getElementById("edit-tags-input");
+      const editTagsSuggestEl = document.getElementById("edit-tags-suggest");
       const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
+      const TAG_NAME_MAX_LEN = 20;
+      const ACTIVE_TAG_STORAGE_KEY = "nav_active_tag";
       let sitesCache = [];
       let menuSiteId = 0;
       let editSiteId = 0;
@@ -715,6 +837,10 @@
       let dragSrcIndex = -1;
       let isDragging = false;
       let reorderTimer = null;
+      let tagsCache = [];
+      let activeTag = "";
+      let editDraftTags = [];
+      let tagSuggestActiveIdx = -1;
 
       function getParseApiUrl() {
         if (window.location.protocol === "file:") {
@@ -758,6 +884,13 @@
           return "http://127.0.0.1:8000/api/sites/reorder";
         }
         return "/api/sites/reorder";
+      }
+
+      function getTagsApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/tags";
+        }
+        return "/api/tags";
       }
 
       function getIconLibUrl(filename) {
@@ -897,6 +1030,7 @@
           icon_rel_path: site.icon_rel_path || "",
           updated_at: site.updated_at || "",
           sort_order: Number(site.sort_order) || 0,
+          tags: Array.isArray(site.tags) ? site.tags.slice() : [],
         };
       }
 
@@ -955,6 +1089,10 @@
         selectedIconFile = "";
         iconPickerEl.hidden = true;
         iconSearchInput.value = "";
+        editDraftTags = [];
+        editTagsInputEl.value = "";
+        hideTagSuggest();
+        renderEditTagChips();
       }
 
       function openEditModal(site) {
@@ -965,6 +1103,11 @@
         selectedIconFile = "";
         iconPickerEl.hidden = true;
         iconSearchInput.value = "";
+        editDraftTags = Array.isArray(site.tags) ? site.tags.slice() : [];
+        editTagsInputEl.value = "";
+        hideTagSuggest();
+        renderEditTagChips();
+        loadTags();
         const iconUrl = toIconUrl(site.icon_rel_path || "");
         if (iconUrl) {
           editIconPreview.src = iconUrl;
@@ -979,6 +1122,112 @@
           editNameInput.focus();
           editNameInput.select();
         }, 0);
+      }
+
+      function normalizeTagName(raw) {
+        return String(raw || "").trim().split(/\s+/).join(" ");
+      }
+
+      function renderEditTagChips() {
+        editTagsChipsEl.innerHTML = "";
+        editDraftTags.forEach((name) => {
+          const chip = document.createElement("span");
+          chip.className = "tag-chip";
+          chip.textContent = name;
+          const x = document.createElement("button");
+          x.type = "button";
+          x.className = "chip-x";
+          x.textContent = "×";
+          x.setAttribute("aria-label", "删除标签 " + name);
+          x.addEventListener("click", (e) => {
+            e.preventDefault();
+            removeDraftTag(name);
+          });
+          chip.appendChild(x);
+          editTagsChipsEl.appendChild(chip);
+        });
+      }
+
+      function addDraftTag(name) {
+        const clean = normalizeTagName(name);
+        if (!clean) return false;
+        if (clean.length > TAG_NAME_MAX_LEN) {
+          editErrorEl.textContent = "标签长度不能超过 " + TAG_NAME_MAX_LEN + " 个字符";
+          return false;
+        }
+        const lower = clean.toLowerCase();
+        const existing = editDraftTags.find((t) => t.toLowerCase() === lower);
+        if (existing) return false;
+        editDraftTags.push(clean);
+        renderEditTagChips();
+        editErrorEl.textContent = "";
+        return true;
+      }
+
+      function removeDraftTag(name) {
+        const lower = name.toLowerCase();
+        editDraftTags = editDraftTags.filter((t) => t.toLowerCase() !== lower);
+        renderEditTagChips();
+      }
+
+      function hideTagSuggest() {
+        editTagsSuggestEl.hidden = true;
+        editTagsSuggestEl.innerHTML = "";
+        tagSuggestActiveIdx = -1;
+      }
+
+      function renderTagSuggest(query) {
+        const q = normalizeTagName(query).toLowerCase();
+        const selectedLower = new Set(editDraftTags.map((t) => t.toLowerCase()));
+        const matches = tagsCache
+          .map((t) => t.name)
+          .filter((name) => {
+            const nl = name.toLowerCase();
+            if (selectedLower.has(nl)) return false;
+            return !q || nl.includes(q);
+          });
+        const exactMatch = matches.some((n) => n.toLowerCase() === q);
+        const rawTyped = normalizeTagName(query);
+        const canCreate =
+          rawTyped.length > 0 &&
+          rawTyped.length <= TAG_NAME_MAX_LEN &&
+          !exactMatch &&
+          !selectedLower.has(rawTyped.toLowerCase());
+
+        if (matches.length === 0 && !canCreate) {
+          hideTagSuggest();
+          return;
+        }
+
+        editTagsSuggestEl.innerHTML = "";
+        matches.slice(0, 50).forEach((name, idx) => {
+          const item = document.createElement("div");
+          item.className = "tag-suggest-item";
+          item.textContent = name;
+          item.dataset.idx = String(idx);
+          item.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            addDraftTag(name);
+            editTagsInputEl.value = "";
+            hideTagSuggest();
+          });
+          editTagsSuggestEl.appendChild(item);
+        });
+        if (canCreate) {
+          const create = document.createElement("div");
+          create.className = "tag-suggest-item create-new";
+          create.textContent = "+ 新建 " + rawTyped;
+          create.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            if (addDraftTag(rawTyped)) {
+              editTagsInputEl.value = "";
+              hideTagSuggest();
+            }
+          });
+          editTagsSuggestEl.appendChild(create);
+        }
+        tagSuggestActiveIdx = -1;
+        editTagsSuggestEl.hidden = false;
       }
 
       function closeDeleteModal() {
@@ -998,7 +1247,7 @@
         link.target = "_blank";
         link.rel = "noopener noreferrer";
         link.title = site.site_name || site.url;
-        link.draggable = true;
+        link.draggable = activeTag === "";
         link.dataset.index = String(index);
 
         link.addEventListener("dragstart", (e) => {
@@ -1082,14 +1331,22 @@
         return link;
       }
 
-      function renderSites(sites) {
+      function getFilteredSites() {
+        if (!activeTag) return sitesCache.slice();
+        return sitesCache.filter(
+          (site) => Array.isArray(site.tags) && site.tags.includes(activeTag)
+        );
+      }
+
+      function renderSites() {
         navGridEl.innerHTML = "";
-        if (!Array.isArray(sites) || sites.length === 0) {
+        if (!Array.isArray(sitesCache) || sitesCache.length === 0) {
           setNavState("暂无网站，请先添加", false);
           return;
         }
         setNavState("", false);
-        sites.forEach((site, index) => {
+        const list = getFilteredSites();
+        list.forEach((site, index) => {
           navGridEl.appendChild(createNavItem(site, index));
         });
       }
@@ -1098,7 +1355,7 @@
         if (fromIndex === toIndex) return;
         const item = sitesCache.splice(fromIndex, 1)[0];
         sitesCache.splice(toIndex, 0, item);
-        renderSites(sitesCache);
+        renderSites();
         saveReorder();
       }
 
@@ -1121,11 +1378,68 @@
       function setSitesCache(sites) {
         if (!Array.isArray(sites)) {
           sitesCache = [];
-          renderSites(sitesCache);
+          renderSites();
           return;
         }
         sitesCache = sites.map((site) => cloneSite(site));
-        renderSites(sitesCache);
+        renderSites();
+      }
+
+      function renderTagBar() {
+        tagBarEl.innerHTML = "";
+        const allBtn = document.createElement("button");
+        allBtn.type = "button";
+        allBtn.className = "tag-btn" + (activeTag === "" ? " active" : "");
+        allBtn.textContent = "全部";
+        const totalCount = document.createElement("span");
+        totalCount.className = "tag-count";
+        totalCount.textContent = String(sitesCache.length);
+        allBtn.appendChild(totalCount);
+        allBtn.addEventListener("click", () => setActiveTag(""));
+        tagBarEl.appendChild(allBtn);
+
+        tagsCache.forEach((tag) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "tag-btn" + (activeTag === tag.name ? " active" : "");
+          btn.textContent = tag.name;
+          const count = document.createElement("span");
+          count.className = "tag-count";
+          count.textContent = String(tag.count || 0);
+          btn.appendChild(count);
+          btn.addEventListener("click", () => setActiveTag(tag.name));
+          tagBarEl.appendChild(btn);
+        });
+      }
+
+      function setActiveTag(name) {
+        activeTag = name || "";
+        try {
+          if (activeTag) {
+            localStorage.setItem(ACTIVE_TAG_STORAGE_KEY, activeTag);
+          } else {
+            localStorage.removeItem(ACTIVE_TAG_STORAGE_KEY);
+          }
+        } catch (_) {
+          // 忽略 localStorage 异常
+        }
+        renderTagBar();
+        renderSites();
+      }
+
+      async function loadTags() {
+        try {
+          const response = await fetch(getTagsApiUrl(), { method: "GET" });
+          const data = await response.json().catch(() => []);
+          tagsCache = Array.isArray(data) ? data : [];
+        } catch (_) {
+          tagsCache = [];
+        }
+        if (activeTag && !tagsCache.some((t) => t.name === activeTag)) {
+          activeTag = "";
+          try { localStorage.removeItem(ACTIVE_TAG_STORAGE_KEY); } catch (_) {}
+        }
+        renderTagBar();
       }
 
       async function loadSites() {
@@ -1168,18 +1482,20 @@
         const original = cloneSite(sitesCache[index]);
         const optimistic = cloneSite(sitesCache[index]);
         const iconFileToSend = selectedIconFile;
+        const tagsToSend = editDraftTags.slice();
         optimistic.site_name = nextName;
         optimistic.url = nextUrl;
+        optimistic.tags = tagsToSend.slice();
         if (iconFileToSend) {
           optimistic.icon_rel_path = "__pending__";
         }
         sitesCache[index] = optimistic;
-        renderSites(sitesCache);
+        renderSites();
 
         closeEditModal();
         setEditSaving(true);
         try {
-          const body = { site_name: nextName, url: nextUrl };
+          const body = { site_name: nextName, url: nextUrl, tags: tagsToSend };
           if (iconFileToSend) {
             body.icon_file = iconFileToSend;
           }
@@ -1195,8 +1511,9 @@
           const freshIndex = findSiteIndexById(siteId);
           if (freshIndex >= 0 && data && typeof data === "object") {
             sitesCache[freshIndex] = cloneSite({ ...sitesCache[freshIndex], ...data });
-            renderSites(sitesCache);
+            renderSites();
           }
+          await loadTags();
         } catch (error) {
           const rollbackIndex = findSiteIndexById(siteId);
           if (rollbackIndex >= 0) {
@@ -1204,7 +1521,7 @@
           } else {
             sitesCache.splice(index, 0, original);
           }
-          renderSites(sitesCache);
+          renderSites();
           window.alert(
             "修改失败，已回滚："
               + (error && error.message ? error.message : String(error))
@@ -1225,7 +1542,7 @@
 
         const removed = cloneSite(sitesCache[index]);
         sitesCache.splice(index, 1);
-        renderSites(sitesCache);
+        renderSites();
         closeDeleteModal();
 
         setDeleteSubmitting(true);
@@ -1235,10 +1552,11 @@
           if (!response.ok) {
             throw new Error(data.error || "请求失败，状态码: " + response.status);
           }
+          await loadTags();
         } catch (error) {
           const rollbackIndex = Math.min(index, sitesCache.length);
           sitesCache.splice(rollbackIndex, 0, removed);
-          renderSites(sitesCache);
+          renderSites();
           window.alert(
             "删除失败，已回滚："
               + (error && error.message ? error.message : String(error))
@@ -1356,7 +1674,7 @@
           const index = findSiteIndexById(siteId);
           if (index >= 0) {
             sitesCache[index] = cloneSite({ ...sitesCache[index], ...data });
-            renderSites(sitesCache);
+            renderSites();
           }
           if (data && data.icon_rel_path) {
             const iconUrl = toIconUrl(data.icon_rel_path);
@@ -1379,6 +1697,64 @@
         iconSearchTimer = setTimeout(() => {
           filterIcons(iconSearchInput.value);
         }, 150);
+      });
+
+      editTagsInputEl.addEventListener("input", () => {
+        renderTagSuggest(editTagsInputEl.value);
+      });
+
+      editTagsInputEl.addEventListener("focus", () => {
+        renderTagSuggest(editTagsInputEl.value);
+      });
+
+      editTagsInputEl.addEventListener("blur", () => {
+        setTimeout(hideTagSuggest, 120);
+      });
+
+      editTagsInputEl.addEventListener("keydown", (event) => {
+        const items = editTagsSuggestEl.querySelectorAll(".tag-suggest-item");
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (!editTagsSuggestEl.hidden && tagSuggestActiveIdx >= 0 && items[tagSuggestActiveIdx]) {
+            items[tagSuggestActiveIdx].dispatchEvent(new MouseEvent("mousedown"));
+            return;
+          }
+          const raw = editTagsInputEl.value;
+          if (raw.trim() && addDraftTag(raw)) {
+            editTagsInputEl.value = "";
+            hideTagSuggest();
+          }
+          return;
+        }
+        if (event.key === "Backspace" && editTagsInputEl.value === "" && editDraftTags.length > 0) {
+          editDraftTags.pop();
+          renderEditTagChips();
+          return;
+        }
+        if (event.key === "," || event.key === "，") {
+          event.preventDefault();
+          const raw = editTagsInputEl.value;
+          if (raw.trim() && addDraftTag(raw)) {
+            editTagsInputEl.value = "";
+            hideTagSuggest();
+          }
+          return;
+        }
+        if (event.key === "Escape" && !editTagsSuggestEl.hidden) {
+          event.stopPropagation();
+          hideTagSuggest();
+          return;
+        }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          if (editTagsSuggestEl.hidden || items.length === 0) return;
+          event.preventDefault();
+          const delta = event.key === "ArrowDown" ? 1 : -1;
+          tagSuggestActiveIdx =
+            (tagSuggestActiveIdx + delta + items.length) % items.length;
+          items.forEach((el, idx) =>
+            el.classList.toggle("active", idx === tagSuggestActiveIdx)
+          );
+        }
       });
 
       deleteCloseBtn.addEventListener("click", closeDeleteModal);
@@ -1409,7 +1785,13 @@
       });
 
       form.addEventListener("submit", submitUrl);
-      loadSites();
+      try {
+        const saved = localStorage.getItem(ACTIVE_TAG_STORAGE_KEY);
+        if (saved) activeTag = saved;
+      } catch (_) {}
+      Promise.all([loadSites(), loadTags()]).then(() => {
+        renderSites();
+      });
     </script>
   </body>
 </html>
