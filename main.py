@@ -47,6 +47,7 @@ DEFAULT_USER_AGENT = (
 USER_AGENT = (os.environ.get("NAV_USER_AGENT") or DEFAULT_USER_AGENT).strip() or DEFAULT_USER_AGENT
 ACCEPT_LANGUAGE = (os.environ.get("NAV_ACCEPT_LANGUAGE") or "zh-CN,zh;q=0.9,en;q=0.8").strip()
 INGEST_TOKEN = (os.environ.get("NAV_INGEST_TOKEN") or "").strip()
+INGEST_TOKEN_SETTING_KEY = "ingest_token"
 PROXY_ENV_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
 ALLOWED_SCHEMES = {"http", "https"}
 DEFAULT_ALLOWED_PRIVATE_NETWORKS = "192.168.50.0/24"
@@ -298,6 +299,25 @@ def init_storage() -> None:
     with db_connect() as conn:
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+        if INGEST_TOKEN:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+                VALUES (?, ?, ?);
+                """,
+                (INGEST_TOKEN_SETTING_KEY, INGEST_TOKEN, utc_now()),
+            )
+        conn.commit()
+
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS sites (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 url TEXT NOT NULL UNIQUE,
@@ -355,6 +375,44 @@ def init_storage() -> None:
             "CREATE INDEX IF NOT EXISTS idx_site_tags_tag ON site_tags(tag_id);"
         )
         conn.commit()
+
+
+def get_app_setting(key: str) -> str | None:
+    with db_connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?;",
+            (key,),
+        ).fetchone()
+    if not row:
+        return None
+    return str(row[0] or "")
+
+
+def set_app_setting(key: str, value: str) -> None:
+    now = utc_now()
+    with db_connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at;
+            """,
+            (key, value, now),
+        )
+        conn.commit()
+
+
+def get_ingest_token() -> str:
+    value = get_app_setting(INGEST_TOKEN_SETTING_KEY)
+    if value is not None:
+        return value.strip()
+    return INGEST_TOKEN
+
+
+def set_ingest_token(token: str) -> None:
+    set_app_setting(INGEST_TOKEN_SETTING_KEY, token.strip())
 
 
 def normalize_url(raw_url: str) -> str:
@@ -1033,16 +1091,56 @@ class SiteUpdateRequest(BaseModel):
     tags: list[str] | None = None
 
 
+class IngestTokenUpdateRequest(BaseModel):
+    token: str = ""
+
+
+class IngestTokenStatus(BaseModel):
+    token: str
+    configured: bool
+
+
 class MessageResponse(BaseModel):
     message: str
 
 
+def parse_origin_tuple(origin: str) -> tuple[str, str, int | None] | None:
+    try:
+        parsed = parse.urlsplit(origin)
+        if not parsed.scheme or not parsed.hostname:
+            return None
+        port = parsed.port
+    except ValueError:
+        return None
+
+    scheme = parsed.scheme.lower()
+    if port is None:
+        if scheme == "http":
+            port = 80
+        elif scheme == "https":
+            port = 443
+    return (scheme, parsed.hostname.lower(), port)
+
+
+def validate_settings_origin(request: Request) -> JSONResponse | None:
+    origin = (request.headers.get("origin") or "").strip()
+    if not origin:
+        return None
+
+    host = (request.headers.get("host") or request.url.netloc).strip()
+    current_origin = f"{request.url.scheme}://{host}"
+    if parse_origin_tuple(origin) == parse_origin_tuple(current_origin):
+        return None
+    return JSONResponse(status_code=403, content={"error": "仅允许同源页面管理 token"})
+
+
 def validate_ingest_token(request: Request) -> JSONResponse | None:
-    if not INGEST_TOKEN:
+    ingest_token = get_ingest_token()
+    if not ingest_token:
         return JSONResponse(status_code=403, content=error_payload("浏览器采集接口未启用"))
 
     provided = (request.headers.get("X-Nav-Token") or "").strip()
-    if not provided or not secrets.compare_digest(provided, INGEST_TOKEN):
+    if not provided or not secrets.compare_digest(provided, ingest_token):
         return JSONResponse(status_code=401, content=error_payload("浏览器采集 token 无效"))
     return None
 
@@ -1194,6 +1292,28 @@ async def index_page():
 @app.get("/index.html", include_in_schema=False, response_model=None)
 async def index_page_alias():
     return await index_page()
+
+
+@app.get("/api/settings/ingest-token", response_model=IngestTokenStatus)
+def read_ingest_token_setting(request: Request) -> JSONResponse | dict[str, Any]:
+    auth_error = validate_settings_origin(request)
+    if auth_error:
+        return auth_error
+    token = get_ingest_token()
+    return {"token": token, "configured": bool(token)}
+
+
+@app.put("/api/settings/ingest-token", response_model=IngestTokenStatus)
+def update_ingest_token_setting(
+    request: Request,
+    payload: IngestTokenUpdateRequest,
+) -> JSONResponse | dict[str, Any]:
+    auth_error = validate_settings_origin(request)
+    if auth_error:
+        return auth_error
+    token = payload.token.strip()
+    set_ingest_token(token)
+    return {"token": token, "configured": bool(token)}
 
 
 @app.post("/api/site/parse", response_model=ParseResponse)

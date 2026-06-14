@@ -45,6 +45,14 @@ class BrowserIngestTest(unittest.TestCase):
             headers={"X-Nav-Token": token},
         )
 
+    def put_token(self, token: str, origin: str | None = None):
+        headers = {"Origin": origin} if origin is not None else {}
+        return self.client.put(
+            "/api/settings/ingest-token",
+            json={"token": token},
+            headers=headers,
+        )
+
     def payload(self, **overrides: object) -> dict:
         data = {
             "url": "https://example.invalid/app/",
@@ -64,9 +72,46 @@ class BrowserIngestTest(unittest.TestCase):
         response = self.post_ingest(self.payload(), token="wrong-token")
         self.assertEqual(response.status_code, 401)
 
-        main.INGEST_TOKEN = ""
+        self.assertEqual(self.put_token("").status_code, 200)
         response = self.post_ingest(self.payload())
         self.assertEqual(response.status_code, 403)
+
+    def test_environment_token_initializes_runtime_setting(self) -> None:
+        response = self.client.get("/api/settings/ingest-token")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["token"], "secret-token")
+        self.assertTrue(data["configured"])
+
+    def test_updates_token_without_restart(self) -> None:
+        response = self.put_token("new-secret-token")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["token"], "new-secret-token")
+        self.assertTrue(data["configured"])
+
+        old_token_response = self.post_ingest(self.payload(), token="secret-token")
+        self.assertEqual(old_token_response.status_code, 401)
+
+        new_token_response = self.post_ingest(
+            self.payload(url="https://example.invalid/updated/"),
+            token="new-secret-token",
+        )
+        self.assertEqual(new_token_response.status_code, 200)
+
+    def test_settings_api_rejects_cross_origin(self) -> None:
+        response = self.client.get(
+            "/api/settings/ingest-token",
+            headers={"Origin": "https://example.com"},
+        )
+        self.assertEqual(response.status_code, 403)
+
+        response = self.put_token("blocked-token", origin="https://example.com")
+        self.assertEqual(response.status_code, 403)
+
+        response = self.put_token("same-origin-token", origin="http://testserver")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["token"], "same-origin-token")
 
     def test_creates_site_with_browser_icon(self) -> None:
         response = self.post_ingest(self.payload())

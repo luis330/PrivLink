@@ -348,6 +348,28 @@
         z-index: 30;
       }
 
+      .add-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .token-settings-btn {
+        flex: 0 0 auto;
+        border: 1px solid #ffffff5e;
+        border-radius: 999px;
+        color: #fff;
+        background: #ffffff26;
+        padding: 8px 14px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      .token-settings-btn:hover {
+        background: #ffffff38;
+      }
+
       .context-menu {
         position: fixed;
         width: 170px;
@@ -461,6 +483,18 @@
         min-height: 18px;
         color: #9b2020;
         font-size: 13px;
+      }
+
+      .modal-error.ok {
+        color: #156f3d;
+      }
+
+      .token-modal-card {
+        width: min(520px, 100%);
+      }
+
+      .token-input {
+        font-family: "IBM Plex Mono", Consolas, monospace;
       }
 
       .tag-edit-wrap {
@@ -673,6 +707,15 @@
           bottom: 8px;
         }
 
+        .add-head {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .token-settings-btn {
+          align-self: flex-end;
+        }
+
         .modal-title {
           font-size: 24px;
         }
@@ -696,8 +739,13 @@
       </section>
 
       <section class="panel add-panel">
-        <h2 class="add-title">添加网站</h2>
-        <p class="add-desc">输入网址后点击“获取”，系统会解析站点名称和图标并写入本地 SQLite。</p>
+        <div class="add-head">
+          <div>
+            <h2 class="add-title">添加网站</h2>
+            <p class="add-desc">输入网址后点击“获取”，系统会解析站点名称和图标并写入本地 SQLite。</p>
+          </div>
+          <button id="token-settings-btn" class="token-settings-btn" type="button">Token 设置</button>
+        </div>
 
         <form id="parse-form">
           <input id="url-input" type="text" placeholder="例如：https://example.com" autocomplete="off" />
@@ -781,6 +829,24 @@
       </section>
     </div>
 
+    <div id="token-modal" class="modal-overlay" hidden>
+      <section class="modal-card token-modal-card" role="dialog" aria-modal="true" aria-labelledby="token-title">
+        <div class="modal-head">
+          <h2 id="token-title" class="modal-title">Token 设置</h2>
+          <button id="token-close-btn" class="close-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <form id="token-form" class="modal-form">
+          <label class="modal-label" for="token-input">X-Nav-Token</label>
+          <input id="token-input" class="modal-input token-input" type="text" autocomplete="off" spellcheck="false" />
+          <div id="token-error" class="modal-error"></div>
+          <div class="modal-actions">
+            <button id="token-cancel-btn" class="ghost-btn" type="button">取消</button>
+            <button id="token-save-btn" class="primary-btn" type="submit">保存</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
     <script>
       const form = document.getElementById("parse-form");
       const urlInput = document.getElementById("url-input");
@@ -821,6 +887,14 @@
       const editTagsChipsEl = document.getElementById("edit-tags-chips");
       const editTagsInputEl = document.getElementById("edit-tags-input");
       const editTagsSuggestEl = document.getElementById("edit-tags-suggest");
+      const tokenSettingsBtn = document.getElementById("token-settings-btn");
+      const tokenModalEl = document.getElementById("token-modal");
+      const tokenForm = document.getElementById("token-form");
+      const tokenInputEl = document.getElementById("token-input");
+      const tokenErrorEl = document.getElementById("token-error");
+      const tokenCloseBtn = document.getElementById("token-close-btn");
+      const tokenCancelBtn = document.getElementById("token-cancel-btn");
+      const tokenSaveBtn = document.getElementById("token-save-btn");
       const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
       const TAG_NAME_MAX_LEN = 20;
       const ACTIVE_TAG_STORAGE_KEY = "nav_active_tag";
@@ -841,6 +915,7 @@
       let activeTag = "";
       let editDraftTags = [];
       let tagSuggestActiveIdx = -1;
+      let tokenSaving = false;
 
       function getParseApiUrl() {
         if (window.location.protocol === "file:") {
@@ -891,6 +966,13 @@
           return "http://127.0.0.1:8000/api/tags";
         }
         return "/api/tags";
+      }
+
+      function getIngestTokenSettingsApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/settings/ingest-token";
+        }
+        return "/api/settings/ingest-token";
       }
 
       function getIconLibUrl(filename) {
@@ -984,6 +1066,17 @@
         deleteSubmitting = loading;
         deleteConfirmBtn.disabled = loading;
         deleteConfirmBtn.textContent = loading ? "删除中..." : "删除";
+      }
+
+      function setTokenSaving(loading) {
+        tokenSaving = loading;
+        tokenSaveBtn.disabled = loading;
+        tokenSaveBtn.textContent = loading ? "保存中..." : "保存";
+      }
+
+      function setTokenMessage(message, isError) {
+        tokenErrorEl.className = "modal-error" + (isError ? "" : " ok");
+        tokenErrorEl.textContent = message || "";
       }
 
       function setFieldValue(key, value) {
@@ -1238,6 +1331,68 @@
       function openDeleteModal(siteId) {
         deleteSiteId = Number(siteId) || 0;
         deleteModalEl.hidden = false;
+      }
+
+      function closeTokenModal() {
+        tokenModalEl.hidden = true;
+        tokenInputEl.disabled = false;
+        setTokenSaving(false);
+        setTokenMessage("", true);
+      }
+
+      async function openTokenModal() {
+        tokenModalEl.hidden = false;
+        tokenInputEl.value = "";
+        tokenInputEl.disabled = true;
+        setTokenSaving(false);
+        setTokenMessage("加载中...", false);
+        try {
+          const response = await fetch(getIngestTokenSettingsApiUrl(), { method: "GET" });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || "请求失败，状态码: " + response.status);
+          }
+          tokenInputEl.value = data.token || "";
+          setTokenMessage(data.configured ? "当前 Token 已加载" : "当前未设置 Token", false);
+        } catch (error) {
+          setTokenMessage(
+            "读取失败：" + (error && error.message ? error.message : String(error)),
+            true
+          );
+        } finally {
+          tokenInputEl.disabled = false;
+          setTimeout(() => {
+            tokenInputEl.focus();
+            tokenInputEl.select();
+          }, 0);
+        }
+      }
+
+      async function submitTokenSettings(event) {
+        event.preventDefault();
+        if (tokenSaving) return;
+        setTokenSaving(true);
+        setTokenMessage("", true);
+        try {
+          const response = await fetch(getIngestTokenSettingsApiUrl(), {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: tokenInputEl.value.trim() }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || "请求失败，状态码: " + response.status);
+          }
+          tokenInputEl.value = data.token || "";
+          setTokenMessage(data.configured ? "已保存" : "已清空 Token", false);
+        } catch (error) {
+          setTokenMessage(
+            "保存失败：" + (error && error.message ? error.message : String(error)),
+            true
+          );
+        } finally {
+          setTokenSaving(false);
+        }
       }
 
       function createNavItem(site, index) {
@@ -1766,6 +1921,16 @@
         }
       });
 
+      tokenSettingsBtn.addEventListener("click", openTokenModal);
+      tokenCloseBtn.addEventListener("click", closeTokenModal);
+      tokenCancelBtn.addEventListener("click", closeTokenModal);
+      tokenForm.addEventListener("submit", submitTokenSettings);
+      tokenModalEl.addEventListener("click", (event) => {
+        if (event.target === tokenModalEl) {
+          closeTokenModal();
+        }
+      });
+
       document.addEventListener("click", (event) => {
         if (!contextMenuEl.hidden && !contextMenuEl.contains(event.target)) {
           hideContextMenu();
@@ -1781,6 +1946,9 @@
         }
         if (!deleteModalEl.hidden) {
           closeDeleteModal();
+        }
+        if (!tokenModalEl.hidden) {
+          closeTokenModal();
         }
       });
 

@@ -58,7 +58,7 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 
 浏览器采集上报接口，用于 Cloudflare 等 Web 验证导致服务端无法直接抓取的站点。用户先在真实浏览器中打开目标网站并通过验证，再由 Tampermonkey 脚本或浏览器插件读取当前页标题、URL 和 icon 后上报。
 
-该接口默认禁用，必须设置环境变量 `NAV_INGEST_TOKEN`，并在请求头中携带相同 token：
+该接口默认禁用，需要先在首页右下角“Token 设置”中保存 token，并在请求头中携带相同 token：
 
 ```http
 X-Nav-Token: your-secret-token
@@ -84,20 +84,31 @@ X-Nav-Token: your-secret-token
 - icon 大小限制为 1MB。
 - 支持常见图片类型：`ico/png/jpg/jpeg/svg/webp/gif/bmp/avif`。
 
+### Token 管理接口
+
+首页右下角“Token 设置”使用以下接口读取和保存浏览器采集 token。接口只允许同源页面访问；非同源请求会被拒绝。
+
+- `GET /api/settings/ingest-token`：返回当前 token 和是否已配置。
+- `PUT /api/settings/ingest-token`：请求体为 `{"token":"your-secret-token"}`；传空字符串会禁用浏览器采集接口。
+
 ## 浏览器采集模式
 
 当目标网站需要 Cloudflare、登录态或浏览器验证时，推荐使用浏览器采集模式。它不会绕过验证码，也不会导出 cookie，只保存当前浏览器已经能正常打开的页面信息。
 
 ### 启用 token
 
-本地 uv 运行示例：
+服务启动后，打开首页右下角“Token 设置”，粘贴并保存 token。保存后立即生效，不需要重启服务或重新部署 Docker。
+
+也可以通过环境变量提供首次初始化 token；数据库中已有设置时，以页面保存的值为准。
+
+本地 uv 首次初始化示例：
 
 ```bash
 export NAV_INGEST_TOKEN="your-secret-token"
 uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-Docker Compose 运行示例：
+Docker Compose 首次初始化示例：
 
 ```bash
 export NAV_INGEST_TOKEN="your-secret-token"
@@ -110,7 +121,7 @@ docker compose up -d --build
 2. 新建脚本并使用 `collectors/nav-local.user.js` 的内容。
 3. 在任意目标网站页面中打开 Tampermonkey 菜单：
    - 先执行“设置 Nav Local API 地址”，默认是 `http://127.0.0.1:8000`。
-   - 再执行“设置 Nav Local Token”，填入 `NAV_INGEST_TOKEN`。
+   - 再执行“设置 Nav Local Token”，填入首页保存的 token。
    - 通过验证并停留在目标页后，执行“保存当前页到 Nav Local”。
 
 ### Chrome / Edge 插件
