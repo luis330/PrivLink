@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Nav Local Collector",
+  "version": "0.1.0",
+  "description": "Save the current browser page to Nav Local.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "action": {
+    "default_title": "保存到 Nav Local"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html"
+}
