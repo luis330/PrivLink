@@ -82,21 +82,22 @@ export NO_PROXY=127.0.0.1,localhost
 
 ### 本地域名 / hosts 域名
 
-如果目标网站只能通过本机 hosts 或内网 DNS 解析，例如 `hermes.freeba.org` 指向 Caddy 反代，Docker 容器里也必须具备同样的解析结果。否则浏览器能访问，不代表服务端抓取进程能访问。
+如果目标网站只能通过本机 hosts 或内网 DNS 解析，例如 `*.freeba.org` 指向 Caddy 反代，Docker 容器里也必须具备同样的解析结果。否则浏览器能访问，不代表服务端抓取进程能访问。
 
 同时，内网站点必须放进 `NO_PROXY`，避免 HTTPS 请求被送到外部代理后出现 `SSL: UNEXPECTED_EOF_WHILE_READING`、代理解析失败或证书握手异常。
+
+`NAV_HOST_ALIASES` 用于给应用进程配置主机解析映射，支持精确域名和 `*.example.com` 通配子域名。映射只改变 TCP 连接目标 IP，HTTP `Host` 和 HTTPS SNI 仍保留原始域名。
 
 示例：
 
 ```yaml
 services:
   nav-local:
-    extra_hosts:
-      - "hermes.freeba.org:192.168.50.15"  # 改成 Caddy 的内网 IP
     environment:
       - HTTP_PROXY=http://192.168.50.16:7890
       - HTTPS_PROXY=http://192.168.50.16:7890
-      - NO_PROXY=127.0.0.1,localhost,::1,hermes.freeba.org,.freeba.org
+      - NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
+      - NAV_HOST_ALIASES=*.freeba.org=192.168.50.15  # 改成 Caddy 的内网 IP
       - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
 ```
 
@@ -138,12 +139,11 @@ docker compose up -d --build
 当前仓库默认采用“写死代理地址”模式（不依赖外部环境变量）：
 
 ```yaml
-extra_hosts:
-  - "hermes.freeba.org:192.168.50.15"
 environment:
   - HTTP_PROXY=http://192.168.50.16:7890
   - HTTPS_PROXY=http://192.168.50.16:7890
-  - NO_PROXY=127.0.0.1,localhost,::1,hermes.freeba.org,.freeba.org
+  - NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
+  - NAV_HOST_ALIASES=*.freeba.org=192.168.50.15
   - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
 ```
 
