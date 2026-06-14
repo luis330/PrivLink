@@ -5,10 +5,14 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    # Local-only domains must also resolve inside the container.
+    extra_hosts:
+      - "hermes.freeba.org:192.168.50.15"
     environment:
       - HTTP_PROXY=http://192.168.50.16:7890
       - HTTPS_PROXY=http://192.168.50.16:7890
-      - NO_PROXY=127.0.0.1,localhost,::1
+      - NO_PROXY=127.0.0.1,localhost,::1,hermes.freeba.org,.freeba.org
+      - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
     volumes:
       - ./data:/app/data
       - ./ICON:/app/ICON

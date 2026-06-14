@@ -4,6 +4,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+import os
 import shutil
 import socket
 import sqlite3
@@ -34,11 +35,17 @@ ICON_UPLOAD_MAX_BYTES = 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_RETRIES = 2
 MAX_REDIRECTS = 5
-USER_AGENT = "NavLocalBot/1.0 (+https://localhost)"
-ALLOWED_SCHEMES = {"http", "https"}
-ALLOWED_PRIVATE_NETWORKS = (
-    ipaddress.ip_network("192.168.50.0/24"),
+MAX_RETRY_AFTER_SECONDS = 5
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36"
 )
+USER_AGENT = (os.environ.get("NAV_USER_AGENT") or DEFAULT_USER_AGENT).strip() or DEFAULT_USER_AGENT
+ACCEPT_LANGUAGE = (os.environ.get("NAV_ACCEPT_LANGUAGE") or "zh-CN,zh;q=0.9,en;q=0.8").strip()
+PROXY_ENV_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+ALLOWED_SCHEMES = {"http", "https"}
+DEFAULT_ALLOWED_PRIVATE_NETWORKS = "192.168.50.0/24"
 ALLOWED_ICON_EXTENSIONS = {
     ".ico",
     ".png",
@@ -71,8 +78,32 @@ logging.basicConfig(
 logger = logging.getLogger("nav-local")
 
 
+def load_allowed_private_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    raw_value = (os.environ.get("NAV_ALLOWED_PRIVATE_NETWORKS") or DEFAULT_ALLOWED_PRIVATE_NETWORKS).strip()
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for token in raw_value.split(","):
+        value = token.strip()
+        if not value:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(value, strict=False))
+        except ValueError:
+            logger.warning("忽略无效内网白名单网段: %s", value)
+    return tuple(networks)
+
+
+ALLOWED_PRIVATE_NETWORKS = load_allowed_private_networks()
+
+
 class SSRFBlockedError(ValueError):
     pass
+
+
+class FetchHTTPStatusError(RuntimeError):
+    def __init__(self, response: httpx.Response) -> None:
+        self.status_code = response.status_code
+        self.retry_after_seconds = parse_retry_after(response.headers.get("Retry-After"))
+        super().__init__(format_http_error(response))
 
 
 @dataclass
@@ -344,6 +375,76 @@ def format_http_error(response: httpx.Response) -> str:
     return f"HTTP Error {response.status_code}: {reason}"
 
 
+def parse_retry_after(value: str | None) -> int | None:
+    if not value:
+        return None
+    normalized = value.strip()
+    if not normalized.isdigit():
+        return None
+    seconds = int(normalized)
+    if seconds < 0 or seconds > MAX_RETRY_AFTER_SECONDS:
+        return None
+    return seconds
+
+
+def proxy_env_configured() -> bool:
+    return any((os.environ.get(name) or "").strip() for name in PROXY_ENV_NAMES)
+
+
+def target_resolves_to_allowed_private(target_url: str) -> bool:
+    parsed = parse.urlsplit(target_url)
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return False
+    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if any(ip in network for network in ALLOWED_PRIVATE_NETWORKS):
+            return True
+    return False
+
+
+def fetch_modes(target_url: str) -> list[tuple[bool, str]]:
+    if not proxy_env_configured():
+        return [(True, "env")]
+    if target_resolves_to_allowed_private(target_url):
+        return [(False, "direct"), (True, "proxy/env")]
+    return [(True, "proxy/env"), (False, "direct")]
+
+
+def build_fetch_headers(accept: str, referer: str | None = None) -> dict[str, str]:
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": accept,
+        "Accept-Language": ACCEPT_LANGUAGE,
+    }
+    if referer:
+        headers["Referer"] = referer
+    return headers
+
+
+def should_retry_fetch_error(exc: Exception) -> bool:
+    if isinstance(exc, FetchHTTPStatusError):
+        if exc.status_code == 429:
+            return exc.retry_after_seconds is not None
+        return exc.status_code in {408, 500, 502, 503, 504}
+    return True
+
+
+def retry_delay(exc: Exception, attempt: int) -> float:
+    if isinstance(exc, FetchHTTPStatusError) and exc.retry_after_seconds is not None:
+        return float(exc.retry_after_seconds)
+    return 0.2 * (attempt + 1)
+
+
 def fetch_once_with_client(
     client: httpx.Client,
     target_url: str,
@@ -364,7 +465,7 @@ def fetch_once_with_client(
                 current_url = normalize_url(next_url)
                 continue
             if status_code >= 400:
-                raise RuntimeError(format_http_error(response))
+                raise FetchHTTPStatusError(response)
 
             raw_content_type = (response.headers.get("Content-Type") or "").strip().lower()
             content_type = raw_content_type.split(";")[0].strip()
@@ -384,32 +485,46 @@ def fetch_url(
     *,
     max_bytes: int,
     accept: str,
+    referer: str | None = None,
 ) -> tuple[str, bytes, str]:
-    headers = {"User-Agent": USER_AGENT, "Accept": accept}
-    last_error: Exception | None = None
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, trust_env=True) as client:
-                return fetch_once_with_client(
-                    client,
+    headers = build_fetch_headers(accept, referer)
+    mode_errors: list[str] = []
+    for trust_env, mode_label in fetch_modes(target_url):
+        last_error: Exception | None = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, trust_env=trust_env) as client:
+                    return fetch_once_with_client(
+                        client,
+                        target_url,
+                        max_bytes=max_bytes,
+                        headers=headers,
+                    )
+            except (
+                httpx.TimeoutException,
+                httpx.TransportError,
+                ValueError,
+                SSRFBlockedError,
+                RuntimeError,
+            ) as exc:
+                last_error = exc
+                if attempt >= MAX_RETRIES or not should_retry_fetch_error(exc):
+                    break
+                logger.warning(
+                    "请求 %s 使用 %s 第 %d 次失败: %s，重试中...",
                     target_url,
-                    max_bytes=max_bytes,
-                    headers=headers,
+                    mode_label,
+                    attempt + 1,
+                    exc,
                 )
-        except (
-            httpx.TimeoutException,
-            httpx.TransportError,
-            ValueError,
-            SSRFBlockedError,
-            RuntimeError,
-        ) as exc:
-            last_error = exc
-            if attempt >= MAX_RETRIES:
-                break
-            logger.warning("请求 %s 第 %d 次失败: %s，重试中...", target_url, attempt + 1, exc)
-            time.sleep(0.2 * (attempt + 1))
-    logger.error("请求 %s 最终失败: %s", target_url, last_error)
-    raise RuntimeError(f"Failed to fetch URL: {last_error}")
+                time.sleep(retry_delay(exc, attempt))
+        if last_error:
+            logger.warning("请求 %s 使用 %s 失败: %s", target_url, mode_label, last_error)
+            mode_errors.append(f"{mode_label}: {last_error}")
+
+    error_text = "; ".join(mode_errors) or "unknown error"
+    logger.error("请求 %s 最终失败: %s", target_url, error_text)
+    raise RuntimeError(f"Failed to fetch URL: {error_text}")
 
 
 def decode_html(body: bytes) -> str:
@@ -493,13 +608,13 @@ def choose_site_name(parser: SiteHTMLParser | None, fallback_url: str) -> str:
 
 def choose_extension(icon_url: str, content_type: str) -> str:
     ext = Path(parse.urlsplit(icon_url).path).suffix.lower()
-    if ext in ALLOWED_ICON_EXTENSIONS:
-        return ext
     if content_type in CONTENT_TYPE_TO_EXT:
         return CONTENT_TYPE_TO_EXT[content_type]
     guessed = CONTENT_TYPE_TO_EXT.get(content_type.split(";")[0].strip().lower(), "")
     if guessed:
         return guessed
+    if ext in ALLOWED_ICON_EXTENSIONS:
+        return ext
     return ".ico"
 
 
@@ -524,7 +639,12 @@ def copy_library_icon(icon_file: str) -> str:
     return (Path("ICON") / filename).as_posix()
 
 
-def download_icon(candidates: list[IconCandidate], normalized_url: str) -> tuple[str, str, str]:
+def download_icon(
+    candidates: list[IconCandidate],
+    normalized_url: str,
+    *,
+    referer: str | None = None,
+) -> tuple[str, str, str]:
     last_error = ""
     for candidate in candidates:
         try:
@@ -533,6 +653,7 @@ def download_icon(candidates: list[IconCandidate], normalized_url: str) -> tuple
                 candidate.url,
                 max_bytes=ICON_MAX_BYTES,
                 accept="image/*,*/*;q=0.5",
+                referer=referer,
             )
             if not content_type.startswith("image/"):
                 raise ValueError(f"Invalid content-type: {content_type or 'unknown'}")
@@ -657,7 +778,11 @@ def process_site_url(raw_url: str) -> dict[str, str]:
 
     site_name = choose_site_name(parser, final_url)
     icon_candidates = build_icon_candidates(parser, final_url)
-    icon_rel_path, icon_source_url, icon_error = download_icon(icon_candidates, normalized_url)
+    icon_rel_path, icon_source_url, icon_error = download_icon(
+        icon_candidates,
+        normalized_url,
+        referer=final_url,
+    )
     if icon_error:
         errors.append(icon_error)
 
