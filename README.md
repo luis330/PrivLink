@@ -6,6 +6,7 @@
 
 - 前端页面：`GET /`
 - 解析接口：`POST /api/site/parse`
+- 浏览器采集上报接口：`POST /api/site/ingest`
 - icon 静态访问：`GET /ICON/<filename>`
 - 存储：
   - SQLite：`data/sites.db`
@@ -53,6 +54,72 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 - `error`: 错误信息
 - `warning`: 警告信息（例如页面被 403 拒绝但 icon 抓取成功）
 
+### `POST /api/site/ingest`
+
+浏览器采集上报接口，用于 Cloudflare 等 Web 验证导致服务端无法直接抓取的站点。用户先在真实浏览器中打开目标网站并通过验证，再由 Tampermonkey 脚本或浏览器插件读取当前页标题、URL 和 icon 后上报。
+
+该接口默认禁用，必须设置环境变量 `NAV_INGEST_TOKEN`，并在请求头中携带相同 token：
+
+```http
+X-Nav-Token: your-secret-token
+```
+
+请求体：
+
+```json
+{
+  "url": "https://example.com/page",
+  "final_url": "https://example.com/page",
+  "site_name": "Example",
+  "icon": {
+    "source_url": "https://example.com/favicon.ico",
+    "content_type": "image/x-icon",
+    "filename": "favicon.ico",
+    "data_base64": "AAABAA..."
+  }
+}
+```
+
+- `icon` 可为空；为空时如果该 URL 已存在，会保留旧 icon。
+- icon 大小限制为 1MB。
+- 支持常见图片类型：`ico/png/jpg/jpeg/svg/webp/gif/bmp/avif`。
+
+## 浏览器采集模式
+
+当目标网站需要 Cloudflare、登录态或浏览器验证时，推荐使用浏览器采集模式。它不会绕过验证码，也不会导出 cookie，只保存当前浏览器已经能正常打开的页面信息。
+
+### 启用 token
+
+本地 uv 运行示例：
+
+```bash
+export NAV_INGEST_TOKEN="your-secret-token"
+uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
+Docker Compose 运行示例：
+
+```bash
+export NAV_INGEST_TOKEN="your-secret-token"
+docker compose up -d --build
+```
+
+### Tampermonkey
+
+1. 安装 Tampermonkey。
+2. 新建脚本并使用 `collectors/nav-local.user.js` 的内容。
+3. 在任意目标网站页面中打开 Tampermonkey 菜单：
+   - 先执行“设置 Nav Local API 地址”，默认是 `http://127.0.0.1:8000`。
+   - 再执行“设置 Nav Local Token”，填入 `NAV_INGEST_TOKEN`。
+   - 通过验证并停留在目标页后，执行“保存当前页到 Nav Local”。
+
+### Chrome / Edge 插件
+
+1. 打开浏览器扩展管理页并启用开发者模式。
+2. 选择“加载已解压的扩展程序”，目录选择 `browser-extension/`。
+3. 打开插件“选项”，填写 API 地址和 `X-Nav-Token`。
+4. 在目标网站页面通过验证后，点击插件按钮保存。
+
 ## 代理支持（HTTP / SOCKS5）
 
 服务请求目标网站时支持代理，读取标准环境变量：
@@ -99,6 +166,7 @@ services:
       - NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
       - NAV_HOST_ALIASES=*.freeba.org=192.168.50.15  # 改成 Caddy 的内网 IP
       - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
+      - NAV_INGEST_TOKEN=${NAV_INGEST_TOKEN:-}
 ```
 
 `NAV_ALLOWED_PRIVATE_NETWORKS` 是 SSRF 防护的内网白名单。Caddy 如果不在 `192.168.50.0/24`，需要把实际网段加入这个变量，例如 `192.168.50.0/24,172.17.0.0/16`。

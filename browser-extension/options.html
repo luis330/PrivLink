@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nav Local Collector 设置</title>
+    <style>
+      body {
+        margin: 0;
+        min-width: 360px;
+        font-family: "Microsoft YaHei", Arial, sans-serif;
+        color: #18212f;
+        background: #f5f7fb;
+        padding: 24px;
+      }
+
+      main {
+        display: grid;
+        gap: 14px;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 20px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      input {
+        border: 1px solid #cfd6e4;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 14px;
+        color: #18212f;
+        background: #fff;
+      }
+
+      button {
+        justify-self: start;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 18px;
+        color: #fff;
+        background: #0f7cf0;
+        cursor: pointer;
+      }
+
+      #status {
+        min-height: 20px;
+        color: #156f3d;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Nav Local Collector</h1>
+      <label>
+        API 地址
+        <input id="api-base" type="url" autocomplete="off" />
+      </label>
+      <label>
+        X-Nav-Token
+        <input id="token" type="password" autocomplete="off" />
+      </label>
+      <button id="save" type="button">保存</button>
+      <div id="status"></div>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

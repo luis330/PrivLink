@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import ipaddress
 import json
 import logging
 import os
+import secrets
 import shutil
 import socket
 import sqlite3
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib import parse
 
 import httpx
@@ -43,6 +46,7 @@ DEFAULT_USER_AGENT = (
 )
 USER_AGENT = (os.environ.get("NAV_USER_AGENT") or DEFAULT_USER_AGENT).strip() or DEFAULT_USER_AGENT
 ACCEPT_LANGUAGE = (os.environ.get("NAV_ACCEPT_LANGUAGE") or "zh-CN,zh;q=0.9,en;q=0.8").strip()
+INGEST_TOKEN = (os.environ.get("NAV_INGEST_TOKEN") or "").strip()
 PROXY_ENV_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
 ALLOWED_SCHEMES = {"http", "https"}
 DEFAULT_ALLOWED_PRIVATE_NETWORKS = "192.168.50.0/24"
@@ -257,10 +261,14 @@ def utc_now() -> str:
 TAG_NAME_MAX_LEN = 20
 
 
-def db_connect() -> sqlite3.Connection:
+@contextmanager
+def db_connect() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def normalize_tag_name(raw: str) -> str:
@@ -712,6 +720,66 @@ def icon_upload_filename(content: bytes, original_name: str) -> str:
     return f"upload-{digest}{ext}"
 
 
+def icon_extension_from_payload(source_url: str, filename: str, content_type: str) -> str:
+    clean_content_type = (content_type or "").split(";", 1)[0].strip().lower()
+    payload_ext = ""
+    for value in (filename, parse.urlsplit(source_url or "").path):
+        ext = Path(value).suffix.lower()
+        if ext in ALLOWED_ICON_EXTENSIONS:
+            payload_ext = ext
+            break
+
+    if clean_content_type:
+        mapped = CONTENT_TYPE_TO_EXT.get(clean_content_type)
+        if mapped:
+            return mapped
+        if not clean_content_type.startswith("image/"):
+            if payload_ext:
+                return payload_ext
+            raise ValueError(f"Invalid icon content-type: {clean_content_type}")
+
+    if payload_ext:
+        return payload_ext
+
+    if clean_content_type.startswith("image/"):
+        return ".ico"
+    raise ValueError("Icon content-type or filename is required")
+
+
+def decode_base64_icon(raw_data: str) -> bytes:
+    data = (raw_data or "").strip()
+    if not data:
+        raise ValueError("Icon data is empty")
+    if data.startswith("data:"):
+        _, _, data = data.partition(",")
+    try:
+        content = base64.b64decode("".join(data.split()), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Invalid base64 icon data") from exc
+    if not content:
+        raise ValueError("Icon content is empty")
+    if len(content) > ICON_UPLOAD_MAX_BYTES:
+        raise ValueError("Icon size cannot exceed 1MB")
+    return content
+
+
+def write_browser_icon(
+    *,
+    normalized_url: str,
+    source_url: str,
+    filename: str,
+    content_type: str,
+    data_base64: str,
+) -> tuple[str, str]:
+    content = decode_base64_icon(data_base64)
+    extension = icon_extension_from_payload(source_url, filename, content_type)
+    filename_to_store = icon_filename(normalized_url, extension)
+    relative_path = Path("ICON") / filename_to_store
+    absolute_path = Path.cwd() / relative_path
+    absolute_path.write_bytes(content)
+    return relative_path.as_posix(), (source_url or f"browser-upload://{filename_to_store}").strip()
+
+
 def copy_library_icon(icon_file: str) -> str:
     source = ICONS_LIB_DIR / icon_file
     key = "icon-lib:" + icon_file
@@ -819,6 +887,17 @@ def maybe_remove_old_icon(old_icon_path: str, new_icon_path: str) -> None:
         old_file.unlink(missing_ok=True)
 
 
+def fetch_existing_icon(url: str) -> tuple[str, str]:
+    with db_connect() as conn:
+        row = conn.execute(
+            "SELECT icon_rel_path, icon_source_url FROM sites WHERE url = ?;",
+            (url,),
+        ).fetchone()
+    if not row:
+        return "", ""
+    return (row[0] or "").strip(), (row[1] or "").strip()
+
+
 def process_site_url(raw_url: str) -> dict[str, str]:
     logger.info("开始处理网站: %s", raw_url)
     result = {
@@ -912,6 +991,20 @@ class ParseRequest(BaseModel):
     url: str = Field(min_length=1)
 
 
+class BrowserIconPayload(BaseModel):
+    source_url: str = ""
+    content_type: str = ""
+    filename: str = ""
+    data_base64: str = Field(default="", max_length=ICON_UPLOAD_MAX_BYTES * 2)
+
+
+class BrowserIngestRequest(BaseModel):
+    url: str = Field(min_length=1)
+    final_url: str = ""
+    site_name: str = ""
+    icon: BrowserIconPayload | None = None
+
+
 class ParseResponse(BaseModel):
     url: str
     final_url: str
@@ -942,6 +1035,16 @@ class SiteUpdateRequest(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+def validate_ingest_token(request: Request) -> JSONResponse | None:
+    if not INGEST_TOKEN:
+        return JSONResponse(status_code=403, content=error_payload("浏览器采集接口未启用"))
+
+    provided = (request.headers.get("X-Nav-Token") or "").strip()
+    if not provided or not secrets.compare_digest(provided, INGEST_TOKEN):
+        return JSONResponse(status_code=401, content=error_payload("浏览器采集 token 无效"))
+    return None
 
 
 def error_payload(message: str) -> dict[str, str]:
@@ -1148,6 +1251,106 @@ def list_tags() -> list[dict[str, Any]]:
             """
         ).fetchall()
     return [{"name": row[0], "count": int(row[1])} for row in rows]
+
+
+def process_browser_ingest(payload: BrowserIngestRequest) -> dict[str, str]:
+    logger.info("开始处理浏览器上报网站: %s", payload.url)
+    result = {
+        "url": (payload.url or "").strip(),
+        "final_url": "",
+        "site_name": "",
+        "icon_rel_path": "",
+        "icon_source_url": "",
+        "status": "failed",
+        "error": "",
+        "warning": "",
+    }
+    errors: list[str] = []
+
+    try:
+        normalized_url = normalize_url(payload.url)
+        validate_remote_url(normalized_url)
+        final_url = normalize_url(payload.final_url) if payload.final_url.strip() else normalized_url
+        validate_remote_url(final_url)
+    except Exception as exc:  # noqa: BLE001
+        result["status"] = "invalid"
+        result["error"] = str(exc)
+        logger.warning("浏览器上报 URL 验证失败 (%s): %s", payload.url, exc)
+        return result
+
+    site_name = " ".join((payload.site_name or "").split()).strip()
+    if not site_name:
+        site_name = (parse.urlsplit(final_url).hostname or parse.urlsplit(normalized_url).hostname or "").strip()
+
+    icon_rel_path = ""
+    icon_source_url = ""
+    if payload.icon and payload.icon.data_base64.strip():
+        try:
+            icon_rel_path, icon_source_url = write_browser_icon(
+                normalized_url=normalized_url,
+                source_url=payload.icon.source_url.strip(),
+                filename=payload.icon.filename.strip(),
+                content_type=payload.icon.content_type.strip(),
+                data_base64=payload.icon.data_base64,
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(str(exc))
+            logger.warning("浏览器上报图标写入失败 (%s): %s", normalized_url, exc)
+
+    old_icon_rel_path = ""
+    if not icon_rel_path:
+        old_icon_rel_path, old_icon_source_url = fetch_existing_icon(normalized_url)
+        icon_rel_path = old_icon_rel_path
+        icon_source_url = old_icon_source_url
+
+    has_name = bool(site_name)
+    has_icon = bool(icon_rel_path)
+    if has_name and has_icon:
+        status = "success"
+    elif has_name or has_icon:
+        status = "partial"
+    else:
+        status = "failed"
+
+    warning_text = "; ".join(part for part in errors if part)
+    error_text = warning_text
+    if status == "success" and not warning_text:
+        error_text = ""
+
+    old_icon = upsert_site_record(
+        url=normalized_url,
+        site_name=site_name,
+        icon_rel_path=icon_rel_path,
+        icon_source_url=icon_source_url,
+        status=status,
+        error_text=error_text,
+    )
+    if icon_rel_path and icon_rel_path != old_icon_rel_path:
+        maybe_remove_old_icon(old_icon, icon_rel_path)
+
+    result.update(
+        {
+            "url": normalized_url,
+            "final_url": final_url,
+            "site_name": site_name,
+            "icon_rel_path": icon_rel_path,
+            "icon_source_url": icon_source_url,
+            "status": status,
+            "error": error_text,
+            "warning": warning_text if status == "success" else "",
+        }
+    )
+    return result
+
+
+@app.post("/api/site/ingest", response_model=ParseResponse)
+def ingest_site(request: Request, payload: BrowserIngestRequest) -> JSONResponse:
+    auth_error = validate_ingest_token(request)
+    if auth_error:
+        return auth_error
+    result = process_browser_ingest(payload)
+    status_code = 400 if result["status"] == "invalid" else 200
+    return JSONResponse(status_code=status_code, content=result)
 
 
 class ReorderRequest(BaseModel):

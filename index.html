@@ -746,7 +746,7 @@
             <span id="edit-icon-fallback" class="nav-fallback" style="display:none">网</span>
             <button id="edit-icon-btn" class="ghost-btn" type="button">修改图标</button>
             <button id="upload-icon-btn" class="ghost-btn" type="button">上传图标</button>
-            <input id="upload-icon-input" type="file" accept=".ico" hidden />
+            <input id="upload-icon-input" type="file" accept=".ico,.png,.svg" hidden />
           </div>
           <div id="icon-picker" class="icon-picker" hidden>
             <input id="icon-search" class="modal-input" type="text" placeholder="搜索图标..." autocomplete="off" />
@@ -833,7 +833,7 @@
       let iconsCache = null;
       let selectedIconFile = "";
       let iconSearchTimer = null;
-      const ICON_UPLOAD_MAX_BYTES = 512 * 1024;
+      const ICON_UPLOAD_MAX_BYTES = 1024 * 1024;
       let dragSrcIndex = -1;
       let isDragging = false;
       let reorderTimer = null;
@@ -1644,12 +1644,12 @@
         const file = uploadIconInput.files && uploadIconInput.files[0];
         uploadIconInput.value = "";
         if (!file) return;
-        if (!/\.ico$/i.test(file.name)) {
-          window.alert("仅支持 .ico 格式图标");
+        if (!/\.(ico|png|svg)$/i.test(file.name)) {
+          window.alert("仅支持 .ico、.png、.svg 格式图标");
           return;
         }
         if (file.size > ICON_UPLOAD_MAX_BYTES) {
-          window.alert("图标大小不能超过 512KB");
+          window.alert("图标大小不能超过 1MB");
           return;
         }
 
