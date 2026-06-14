@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Nav Local Collector
 // @namespace    nav-local
-// @version      0.1.0
+// @version      0.1.1
 // @description  Save the current browser page to Nav Local.
 // @match        http://*/*
 // @match        https://*/*
+// @noframes
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -14,6 +15,10 @@
 
 (function () {
   "use strict";
+
+  if (window.top !== window.self) {
+    return;
+  }
 
   const DEFAULT_API_BASE = "http://127.0.0.1:8000";
   const API_BASE_KEY = "navLocalApiBase";
