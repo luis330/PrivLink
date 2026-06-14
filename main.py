@@ -46,6 +46,7 @@ ACCEPT_LANGUAGE = (os.environ.get("NAV_ACCEPT_LANGUAGE") or "zh-CN,zh;q=0.9,en;q
 PROXY_ENV_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
 ALLOWED_SCHEMES = {"http", "https"}
 DEFAULT_ALLOWED_PRIVATE_NETWORKS = "192.168.50.0/24"
+HOST_ALIASES_ENV = "NAV_HOST_ALIASES"
 ALLOWED_ICON_EXTENSIONS = {
     ".ico",
     ".png",
@@ -78,6 +79,56 @@ logging.basicConfig(
 logger = logging.getLogger("nav-local")
 
 
+@dataclass(frozen=True)
+class HostAlias:
+    pattern: str
+    target_ip: str
+    wildcard_suffix: str
+
+    def matches(self, host: str) -> bool:
+        host_lower = host.strip().strip("[]").lower()
+        if not host_lower:
+            return False
+        if self.wildcard_suffix:
+            return (
+                host_lower.endswith(self.wildcard_suffix)
+                and host_lower != self.wildcard_suffix.lstrip(".")
+            )
+        return host_lower == self.pattern
+
+
+def load_host_aliases() -> tuple[HostAlias, ...]:
+    raw_value = (os.environ.get(HOST_ALIASES_ENV) or "").strip()
+    aliases: list[HostAlias] = []
+    for token in raw_value.split(","):
+        value = token.strip()
+        if not value:
+            continue
+        if "=" not in value:
+            logger.warning("忽略无效主机解析映射: %s", value)
+            continue
+
+        pattern, target_ip = (part.strip().lower() for part in value.split("=", 1))
+        if not pattern or not target_ip:
+            logger.warning("忽略无效主机解析映射: %s", value)
+            continue
+        try:
+            normalized_ip = str(ipaddress.ip_address(target_ip.strip("[]")))
+        except ValueError:
+            logger.warning("忽略无效主机解析目标 IP: %s", value)
+            continue
+
+        wildcard_suffix = ""
+        if pattern.startswith("*."):
+            wildcard_suffix = pattern[1:]
+        elif pattern.startswith("."):
+            wildcard_suffix = pattern
+        aliases.append(
+            HostAlias(pattern=pattern, target_ip=normalized_ip, wildcard_suffix=wildcard_suffix)
+        )
+    return tuple(aliases)
+
+
 def load_allowed_private_networks() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
     raw_value = (os.environ.get("NAV_ALLOWED_PRIVATE_NETWORKS") or DEFAULT_ALLOWED_PRIVATE_NETWORKS).strip()
     networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
@@ -93,6 +144,38 @@ def load_allowed_private_networks() -> tuple[ipaddress.IPv4Network | ipaddress.I
 
 
 ALLOWED_PRIVATE_NETWORKS = load_allowed_private_networks()
+HOST_ALIASES = load_host_aliases()
+ORIGINAL_GETADDRINFO = socket.getaddrinfo
+
+
+def resolve_host_alias(host: str) -> str | None:
+    for alias in HOST_ALIASES:
+        if alias.matches(host):
+            return alias.target_ip
+    return None
+
+
+def getaddrinfo_with_aliases(
+    host: bytes | str | None,
+    port: str | int | None,
+    family: int = 0,
+    type: int = 0,
+    proto: int = 0,
+    flags: int = 0,
+) -> list[tuple[Any, ...]]:
+    if isinstance(host, str):
+        target_ip = resolve_host_alias(host)
+        if target_ip:
+            return ORIGINAL_GETADDRINFO(target_ip, port, family, type, proto, flags)
+    return ORIGINAL_GETADDRINFO(host, port, family, type, proto, flags)
+
+
+if HOST_ALIASES:
+    socket.getaddrinfo = getaddrinfo_with_aliases  # type: ignore[assignment]
+    logger.info(
+        "启用主机解析映射: %s",
+        ", ".join(f"{alias.pattern}->{alias.target_ip}" for alias in HOST_ALIASES),
+    )
 
 
 class SSRFBlockedError(ValueError):
