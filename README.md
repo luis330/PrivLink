@@ -62,6 +62,8 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 - `ALL_PROXY`
 - `NO_PROXY`
 
+抓取请求默认使用浏览器式 `User-Agent`，可通过 `NAV_USER_AGENT` 覆盖；`Accept-Language` 可通过 `NAV_ACCEPT_LANGUAGE` 覆盖。
+
 ### 示例
 
 HTTP 代理：
@@ -77,6 +79,28 @@ SOCKS5 代理（推荐 `socks5h`，DNS 也走代理）：
 export ALL_PROXY=socks5h://user:pass@127.0.0.1:1080
 export NO_PROXY=127.0.0.1,localhost
 ```
+
+### 本地域名 / hosts 域名
+
+如果目标网站只能通过本机 hosts 或内网 DNS 解析，例如 `hermes.freeba.org` 指向 Caddy 反代，Docker 容器里也必须具备同样的解析结果。否则浏览器能访问，不代表服务端抓取进程能访问。
+
+同时，内网站点必须放进 `NO_PROXY`，避免 HTTPS 请求被送到外部代理后出现 `SSL: UNEXPECTED_EOF_WHILE_READING`、代理解析失败或证书握手异常。
+
+示例：
+
+```yaml
+services:
+  nav-local:
+    extra_hosts:
+      - "hermes.freeba.org:192.168.50.15"  # 改成 Caddy 的内网 IP
+    environment:
+      - HTTP_PROXY=http://192.168.50.16:7890
+      - HTTPS_PROXY=http://192.168.50.16:7890
+      - NO_PROXY=127.0.0.1,localhost,::1,hermes.freeba.org,.freeba.org
+      - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
+```
+
+`NAV_ALLOWED_PRIVATE_NETWORKS` 是 SSRF 防护的内网白名单。Caddy 如果不在 `192.168.50.0/24`，需要把实际网段加入这个变量，例如 `192.168.50.0/24,172.17.0.0/16`。
 
 ## Debian 13 Docker 部署
 
@@ -114,10 +138,13 @@ docker compose up -d --build
 当前仓库默认采用“写死代理地址”模式（不依赖外部环境变量）：
 
 ```yaml
+extra_hosts:
+  - "hermes.freeba.org:192.168.50.15"
 environment:
   - HTTP_PROXY=http://192.168.50.16:7890
   - HTTPS_PROXY=http://192.168.50.16:7890
-  - NO_PROXY=127.0.0.1,localhost,::1
+  - NO_PROXY=127.0.0.1,localhost,::1,hermes.freeba.org,.freeba.org
+  - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
 ```
 
 3. 查看状态：
