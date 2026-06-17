@@ -42,7 +42,7 @@
           radial-gradient(circle at 12% 16%, #5cb8ff5c 0, #5cb8ff00 34%),
           radial-gradient(circle at 88% 84%, #2d56ea73 0, #2d56ea00 42%),
           linear-gradient(138deg, var(--bg-a), var(--bg-b));
-        padding: 18px 18px 310px;
+        padding: 18px 18px 190px;
       }
 
       .app {
@@ -200,27 +200,28 @@
 
       .add-title {
         margin: 0;
-        font-size: 18px;
+        font-size: 16px;
+        line-height: 1.2;
       }
 
       .add-desc {
-        margin: 8px 0 0;
+        margin: 3px 0 0;
         color: var(--text-subtle);
-        font-size: 13px;
+        font-size: 12px;
       }
 
-      form {
-        margin-top: 12px;
+      #parse-form {
+        margin-top: 10px;
         display: grid;
         grid-template-columns: 1fr auto;
-        gap: 10px;
+        gap: 8px;
       }
 
       input[type="text"] {
         border: 1px solid #ffffff66;
-        border-radius: 12px;
-        padding: 12px 14px;
-        font-size: 15px;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
         outline: none;
         background: var(--input-bg);
         color: var(--input-text);
@@ -233,9 +234,9 @@
 
       .action-btn {
         border: none;
-        border-radius: 12px;
-        padding: 12px 18px;
-        font-size: 15px;
+        border-radius: 10px;
+        padding: 10px 18px;
+        font-size: 14px;
         color: #fff;
         background: linear-gradient(135deg, var(--button-bg), var(--button-hover));
         cursor: pointer;
@@ -251,27 +252,179 @@
       }
 
       .hint {
-        margin: 10px 2px 0;
-        font-size: 13px;
+        margin: 6px 2px 0;
+        font-size: 12px;
         color: var(--text-subtle);
       }
 
       .result {
-        margin-top: 14px;
+        margin-top: 10px;
         border: 1px solid #ffffff4d;
-        border-radius: 12px;
-        padding: 12px;
+        border-radius: 10px;
+        padding: 10px;
         background: #ffffffdd;
         color: #12253d;
       }
 
-      .status {
-        display: inline-block;
-        padding: 4px 10px;
-        border-radius: 999px;
+      .result-main {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .result-copy {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .result-status-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .result-title {
+        min-width: 0;
+        overflow: hidden;
+        color: #12253d;
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .result-url {
+        margin-top: 3px;
+        overflow: hidden;
+        color: #496178;
         font-size: 12px;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .result-manager {
+        flex: 0 1 430px;
+        min-width: 320px;
+        display: grid;
+        gap: 7px;
+      }
+
+      .result-manager[hidden] {
+        display: none;
+      }
+
+      .result-manager-row {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      .result-manager-label {
+        flex: 0 0 auto;
+        color: #496178;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .result-tool-btn,
+      .result-save-btn {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        border: 1px solid #bdd0e8;
+        padding: 6px 10px;
+        background: #fff;
+        color: #28537a;
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1;
+      }
+
+      .result-save-btn {
+        border-color: transparent;
+        background: linear-gradient(135deg, var(--button-bg), var(--button-hover));
+        color: #fff;
+        font-weight: 700;
+      }
+
+      .result-tool-btn:hover {
+        background: #edf5ff;
+      }
+
+      .result-save-btn:disabled,
+      .result-tool-btn:disabled {
+        opacity: 0.58;
+        cursor: not-allowed;
+      }
+
+      .result-tags-wrap {
+        display: grid;
+        grid-template-columns: auto minmax(90px, 1fr) minmax(120px, 150px);
+        align-items: center;
+        gap: 6px;
+      }
+
+      .result-tags-input {
+        width: 100%;
+        border: 1px solid #c8d6e8;
+        border-radius: 9px;
+        padding: 7px 9px;
+        background: #fff;
+        color: #202734;
+        font-size: 12px;
+        outline: none;
+      }
+
+      .result-tags-input:focus {
+        border-color: #7aa7e5;
+        box-shadow: 0 0 0 3px #7ec0ff26;
+      }
+
+      .result-icon-picker {
+        margin-top: 8px;
+        border-top: 1px solid #d7e1ec;
+        padding-top: 8px;
+      }
+
+      .result-icon-picker[hidden] {
+        display: none;
+      }
+
+      .result-icon-grid {
+        grid-template-columns: repeat(auto-fill, minmax(42px, 42px));
+        max-height: 180px;
+      }
+
+      .result-icon-grid .icon-grid-item {
+        width: 42px;
+        height: 42px;
+      }
+
+      .result-icon-grid .icon-grid-item img {
+        width: 28px;
+        height: 28px;
+      }
+
+      .result-manager-msg {
+        margin-top: 6px;
+        color: #28537a;
+      }
+
+      .result-manager-msg.error {
+        color: #8f2214;
+      }
+
+      .status {
+        flex: 0 0 auto;
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 11px;
         font-weight: 600;
-        margin-bottom: 10px;
       }
 
       .status.success {
@@ -312,24 +465,23 @@
       }
 
       .icon-wrap {
-        margin-top: 12px;
+        flex: 0 0 auto;
         display: flex;
         align-items: center;
-        gap: 10px;
       }
 
       .icon-preview {
-        width: 42px;
-        height: 42px;
-        border-radius: 9px;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
         border: 1px solid #cad7e3;
         background: #fff;
         object-fit: contain;
       }
 
       .msg {
-        margin-top: 10px;
-        font-size: 13px;
+        margin-top: 8px;
+        font-size: 12px;
         color: #8f2214;
       }
 
@@ -337,22 +489,40 @@
         color: #8a6200;
       }
 
+      .result-details {
+        margin-top: 8px;
+        border-top: 1px solid #d7e1ec;
+        padding-top: 6px;
+      }
+
+      .result-details summary {
+        color: #496178;
+        cursor: pointer;
+        font-size: 12px;
+        user-select: none;
+      }
+
+      .result-details .rows {
+        margin-top: 8px;
+      }
+
       .add-panel {
         position: fixed;
         left: 50%;
-        bottom: 14px;
+        bottom: 12px;
         transform: translateX(-50%);
         width: min(980px, calc(100% - 24px));
-        max-height: min(64vh, 560px);
+        max-height: min(48vh, 360px);
         overflow: auto;
+        padding: 12px;
         z-index: 30;
       }
 
       .add-head {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         justify-content: space-between;
-        gap: 14px;
+        gap: 12px;
       }
 
       .token-settings-btn {
@@ -361,9 +531,9 @@
         border-radius: 999px;
         color: #fff;
         background: #ffffff26;
-        padding: 8px 14px;
+        padding: 7px 12px;
         cursor: pointer;
-        font-size: 13px;
+        font-size: 12px;
       }
 
       .token-settings-btn:hover {
@@ -454,6 +624,7 @@
       }
 
       .modal-form {
+        margin-top: 12px;
         display: grid;
         gap: 14px;
       }
@@ -686,14 +857,14 @@
 
       @media (max-width: 640px) {
         body {
-          padding: 12px 12px 350px;
+          padding: 12px 12px 210px;
         }
 
         .nav-grid {
           gap: 20px 0px;
         }
 
-        form {
+        #parse-form {
           grid-template-columns: 1fr;
         }
 
@@ -705,15 +876,45 @@
         .add-panel {
           width: calc(100% - 12px);
           bottom: 8px;
+          max-height: min(58vh, 380px);
         }
 
         .add-head {
-          align-items: stretch;
-          flex-direction: column;
+          align-items: center;
+          flex-direction: row;
         }
 
         .token-settings-btn {
-          align-self: flex-end;
+          align-self: auto;
+        }
+
+        .add-desc {
+          display: none;
+        }
+
+        .result-main {
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+
+        .result-status-row {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .result-manager {
+          flex-basis: 100%;
+          min-width: 0;
+        }
+
+        .result-manager-row {
+          justify-content: flex-start;
+          flex-wrap: wrap;
+        }
+
+        .result-tags-wrap {
+          grid-template-columns: 1fr;
         }
 
         .modal-title {
@@ -754,20 +955,50 @@
         <p class="hint">可直接输入域名，页面会自动补全为 https://</p>
 
         <section id="result" class="result" hidden>
-          <span id="status" class="status">unknown</span>
-          <div class="rows">
-            <div class="row"><div class="k">URL</div><div id="url" class="v">-</div></div>
-            <div class="row"><div class="k">Final URL</div><div id="final_url" class="v">-</div></div>
-            <div class="row"><div class="k">网站名称</div><div id="site_name" class="v">-</div></div>
-            <div class="row"><div class="k">Icon 路径</div><div id="icon_rel_path" class="v">-</div></div>
-            <div class="row"><div class="k">Icon 来源</div><div id="icon_source_url" class="v">-</div></div>
+          <div class="result-main">
+            <div id="icon-wrap" class="icon-wrap" hidden>
+              <img id="icon" class="icon-preview" alt="icon 预览" />
+            </div>
+            <div class="result-copy">
+              <div class="result-status-row">
+                <span id="status" class="status">unknown</span>
+                <strong id="result-title" class="result-title">-</strong>
+              </div>
+              <div id="result-url" class="result-url">-</div>
+            </div>
+            <div id="result-manager" class="result-manager" hidden>
+              <div class="result-manager-row">
+                <span class="result-manager-label">图标</span>
+                <button id="result-icon-pick-btn" class="result-tool-btn" type="button">选择图标</button>
+                <button id="result-icon-upload-btn" class="result-tool-btn" type="button">上传图标</button>
+                <input id="result-icon-upload-input" type="file" accept=".ico,.png,.svg" hidden />
+                <button id="result-save-btn" class="result-save-btn" type="button" disabled>保存</button>
+              </div>
+              <div id="result-tags-wrap" class="tag-edit-wrap result-tags-wrap">
+                <span class="result-manager-label">标签</span>
+                <div id="result-tags-chips" class="tag-chips"></div>
+                <input id="result-tags-input" class="result-tags-input" type="text" placeholder="添加标签" autocomplete="off" />
+                <div id="result-tags-suggest" class="tag-suggest" hidden></div>
+              </div>
+            </div>
           </div>
-          <div id="icon-wrap" class="icon-wrap" hidden>
-            <img id="icon" class="icon-preview" alt="icon 预览" />
-            <span>icon 预览</span>
+          <div id="result-icon-picker" class="result-icon-picker" hidden>
+            <input id="result-icon-search" class="result-tags-input" type="text" placeholder="搜索图标..." autocomplete="off" />
+            <div id="result-icon-grid" class="icon-grid result-icon-grid"></div>
           </div>
+          <div id="result-manager-msg" class="msg result-manager-msg"></div>
           <div id="warning" class="msg warning"></div>
           <div id="error" class="msg"></div>
+          <details class="result-details">
+            <summary>详细信息</summary>
+            <div class="rows">
+              <div class="row"><div class="k">URL</div><div id="url" class="v">-</div></div>
+              <div class="row"><div class="k">Final URL</div><div id="final_url" class="v">-</div></div>
+              <div class="row"><div class="k">网站名称</div><div id="site_name" class="v">-</div></div>
+              <div class="row"><div class="k">Icon 路径</div><div id="icon_rel_path" class="v">-</div></div>
+              <div class="row"><div class="k">Icon 来源</div><div id="icon_source_url" class="v">-</div></div>
+            </div>
+          </details>
         </section>
       </section>
     </main>
@@ -853,6 +1084,21 @@
       const submitBtn = document.getElementById("submit-btn");
       const resultCard = document.getElementById("result");
       const statusEl = document.getElementById("status");
+      const resultTitleEl = document.getElementById("result-title");
+      const resultUrlEl = document.getElementById("result-url");
+      const resultManagerEl = document.getElementById("result-manager");
+      const resultManagerMsgEl = document.getElementById("result-manager-msg");
+      const resultIconPickBtn = document.getElementById("result-icon-pick-btn");
+      const resultIconUploadBtn = document.getElementById("result-icon-upload-btn");
+      const resultIconUploadInput = document.getElementById("result-icon-upload-input");
+      const resultIconPickerEl = document.getElementById("result-icon-picker");
+      const resultIconSearchInput = document.getElementById("result-icon-search");
+      const resultIconGridEl = document.getElementById("result-icon-grid");
+      const resultTagsWrapEl = document.getElementById("result-tags-wrap");
+      const resultTagsChipsEl = document.getElementById("result-tags-chips");
+      const resultTagsInputEl = document.getElementById("result-tags-input");
+      const resultTagsSuggestEl = document.getElementById("result-tags-suggest");
+      const resultSaveBtn = document.getElementById("result-save-btn");
       const warningEl = document.getElementById("warning");
       const errorEl = document.getElementById("error");
       const iconWrapEl = document.getElementById("icon-wrap");
@@ -916,6 +1162,15 @@
       let editDraftTags = [];
       let tagSuggestActiveIdx = -1;
       let tokenSaving = false;
+      let resultSiteId = 0;
+      let resultOriginalSite = null;
+      let resultDraftTags = [];
+      let resultDraftIconFile = "";
+      let resultDraftUploadFile = null;
+      let resultDraftUploadUrl = "";
+      let resultSaving = false;
+      let resultTagSuggestActiveIdx = -1;
+      let resultIconSearchTimer = null;
 
       function getParseApiUrl() {
         if (window.location.protocol === "file:") {
@@ -1062,6 +1317,12 @@
         editSaveBtn.textContent = loading ? "保存中..." : "保存更改";
       }
 
+      function setResultSaving(loading) {
+        resultSaving = loading;
+        resultSaveBtn.textContent = loading ? "保存中..." : "保存";
+        updateResultSaveState();
+      }
+
       function setDeleteSubmitting(loading) {
         deleteSubmitting = loading;
         deleteConfirmBtn.disabled = loading;
@@ -1090,13 +1351,35 @@
         return "/" + cleanPath.replace(/^\/+/, "");
       }
 
+      function compactUrlLabel(value) {
+        const raw = String(value || "").trim();
+        if (!raw) return "-";
+        try {
+          const parsed = new URL(raw);
+          const path = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "";
+          return parsed.hostname + path;
+        } catch (_) {
+          return raw;
+        }
+      }
+
       function renderResult(data) {
         resultCard.hidden = false;
+        clearResultManager("");
         const statusValue = data.status || "failed";
         statusEl.className = "status " + statusValue;
-        statusEl.textContent = "状态: " + statusValue;
+        statusEl.textContent = {
+          success: "成功",
+          partial: "部分成功",
+          failed: "失败",
+          invalid: "无效",
+        }[statusValue] || statusValue;
 
         fields.forEach((key) => setFieldValue(key, data[key] || ""));
+        const displayUrl = data.final_url || data.url || "";
+        resultTitleEl.textContent = data.site_name || compactUrlLabel(displayUrl);
+        resultUrlEl.textContent = compactUrlLabel(displayUrl);
+        resultUrlEl.title = displayUrl;
         const warningText = data.warning || (statusValue === "success" ? data.error || "" : "");
         warningEl.textContent = warningText;
         if (statusValue === "success") {
@@ -1112,6 +1395,325 @@
         } else {
           iconWrapEl.hidden = true;
           iconEl.removeAttribute("src");
+        }
+
+      }
+
+      function arraysEqual(left, right) {
+        if (!Array.isArray(left) || !Array.isArray(right)) return false;
+        if (left.length !== right.length) return false;
+        return left.every((value, index) => value === right[index]);
+      }
+
+      function findSiteByUrl(url) {
+        const target = String(url || "").trim();
+        if (!target) return null;
+        return sitesCache.find((site) => String(site.url || "").trim() === target) || null;
+      }
+
+      function setResultManagerMessage(message, isError) {
+        resultManagerMsgEl.className = "msg result-manager-msg" + (isError ? " error" : "");
+        resultManagerMsgEl.textContent = message || "";
+      }
+
+      function revokeResultDraftUploadUrl() {
+        if (resultDraftUploadUrl) {
+          URL.revokeObjectURL(resultDraftUploadUrl);
+          resultDraftUploadUrl = "";
+        }
+      }
+
+      function resultHasChanges() {
+        if (!resultOriginalSite) return false;
+        return (
+          Boolean(resultDraftIconFile) ||
+          Boolean(resultDraftUploadFile) ||
+          !arraysEqual(resultDraftTags, resultOriginalSite.tags || [])
+        );
+      }
+
+      function updateResultSaveState() {
+        resultSaveBtn.disabled = resultSaving || !resultSiteId || !resultHasChanges();
+        resultIconPickBtn.disabled = resultSaving || !resultSiteId;
+        resultIconUploadBtn.disabled = resultSaving || !resultSiteId;
+        resultTagsInputEl.disabled = resultSaving || !resultSiteId;
+      }
+
+      function clearResultManager(message) {
+        resultSiteId = 0;
+        resultOriginalSite = null;
+        resultDraftTags = [];
+        resultDraftIconFile = "";
+        resultDraftUploadFile = null;
+        revokeResultDraftUploadUrl();
+        resultTagSuggestActiveIdx = -1;
+        resultManagerEl.hidden = true;
+        resultIconPickerEl.hidden = true;
+        resultIconSearchInput.value = "";
+        resultTagsInputEl.value = "";
+        resultTagsSuggestEl.hidden = true;
+        resultTagsSuggestEl.innerHTML = "";
+        resultTagsChipsEl.innerHTML = "";
+        setResultManagerMessage(message || "", Boolean(message));
+        updateResultSaveState();
+      }
+
+      function renderResultTagChips() {
+        resultTagsChipsEl.innerHTML = "";
+        resultDraftTags.forEach((name) => {
+          const chip = document.createElement("span");
+          chip.className = "tag-chip";
+          chip.textContent = name;
+          const x = document.createElement("button");
+          x.type = "button";
+          x.className = "chip-x";
+          x.textContent = "×";
+          x.setAttribute("aria-label", "删除标签 " + name);
+          x.addEventListener("click", (event) => {
+            event.preventDefault();
+            const lower = name.toLowerCase();
+            resultDraftTags = resultDraftTags.filter((tag) => tag.toLowerCase() !== lower);
+            renderResultTagChips();
+            updateResultSaveState();
+          });
+          chip.appendChild(x);
+          resultTagsChipsEl.appendChild(chip);
+        });
+      }
+
+      function addResultDraftTag(name) {
+        const clean = normalizeTagName(name);
+        if (!clean) return false;
+        if (clean.length > TAG_NAME_MAX_LEN) {
+          setResultManagerMessage("标签长度不能超过 " + TAG_NAME_MAX_LEN + " 个字符", true);
+          return false;
+        }
+        const lower = clean.toLowerCase();
+        if (resultDraftTags.some((tag) => tag.toLowerCase() === lower)) return false;
+        resultDraftTags.push(clean);
+        renderResultTagChips();
+        setResultManagerMessage("", false);
+        updateResultSaveState();
+        return true;
+      }
+
+      function hideResultTagSuggest() {
+        resultTagsSuggestEl.hidden = true;
+        resultTagsSuggestEl.innerHTML = "";
+        resultTagSuggestActiveIdx = -1;
+      }
+
+      function renderResultTagSuggest(query) {
+        const q = normalizeTagName(query).toLowerCase();
+        const selectedLower = new Set(resultDraftTags.map((tag) => tag.toLowerCase()));
+        const matches = tagsCache
+          .map((tag) => tag.name)
+          .filter((name) => {
+            const lower = name.toLowerCase();
+            if (selectedLower.has(lower)) return false;
+            return !q || lower.includes(q);
+          });
+        const exactMatch = matches.some((name) => name.toLowerCase() === q);
+        const rawTyped = normalizeTagName(query);
+        const canCreate =
+          rawTyped.length > 0 &&
+          rawTyped.length <= TAG_NAME_MAX_LEN &&
+          !exactMatch &&
+          !selectedLower.has(rawTyped.toLowerCase());
+
+        if (matches.length === 0 && !canCreate) {
+          hideResultTagSuggest();
+          return;
+        }
+
+        resultTagsSuggestEl.innerHTML = "";
+        matches.slice(0, 30).forEach((name, idx) => {
+          const item = document.createElement("div");
+          item.className = "tag-suggest-item";
+          item.textContent = name;
+          item.dataset.idx = String(idx);
+          item.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            addResultDraftTag(name);
+            resultTagsInputEl.value = "";
+            hideResultTagSuggest();
+          });
+          resultTagsSuggestEl.appendChild(item);
+        });
+        if (canCreate) {
+          const create = document.createElement("div");
+          create.className = "tag-suggest-item create-new";
+          create.textContent = "+ 新建 " + rawTyped;
+          create.addEventListener("mousedown", (event) => {
+            event.preventDefault();
+            if (addResultDraftTag(rawTyped)) {
+              resultTagsInputEl.value = "";
+              hideResultTagSuggest();
+            }
+          });
+          resultTagsSuggestEl.appendChild(create);
+        }
+        resultTagSuggestActiveIdx = -1;
+        resultTagsSuggestEl.hidden = false;
+      }
+
+      async function ensureIconLibrary() {
+        if (iconsCache !== null) return;
+        try {
+          const response = await fetch(getIconsApiUrl(), { method: "GET" });
+          iconsCache = await response.json();
+        } catch (_) {
+          iconsCache = [];
+        }
+      }
+
+      function renderResultIconGrid(icons) {
+        resultIconGridEl.innerHTML = "";
+        if (!Array.isArray(icons) || icons.length === 0) {
+          resultIconGridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#496178;padding:12px">无匹配图标</div>';
+          return;
+        }
+        icons.forEach((item) => {
+          const div = document.createElement("div");
+          div.className = "icon-grid-item" + (resultDraftIconFile === item.file ? " selected" : "");
+          div.title = item.name + " (" + item.keyword + ")";
+          const img = document.createElement("img");
+          img.src = getIconLibUrl(item.file);
+          img.alt = item.name;
+          img.loading = "lazy";
+          div.appendChild(img);
+          div.addEventListener("click", () => {
+            resultDraftIconFile = item.file;
+            resultDraftUploadFile = null;
+            revokeResultDraftUploadUrl();
+            iconWrapEl.hidden = false;
+            iconEl.src = getIconLibUrl(item.file);
+            renderResultIconGrid(iconsCache);
+            setResultManagerMessage("", false);
+            updateResultSaveState();
+          });
+          resultIconGridEl.appendChild(div);
+        });
+      }
+
+      function filterResultIcons(query) {
+        if (!iconsCache) return;
+        const q = (query || "").trim().toLowerCase();
+        const filtered = q
+          ? iconsCache.filter(
+              (item) => item.name.toLowerCase().includes(q) || item.keyword.toLowerCase().includes(q)
+            )
+          : iconsCache;
+        renderResultIconGrid(filtered);
+      }
+
+      function renderResultManager(site) {
+        resultSiteId = Number(site.id) || 0;
+        resultOriginalSite = cloneSite(site);
+        resultDraftTags = Array.isArray(site.tags) ? site.tags.slice() : [];
+        resultDraftIconFile = "";
+        resultDraftUploadFile = null;
+        revokeResultDraftUploadUrl();
+        resultIconPickerEl.hidden = true;
+        resultIconSearchInput.value = "";
+        resultTagsInputEl.value = "";
+        hideResultTagSuggest();
+        renderResultTagChips();
+        resultManagerEl.hidden = false;
+        setResultManagerMessage("", false);
+        updateResultSaveState();
+      }
+
+      function attachResultManagerForResponse(data) {
+        const site = findSiteByUrl(data && data.url);
+        if (!site) {
+          clearResultManager("已添加，但无法定位管理记录，请从导航列表编辑");
+          return;
+        }
+        renderResultManager(site);
+      }
+
+      function refreshResultFromSite(site) {
+        if (!site) return;
+        resultTitleEl.textContent = site.site_name || compactUrlLabel(site.url);
+        resultUrlEl.textContent = compactUrlLabel(site.url);
+        resultUrlEl.title = site.url || "";
+        setFieldValue("url", site.url || "");
+        setFieldValue("site_name", site.site_name || "");
+        if (site.icon_rel_path) {
+          setFieldValue("icon_rel_path", site.icon_rel_path);
+          const iconUrl = toIconUrl(site.icon_rel_path);
+          iconWrapEl.hidden = false;
+          iconEl.src = iconUrl;
+        }
+      }
+
+      function updateSiteCacheFromResponse(siteId, data) {
+        const index = findSiteIndexById(siteId);
+        if (index >= 0 && data && typeof data === "object") {
+          sitesCache[index] = cloneSite({ ...sitesCache[index], ...data });
+          return sitesCache[index];
+        }
+        return getSiteById(siteId);
+      }
+
+      async function saveResultManager() {
+        if (resultSaving || !resultSiteId || !resultOriginalSite || !resultHasChanges()) return;
+        const siteId = Number(resultSiteId) || 0;
+        setResultManagerMessage("", false);
+        setResultSaving(true);
+        try {
+          let latestSite = getSiteById(siteId) || resultOriginalSite;
+
+          if (resultDraftUploadFile) {
+            const formData = new FormData();
+            formData.append("icon", resultDraftUploadFile);
+            const uploadResponse = await fetch(getSiteIconUploadUrl(siteId), {
+              method: "POST",
+              body: formData,
+            });
+            const uploadData = await uploadResponse.json().catch(() => ({}));
+            if (!uploadResponse.ok) {
+              throw new Error(uploadData.error || "上传失败，状态码: " + uploadResponse.status);
+            }
+            latestSite = updateSiteCacheFromResponse(siteId, uploadData) || latestSite;
+          }
+
+          const shouldPutSite = Boolean(resultDraftIconFile) || !arraysEqual(resultDraftTags, latestSite.tags || []);
+          if (shouldPutSite) {
+            const body = {
+              site_name: latestSite.site_name,
+              url: latestSite.url,
+              tags: resultDraftTags.slice(),
+            };
+            if (resultDraftIconFile) {
+              body.icon_file = resultDraftIconFile;
+            }
+            const response = await fetch(getSiteApiUrl(siteId), {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              throw new Error(data.error || "请求失败，状态码: " + response.status);
+            }
+            latestSite = updateSiteCacheFromResponse(siteId, data) || latestSite;
+          }
+
+          await loadTags();
+          renderSites();
+          const freshSite = getSiteById(siteId) || latestSite;
+          refreshResultFromSite(freshSite);
+          renderResultManager(freshSite);
+          setResultManagerMessage("已保存", false);
+        } catch (error) {
+          setResultManagerMessage(
+            "保存失败：" + (error && error.message ? error.message : String(error)),
+            true
+          );
+        } finally {
+          setResultSaving(false);
         }
       }
 
@@ -1743,6 +2345,10 @@
           renderResult(data);
           if (response.ok) {
             await loadSites();
+            const statusValue = data.status || "failed";
+            if (statusValue === "success" || statusValue === "partial") {
+              attachResultManagerForResponse(data);
+            }
           }
         } catch (error) {
           renderResult({
@@ -1776,6 +2382,114 @@
           closeEditModal();
         }
       });
+
+      resultIconPickBtn.addEventListener("click", async () => {
+        if (!resultSiteId || resultSaving) return;
+        if (resultIconPickerEl.hidden) {
+          resultIconPickerEl.hidden = false;
+          await ensureIconLibrary();
+          renderResultIconGrid(iconsCache);
+          resultIconSearchInput.focus();
+        } else {
+          resultIconPickerEl.hidden = true;
+        }
+      });
+
+      resultIconUploadBtn.addEventListener("click", () => {
+        if (!resultSiteId || resultSaving) return;
+        resultIconUploadInput.click();
+      });
+
+      resultIconUploadInput.addEventListener("change", () => {
+        const file = resultIconUploadInput.files && resultIconUploadInput.files[0];
+        resultIconUploadInput.value = "";
+        if (!file) return;
+        if (!/\.(ico|png|svg)$/i.test(file.name)) {
+          setResultManagerMessage("仅支持 .ico、.png、.svg 格式图标", true);
+          return;
+        }
+        if (file.size > ICON_UPLOAD_MAX_BYTES) {
+          setResultManagerMessage("图标大小不能超过 1MB", true);
+          return;
+        }
+        resultDraftUploadFile = file;
+        resultDraftIconFile = "";
+        revokeResultDraftUploadUrl();
+        resultDraftUploadUrl = URL.createObjectURL(file);
+        iconWrapEl.hidden = false;
+        iconEl.src = resultDraftUploadUrl;
+        resultIconPickerEl.hidden = true;
+        setResultManagerMessage("", false);
+        updateResultSaveState();
+      });
+
+      resultIconSearchInput.addEventListener("input", () => {
+        clearTimeout(resultIconSearchTimer);
+        resultIconSearchTimer = setTimeout(() => {
+          filterResultIcons(resultIconSearchInput.value);
+        }, 150);
+      });
+
+      resultTagsInputEl.addEventListener("input", () => {
+        renderResultTagSuggest(resultTagsInputEl.value);
+      });
+
+      resultTagsInputEl.addEventListener("focus", () => {
+        renderResultTagSuggest(resultTagsInputEl.value);
+      });
+
+      resultTagsInputEl.addEventListener("blur", () => {
+        setTimeout(hideResultTagSuggest, 120);
+      });
+
+      resultTagsInputEl.addEventListener("keydown", (event) => {
+        const items = resultTagsSuggestEl.querySelectorAll(".tag-suggest-item");
+        if (event.key === "Enter") {
+          event.preventDefault();
+          if (!resultTagsSuggestEl.hidden && resultTagSuggestActiveIdx >= 0 && items[resultTagSuggestActiveIdx]) {
+            items[resultTagSuggestActiveIdx].dispatchEvent(new MouseEvent("mousedown"));
+            return;
+          }
+          const raw = resultTagsInputEl.value;
+          if (raw.trim() && addResultDraftTag(raw)) {
+            resultTagsInputEl.value = "";
+            hideResultTagSuggest();
+          }
+          return;
+        }
+        if (event.key === "Backspace" && resultTagsInputEl.value === "" && resultDraftTags.length > 0) {
+          resultDraftTags.pop();
+          renderResultTagChips();
+          updateResultSaveState();
+          return;
+        }
+        if (event.key === "," || event.key === "，") {
+          event.preventDefault();
+          const raw = resultTagsInputEl.value;
+          if (raw.trim() && addResultDraftTag(raw)) {
+            resultTagsInputEl.value = "";
+            hideResultTagSuggest();
+          }
+          return;
+        }
+        if (event.key === "Escape" && !resultTagsSuggestEl.hidden) {
+          event.stopPropagation();
+          hideResultTagSuggest();
+          return;
+        }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          if (resultTagsSuggestEl.hidden || items.length === 0) return;
+          event.preventDefault();
+          const delta = event.key === "ArrowDown" ? 1 : -1;
+          resultTagSuggestActiveIdx =
+            (resultTagSuggestActiveIdx + delta + items.length) % items.length;
+          items.forEach((el, idx) =>
+            el.classList.toggle("active", idx === resultTagSuggestActiveIdx)
+          );
+        }
+      });
+
+      resultSaveBtn.addEventListener("click", saveResultManager);
 
       editIconBtn.addEventListener("click", () => {
         if (iconPickerEl.hidden) {
