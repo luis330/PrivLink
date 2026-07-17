@@ -20,10 +20,11 @@ from typing import Any, Iterator
 from urllib import parse
 
 import httpx
-from fastapi import FastAPI, File, Request, UploadFile
+from fastapi import FastAPI, File, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -1267,8 +1268,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.mount("/ICON", StaticFiles(directory=str(ICON_DIR), check_dir=False), name="icon")
-app.mount("/icons", StaticFiles(directory=str(ICONS_LIB_DIR)), name="icon-lib")
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+
+
+class CachedStaticFiles(StaticFiles):
+    def __init__(self, *args: Any, cache_control: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.cache_control = cache_control
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers.setdefault("Cache-Control", self.cache_control)
+        return response
+
+
+app.mount(
+    "/ICON",
+    CachedStaticFiles(directory=str(ICON_DIR), check_dir=False, cache_control="public, max-age=86400"),
+    name="icon",
+)
+app.mount(
+    "/icons",
+    CachedStaticFiles(directory=str(ICONS_LIB_DIR), cache_control="public, max-age=604800"),
+    name="icon-lib",
+)
 
 
 @app.exception_handler(RequestValidationError)
@@ -1282,16 +1305,41 @@ async def generic_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=500, content=error_payload(f"Internal server error: {exc}"))
 
 
+_index_cache: tuple[float, bytes, str] | None = None
+
+
+def load_index_page() -> tuple[bytes, str] | None:
+    # 缓存 index.html 内容与内容 ETag，mtime 变化时自动重新加载
+    global _index_cache
+    try:
+        mtime = FRONTEND_PATH.stat().st_mtime
+    except OSError:
+        return None
+    if _index_cache is None or _index_cache[0] != mtime:
+        body = FRONTEND_PATH.read_bytes()
+        etag = f'"{hashlib.md5(body).hexdigest()}"'
+        _index_cache = (mtime, body, etag)
+    return _index_cache[1], _index_cache[2]
+
+
 @app.get("/", include_in_schema=False, response_model=None)
-async def index_page():
-    if not FRONTEND_PATH.exists():
+async def index_page(request: Request):
+    cached = load_index_page()
+    if cached is None:
         return JSONResponse(status_code=500, content=error_payload("Frontend file is missing"))
-    return FileResponse(path=str(FRONTEND_PATH), media_type="text/html")
+    body, etag = cached
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if_none_match = request.headers.get("if-none-match", "")
+    if if_none_match:
+        received = {tag.strip().removeprefix("W/").strip('"') for tag in if_none_match.split(",")}
+        if "*" in received or etag.strip('"') in received:
+            return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type="text/html", headers=headers)
 
 
 @app.get("/index.html", include_in_schema=False, response_model=None)
-async def index_page_alias():
-    return await index_page()
+async def index_page_alias(request: Request):
+    return await index_page(request)
 
 
 @app.get("/api/settings/ingest-token", response_model=IngestTokenStatus)

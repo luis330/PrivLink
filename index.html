@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>网站导航</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%AD%3C/text%3E%3C/svg%3E" />
     <style>
       :root {
         --bg-a: #0a46b6;
@@ -402,6 +403,7 @@
       .result-icon-grid .icon-grid-item {
         width: 42px;
         height: 42px;
+        contain-intrinsic-size: 42px;
       }
 
       .result-icon-grid .icon-grid-item img {
@@ -825,6 +827,8 @@
         place-items: center;
         cursor: pointer;
         transition: border-color 0.12s ease;
+        content-visibility: auto;
+        contain-intrinsic-size: 48px;
       }
 
       .icon-grid-item:hover {
@@ -1144,7 +1148,12 @@
       const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
       const TAG_NAME_MAX_LEN = 20;
       const ACTIVE_TAG_STORAGE_KEY = "nav_active_tag";
+      const SITES_CACHE_STORAGE_KEY = "nav_cache_v1:sites";
+      const TAGS_CACHE_STORAGE_KEY = "nav_cache_v1:tags";
       let sitesCache = [];
+      let lastSitesJson = "";
+      let lastTagsJson = "";
+      let bootedFromCache = false;
       let menuSiteId = 0;
       let editSiteId = 0;
       let deleteSiteId = 0;
@@ -1252,6 +1261,7 @@
           iconGridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#888;padding:20px">无匹配图标</div>';
           return;
         }
+        const fragment = document.createDocumentFragment();
         icons.forEach((item) => {
           const div = document.createElement("div");
           div.className = "icon-grid-item" + (selectedIconFile === item.file ? " selected" : "");
@@ -1262,8 +1272,9 @@
           img.loading = "lazy";
           div.appendChild(img);
           div.addEventListener("click", () => selectIcon(item.file));
-          iconGridEl.appendChild(div);
+          fragment.appendChild(div);
         });
+        iconGridEl.appendChild(fragment);
       }
 
       function filterIcons(query) {
@@ -1573,6 +1584,7 @@
           resultIconGridEl.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#496178;padding:12px">无匹配图标</div>';
           return;
         }
+        const fragment = document.createDocumentFragment();
         icons.forEach((item) => {
           const div = document.createElement("div");
           div.className = "icon-grid-item" + (resultDraftIconFile === item.file ? " selected" : "");
@@ -1592,8 +1604,9 @@
             setResultManagerMessage("", false);
             updateResultSaveState();
           });
-          resultIconGridEl.appendChild(div);
+          fragment.appendChild(div);
         });
+        resultIconGridEl.appendChild(fragment);
       }
 
       function filterResultIcons(query) {
@@ -2103,9 +2116,11 @@
         }
         setNavState("", false);
         const list = getFilteredSites();
+        const fragment = document.createDocumentFragment();
         list.forEach((site, index) => {
-          navGridEl.appendChild(createNavItem(site, index));
+          fragment.appendChild(createNavItem(site, index));
         });
+        navGridEl.appendChild(fragment);
       }
 
       function handleReorder(fromIndex, toIndex) {
@@ -2188,9 +2203,19 @@
         try {
           const response = await fetch(getTagsApiUrl(), { method: "GET" });
           const data = await response.json().catch(() => []);
-          tagsCache = Array.isArray(data) ? data : [];
+          const tags = Array.isArray(data) ? data : [];
+          const fresh = JSON.stringify(tags);
+          if (fresh !== lastTagsJson) {
+            tagsCache = tags;
+            lastTagsJson = fresh;
+            try {
+              localStorage.setItem(TAGS_CACHE_STORAGE_KEY, fresh);
+            } catch (_) {}
+          }
         } catch (_) {
-          tagsCache = [];
+          if (!lastTagsJson) {
+            tagsCache = [];
+          }
         }
         if (activeTag && !tagsCache.some((t) => t.name === activeTag)) {
           activeTag = "";
@@ -2200,18 +2225,29 @@
       }
 
       async function loadSites() {
-        setNavState("加载中...", false);
+        if (!bootedFromCache) {
+          setNavState("加载中...", false);
+        }
         try {
           const response = await fetch(getSitesApiUrl(), { method: "GET" });
           const data = await response.json().catch(() => []);
           if (!response.ok) {
             throw new Error("请求失败，状态码: " + response.status);
           }
-          setSitesCache(data);
+          const fresh = JSON.stringify(data);
+          if (fresh !== lastSitesJson || !bootedFromCache) {
+            setSitesCache(data);
+            lastSitesJson = fresh;
+            try {
+              localStorage.setItem(SITES_CACHE_STORAGE_KEY, fresh);
+            } catch (_) {}
+          }
         } catch (error) {
-          setNavState("导航加载失败", true);
-          sitesCache = [];
-          navGridEl.innerHTML = "";
+          if (!bootedFromCache) {
+            setNavState("导航加载失败", true);
+            sitesCache = [];
+            navGridEl.innerHTML = "";
+          }
         }
       }
 
@@ -2671,8 +2707,29 @@
         const saved = localStorage.getItem(ACTIVE_TAG_STORAGE_KEY);
         if (saved) activeTag = saved;
       } catch (_) {}
-      Promise.all([loadSites(), loadTags()]).then(() => {
+      try {
+        lastSitesJson = localStorage.getItem(SITES_CACHE_STORAGE_KEY) || "";
+        lastTagsJson = localStorage.getItem(TAGS_CACHE_STORAGE_KEY) || "";
+        if (lastSitesJson) {
+          sitesCache = JSON.parse(lastSitesJson).map((site) => cloneSite(site));
+          bootedFromCache = true;
+        }
+        if (lastTagsJson) {
+          tagsCache = JSON.parse(lastTagsJson) || [];
+        }
+      } catch (_) {
+        sitesCache = [];
+        tagsCache = [];
+        lastSitesJson = "";
+        lastTagsJson = "";
+        bootedFromCache = false;
+      }
+      if (bootedFromCache) {
+        renderTagBar();
         renderSites();
+      }
+      Promise.all([loadSites(), loadTags()]).then(() => {
+        renderTagBar();
       });
     </script>
   </body>
