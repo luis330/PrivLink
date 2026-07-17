@@ -282,3 +282,11 @@ docker compose restart
 - 启动时自动创建 `data/`、`ICON/`、数据表。
 - 启用 SSRF 防护，默认禁止本机/内网地址；放行 `192.168.50.0/24` 网段。
 - Docker 默认单实例运行（`workers=1`），适配 SQLite。
+
+## 性能与缓存策略
+
+- 响应启用 gzip 压缩（大于 1KB 的 HTML/JSON），首页传输体积约为原始大小的 1/6。
+- 首页 `GET /` 支持 ETag / 304 协商缓存，内容未变化时刷新页面几乎零流量。
+- 静态图标带浏览器缓存：`/ICON` 缓存 1 天，`/icons` 图标库缓存 7 天。更换站点图标后浏览器最多 1 天内仍显示旧图，Ctrl+F5 强制刷新可立即生效。
+- 前端把站点和标签数据缓存在 localStorage（`nav_cache_v1:*`）：再次打开页面立即渲染本地数据，后台拉取最新数据后自动更新；清除浏览器站点数据即可重置本地缓存。
+- Linux 容器内自动启用 uvloop / httptools（依赖 `uvicorn[standard]`）；Windows 开发环境自动跳过 uvloop，启动命令不变。
