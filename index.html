@@ -527,6 +527,51 @@
         gap: 12px;
       }
 
+      .add-head-tools {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .public-ip-display {
+        display: flex;
+        align-items: center;
+        color: #fff;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .public-ip-refresh {
+        border: none;
+        background: transparent;
+        color: inherit;
+        padding: 4px 0;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .public-ip-refresh:hover {
+        text-decoration: underline;
+      }
+
+      .public-ip-refresh:focus-visible {
+        outline: 2px solid #ffffffb3;
+        outline-offset: 2px;
+        border-radius: 3px;
+      }
+
+      .public-ip-refresh:disabled {
+        cursor: wait;
+        opacity: 0.72;
+      }
+
+      .public-ip-value {
+        cursor: text;
+        user-select: text;
+        font-variant-numeric: tabular-nums;
+      }
+
       .token-settings-btn {
         flex: 0 0 auto;
         border: 1px solid #ffffff5e;
@@ -886,6 +931,12 @@
         .add-head {
           align-items: center;
           flex-direction: row;
+          flex-wrap: wrap;
+        }
+
+        .add-head-tools {
+          margin-left: auto;
+          gap: 8px;
         }
 
         .token-settings-btn {
@@ -949,7 +1000,18 @@
             <h2 class="add-title">添加网站</h2>
             <p class="add-desc">输入网址后点击“获取”，系统会解析站点名称和图标并写入本地 SQLite。</p>
           </div>
-          <button id="token-settings-btn" class="token-settings-btn" type="button">Token 设置</button>
+          <div class="add-head-tools">
+            <div class="public-ip-display" aria-live="polite">
+              <button
+                id="public-ip-refresh"
+                class="public-ip-refresh"
+                type="button"
+                aria-label="刷新公网 IP"
+              >公网IP：</button>
+              <span id="public-ip-value" class="public-ip-value">获取中…</span>
+            </div>
+            <button id="token-settings-btn" class="token-settings-btn" type="button">Token 设置</button>
+          </div>
         </div>
 
         <form id="parse-form">
@@ -1137,6 +1199,8 @@
       const editTagsChipsEl = document.getElementById("edit-tags-chips");
       const editTagsInputEl = document.getElementById("edit-tags-input");
       const editTagsSuggestEl = document.getElementById("edit-tags-suggest");
+      const publicIpRefreshBtn = document.getElementById("public-ip-refresh");
+      const publicIpValueEl = document.getElementById("public-ip-value");
       const tokenSettingsBtn = document.getElementById("token-settings-btn");
       const tokenModalEl = document.getElementById("token-modal");
       const tokenForm = document.getElementById("token-form");
@@ -1170,6 +1234,7 @@
       let activeTag = "";
       let editDraftTags = [];
       let tagSuggestActiveIdx = -1;
+      let publicIpLoading = false;
       let tokenSaving = false;
       let resultSiteId = 0;
       let resultOriginalSite = null;
@@ -1237,6 +1302,13 @@
           return "http://127.0.0.1:8000/api/settings/ingest-token";
         }
         return "/api/settings/ingest-token";
+      }
+
+      function getPublicIpApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/network/public-ip";
+        }
+        return "/api/network/public-ip";
       }
 
       function getIconLibUrl(filename) {
@@ -1344,6 +1416,35 @@
         tokenSaving = loading;
         tokenSaveBtn.disabled = loading;
         tokenSaveBtn.textContent = loading ? "保存中..." : "保存";
+      }
+
+      function setPublicIpLoading(loading) {
+        publicIpLoading = loading;
+        publicIpRefreshBtn.disabled = loading;
+        publicIpRefreshBtn.setAttribute("aria-busy", loading ? "true" : "false");
+      }
+
+      async function loadPublicIp() {
+        if (publicIpLoading) return;
+        publicIpValueEl.textContent = "获取中…";
+        setPublicIpLoading(true);
+        try {
+          const response = await fetch(getPublicIpApiUrl(), {
+            method: "GET",
+            cache: "no-store",
+            headers: { Accept: "application/json" },
+          });
+          const data = await response.json().catch(() => ({}));
+          const publicIp = typeof data.ip === "string" ? data.ip.trim() : "";
+          if (!response.ok || !publicIp) {
+            throw new Error(data.error || "无法获取公网 IP");
+          }
+          publicIpValueEl.textContent = publicIp;
+        } catch (_) {
+          publicIpValueEl.textContent = "获取失败";
+        } finally {
+          setPublicIpLoading(false);
+        }
       }
 
       function setTokenMessage(message, isError) {
@@ -2671,6 +2772,7 @@
         }
       });
 
+      publicIpRefreshBtn.addEventListener("click", loadPublicIp);
       tokenSettingsBtn.addEventListener("click", openTokenModal);
       tokenCloseBtn.addEventListener("click", closeTokenModal);
       tokenCancelBtn.addEventListener("click", closeTokenModal);
@@ -2728,6 +2830,7 @@
         renderTagBar();
         renderSites();
       }
+      loadPublicIp();
       Promise.all([loadSites(), loadTags()]).then(() => {
         renderTagBar();
       });
