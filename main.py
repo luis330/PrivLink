@@ -40,6 +40,12 @@ REQUEST_TIMEOUT_SECONDS = 10
 MAX_RETRIES = 2
 MAX_REDIRECTS = 5
 MAX_RETRY_AFTER_SECONDS = 5
+PUBLIC_IPV4_PROVIDERS = (
+    "https://ip.3322.net",
+    "https://api-ipv4.ip.sb/ip",
+)
+PUBLIC_IPV4_TIMEOUT_SECONDS = 3.0
+PUBLIC_IPV4_MAX_BYTES = 128
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -193,6 +199,10 @@ class FetchHTTPStatusError(RuntimeError):
         self.status_code = response.status_code
         self.retry_after_seconds = parse_retry_after(response.headers.get("Retry-After"))
         super().__init__(format_http_error(response))
+
+
+class PublicIPv4LookupError(RuntimeError):
+    pass
 
 
 @dataclass
@@ -516,6 +526,48 @@ def read_with_limit(byte_stream: Any, max_bytes: int) -> bytes:
             raise ValueError(f"Response exceeds limit ({max_bytes} bytes)")
         chunks.append(piece)
     return b"".join(chunks)
+
+
+class DirectPublicIPv4Resolver:
+    def __init__(
+        self,
+        providers: tuple[str, ...] = PUBLIC_IPV4_PROVIDERS,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self.providers = providers
+        self.transport = transport
+
+    def resolve(self) -> str:
+        with httpx.Client(
+            timeout=PUBLIC_IPV4_TIMEOUT_SECONDS,
+            trust_env=False,
+            follow_redirects=False,
+            transport=self.transport,
+        ) as client:
+            for provider in self.providers:
+                try:
+                    with client.stream(
+                        "GET",
+                        provider,
+                        headers={"Accept": "text/plain"},
+                    ) as response:
+                        response.raise_for_status()
+                        body = read_with_limit(
+                            response.iter_bytes(chunk_size=PUBLIC_IPV4_MAX_BYTES + 1),
+                            max_bytes=PUBLIC_IPV4_MAX_BYTES,
+                        )
+                    address = ipaddress.IPv4Address(body.decode("ascii").strip())
+                    if not address.is_global:
+                        raise ValueError(f"IPv4 address is not globally routable: {address}")
+                    public_ip = str(address)
+                except (httpx.HTTPError, UnicodeDecodeError, ValueError) as exc:
+                    logger.warning("直连公网 IPv4 查询源失败: %s (%s)", provider, exc)
+                    continue
+                return public_ip
+        raise PublicIPv4LookupError("所有直连公网 IPv4 查询源均不可用")
+
+
+public_ipv4_resolver = DirectPublicIPv4Resolver()
 
 
 def format_http_error(response: httpx.Response) -> str:
@@ -1101,6 +1153,10 @@ class IngestTokenStatus(BaseModel):
     configured: bool
 
 
+class PublicIPv4Response(BaseModel):
+    ip: str
+
+
 class MessageResponse(BaseModel):
     message: str
 
@@ -1340,6 +1396,24 @@ async def index_page(request: Request):
 @app.get("/index.html", include_in_schema=False, response_model=None)
 async def index_page_alias(request: Request):
     return await index_page(request)
+
+
+@app.get("/api/network/public-ip", response_model=PublicIPv4Response)
+def read_public_ipv4() -> JSONResponse:
+    try:
+        public_ip = public_ipv4_resolver.resolve()
+    except PublicIPv4LookupError as exc:
+        logger.warning("获取直连公网 IPv4 失败: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"error": "无法获取直连公网 IPv4"},
+            headers={"Cache-Control": "no-store"},
+        )
+    return JSONResponse(
+        status_code=200,
+        content={"ip": public_ip},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/settings/ingest-token", response_model=IngestTokenStatus)
