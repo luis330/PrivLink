@@ -5,6 +5,7 @@
 ## 功能
 
 - 前端页面：`GET /`
+- 直连公网 IPv4：`GET /api/network/public-ip`
 - 解析接口：`POST /api/site/parse`
 - 浏览器采集上报接口：`POST /api/site/ingest`
 - icon 静态访问：`GET /ICON/<filename>`
@@ -32,6 +33,27 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 - OpenAPI：`http://127.0.0.1:8000/docs`
 
 ## API
+
+### `GET /api/network/public-ip`
+
+返回服务端当前网络的直连公网 IPv4。该查询明确忽略 `HTTP_PROXY`、`HTTPS_PROXY` 和
+`ALL_PROXY`，不会降级为代理出口 IP。首页加载时会自动查询，点击“公网IP：”可立即刷新。
+
+成功响应：
+
+```json
+{
+  "ip": "203.0.113.10"
+}
+```
+
+所有直连查询源均不可用时返回 `502`：
+
+```json
+{
+  "error": "无法获取直连公网 IPv4"
+}
+```
 
 ### `POST /api/site/parse`
 
