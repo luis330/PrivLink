@@ -445,49 +445,6 @@
         bottom: 100%;
         margin-top: 0;
         margin-bottom: 4px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        padding: 8px;
-      }
-
-      .result-tags-wrap .tag-suggest[hidden] {
-        display: none;
-      }
-
-      .result-tags-wrap .tag-suggest-item {
-        padding: 5px 12px;
-        border-radius: 999px;
-        background: rgba(15, 124, 240, 0.12);
-        color: #11457e;
-        font-size: 13px;
-        line-height: 1.2;
-        cursor: pointer;
-        user-select: none;
-        transition: background 0.12s ease, color 0.12s ease;
-      }
-
-      .result-tags-wrap .tag-suggest-item:hover {
-        background: rgba(15, 124, 240, 0.24);
-      }
-
-      .result-tags-wrap .tag-suggest-item.selected {
-        background: var(--button-bg);
-        color: #fff;
-      }
-
-      .result-tags-wrap .tag-suggest-item.selected:hover {
-        background: var(--button-hover);
-      }
-
-      .result-tags-wrap .tag-suggest-item.active {
-        box-shadow: 0 0 0 2px var(--focus-soft), 0 0 0 1px var(--button-bg);
-      }
-
-      .result-tags-wrap .tag-suggest-item.create-new {
-        border: 1px dashed rgba(15, 124, 240, 0.5);
-        background: rgba(255, 255, 255, 0.6);
-        color: #0f7cf0;
       }
 
       .result-tags-input {
@@ -937,23 +894,65 @@
         border-radius: 12px;
         box-shadow: 0 12px 28px rgba(8, 22, 64, 0.28);
         z-index: 5;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px;
+      }
+
+      .tag-suggest[hidden] {
+        display: none;
       }
 
       .tag-suggest-item {
-        padding: 8px 14px;
-        font-size: 14px;
-        color: var(--ink);
+        padding: 5px 12px;
+        border-radius: 999px;
+        background: rgba(15, 124, 240, 0.12);
+        color: #11457e;
+        font-size: 13px;
+        line-height: 1.2;
         cursor: pointer;
+        user-select: none;
+        transition: background 0.12s ease, color 0.12s ease;
       }
 
-      .tag-suggest-item:hover,
+      .tag-suggest-item:hover {
+        background: rgba(15, 124, 240, 0.24);
+      }
+
+      .tag-suggest-item.selected {
+        background: var(--button-bg);
+        color: #fff;
+      }
+
+      .tag-suggest-item.selected:hover {
+        background: var(--button-hover);
+      }
+
       .tag-suggest-item.active {
-        background: rgba(15, 124, 240, 0.12);
+        box-shadow: 0 0 0 2px var(--focus-soft), 0 0 0 1px var(--button-bg);
       }
 
       .tag-suggest-item.create-new {
-        border-top: 1px solid var(--line-2);
+        border: 1px dashed rgba(15, 124, 240, 0.5);
+        background: rgba(255, 255, 255, 0.6);
         color: #0f7cf0;
+      }
+
+      #edit-tags-wrap {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      #edit-tags-wrap .tag-chips {
+        display: contents;
+      }
+
+      #edit-tags-wrap .modal-input {
+        width: auto;
+        flex: 1 1 140px;
+        min-width: 120px;
       }
 
       .modal-actions {
@@ -1840,8 +1839,11 @@
       function renderResultTagSuggest(query) {
         const q = normalizeTagName(query).toLowerCase();
         const selectedLower = new Set(resultDraftTags.map((tag) => tag.toLowerCase()));
-        const matches = tagsCache
-          .map((tag) => tag.name)
+        const libraryNames = tagsCache.map((tag) => tag.name);
+        const libraryLower = new Set(libraryNames.map((n) => n.toLowerCase()));
+        const draftOnly = resultDraftTags.filter((tag) => !libraryLower.has(tag.toLowerCase()));
+        const matches = libraryNames
+          .concat(draftOnly)
           .filter((name) => !q || name.toLowerCase().includes(q));
         const exactMatch = matches.some((name) => name.toLowerCase() === q);
         const rawTyped = normalizeTagName(query);
@@ -2402,6 +2404,18 @@
         const lower = name.toLowerCase();
         editDraftTags = editDraftTags.filter((t) => t.toLowerCase() !== lower);
         renderEditTagChips();
+        if (!editTagsSuggestEl.hidden) {
+          renderTagSuggest(editTagsInputEl.value);
+        }
+      }
+
+      function toggleDraftTag(name) {
+        const lower = normalizeTagName(name).toLowerCase();
+        if (editDraftTags.some((t) => t.toLowerCase() === lower)) {
+          removeDraftTag(name);
+        } else {
+          addDraftTag(name);
+        }
       }
 
       function hideTagSuggest() {
@@ -2413,13 +2427,12 @@
       function renderTagSuggest(query) {
         const q = normalizeTagName(query).toLowerCase();
         const selectedLower = new Set(editDraftTags.map((t) => t.toLowerCase()));
-        const matches = tagsCache
-          .map((t) => t.name)
-          .filter((name) => {
-            const nl = name.toLowerCase();
-            if (selectedLower.has(nl)) return false;
-            return !q || nl.includes(q);
-          });
+        const libraryNames = tagsCache.map((t) => t.name);
+        const libraryLower = new Set(libraryNames.map((n) => n.toLowerCase()));
+        const draftOnly = editDraftTags.filter((t) => !libraryLower.has(t.toLowerCase()));
+        const matches = libraryNames
+          .concat(draftOnly)
+          .filter((name) => !q || name.toLowerCase().includes(q));
         const exactMatch = matches.some((n) => n.toLowerCase() === q);
         const rawTyped = normalizeTagName(query);
         const canCreate =
@@ -2434,16 +2447,16 @@
         }
 
         editTagsSuggestEl.innerHTML = "";
-        matches.slice(0, 50).forEach((name, idx) => {
+        matches.forEach((name, idx) => {
           const item = document.createElement("div");
-          item.className = "tag-suggest-item";
+          item.className =
+            "tag-suggest-item" + (selectedLower.has(name.toLowerCase()) ? " selected" : "");
           item.textContent = name;
           item.dataset.idx = String(idx);
           item.addEventListener("mousedown", (e) => {
             e.preventDefault();
-            addDraftTag(name);
-            editTagsInputEl.value = "";
-            hideTagSuggest();
+            toggleDraftTag(name);
+            renderTagSuggest(editTagsInputEl.value);
           });
           editTagsSuggestEl.appendChild(item);
         });
@@ -2455,7 +2468,7 @@
             e.preventDefault();
             if (addDraftTag(rawTyped)) {
               editTagsInputEl.value = "";
-              hideTagSuggest();
+              renderTagSuggest("");
             }
           });
           editTagsSuggestEl.appendChild(create);
@@ -2819,6 +2832,9 @@
           if (!resultTagsSuggestEl.hidden && !resultTagsWrapEl.contains(event.target)) {
             hideResultTagSuggest();
           }
+          if (!editTagsSuggestEl.hidden && !editTagsWrapEl.contains(event.target)) {
+            hideTagSuggest();
+          }
         },
         true
       );
@@ -2958,8 +2974,10 @@
       editTagsInputEl.addEventListener("focus", () => {
         renderTagSuggest(editTagsInputEl.value);
       });
-      editTagsInputEl.addEventListener("blur", () => {
-        setTimeout(hideTagSuggest, 120);
+      editTagsInputEl.addEventListener("click", () => {
+        if (editTagsSuggestEl.hidden) {
+          renderTagSuggest(editTagsInputEl.value);
+        }
       });
       editTagsInputEl.addEventListener("keydown", (event) => {
         const items = editTagsSuggestEl.querySelectorAll(".tag-suggest-item");
@@ -2972,13 +2990,16 @@
           const raw = editTagsInputEl.value;
           if (raw.trim() && addDraftTag(raw)) {
             editTagsInputEl.value = "";
-            hideTagSuggest();
+            renderTagSuggest("");
           }
           return;
         }
         if (event.key === "Backspace" && editTagsInputEl.value === "" && editDraftTags.length > 0) {
           editDraftTags.pop();
           renderEditTagChips();
+          if (!editTagsSuggestEl.hidden) {
+            renderTagSuggest(editTagsInputEl.value);
+          }
           return;
         }
         if (event.key === "," || event.key === "，") {
@@ -2986,7 +3007,7 @@
           const raw = editTagsInputEl.value;
           if (raw.trim() && addDraftTag(raw)) {
             editTagsInputEl.value = "";
-            hideTagSuggest();
+            renderTagSuggest("");
           }
           return;
         }
