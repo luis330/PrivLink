@@ -7,6 +7,11 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.135.1",
     "httpx[socks]>=0.28.1",
+    "pytest>=9.1.1",
     "python-multipart>=0.0.20",
     "uvicorn[standard]>=0.41.0",
 ]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+default = true
