@@ -1176,7 +1176,7 @@
               >公网IP：</button>
               <span id="public-ip-value" class="public-ip-value">获取中…</span>
             </div>
-            <button id="token-settings-btn" class="token-settings-btn" type="button">Token 设置</button>
+            <button id="token-settings-btn" class="token-settings-btn" type="button">访问 Token</button>
           </div>
         </div>
 
@@ -1299,11 +1299,11 @@
     <div id="token-modal" class="modal-overlay" hidden>
       <section class="modal-card token-modal-card" role="dialog" aria-modal="true" aria-labelledby="token-title">
         <div class="modal-head">
-          <h2 id="token-title" class="modal-title">Token 设置</h2>
+          <h2 id="token-title" class="modal-title">访问 Token</h2>
           <button id="token-close-btn" class="close-btn" type="button" aria-label="关闭">×</button>
         </div>
         <form id="token-form" class="modal-form">
-          <label class="modal-label" for="token-input">X-Nav-Token</label>
+          <label class="modal-label" for="token-input">访问 Token（部署时配置）</label>
           <input id="token-input" class="modal-input token-input" type="text" autocomplete="off" spellcheck="false" />
           <div id="token-error" class="modal-error"></div>
           <div class="modal-actions">
@@ -1417,6 +1417,7 @@
       const ACTIVE_TAG_STORAGE_KEY = "nav_active_tag";
       const SITES_CACHE_STORAGE_KEY = "nav_cache_v1:sites";
       const TAGS_CACHE_STORAGE_KEY = "nav_cache_v1:tags";
+      const AUTH_TOKEN_STORAGE_KEY = "nav_auth_token_v1";
       const ICON_UPLOAD_MAX_BYTES = 1024 * 1024;
 
       /* ===== API 地址 ===== */
@@ -1471,13 +1472,6 @@
         return "/api/tags";
       }
 
-      function getIngestTokenSettingsApiUrl() {
-        if (window.location.protocol === "file:") {
-          return "http://127.0.0.1:8000/api/settings/ingest-token";
-        }
-        return "/api/settings/ingest-token";
-      }
-
       function getPublicIpApiUrl() {
         if (window.location.protocol === "file:") {
           return "http://127.0.0.1:8000/api/network/public-ip";
@@ -1528,6 +1522,29 @@
       let lastSitesJson = "";
       let lastTagsJson = "";
       let bootedFromCache = false;
+      let authToken = "";
+      try {
+        authToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || "";
+      } catch (_) {}
+
+      /* ===== 访问鉴权 ===== */
+      function authHeaders(extra) {
+        const headers = Object.assign({}, extra || {});
+        if (authToken) {
+          headers["X-Nav-Token"] = authToken;
+        }
+        return headers;
+      }
+
+      async function apiFetch(url, options) {
+        const opts = Object.assign({}, options || {});
+        opts.headers = authHeaders(opts.headers);
+        const response = await fetch(url, opts);
+        if (response.status === 401) {
+          openTokenModal();
+        }
+        return response;
+      }
 
       /* ===== 工具函数 ===== */
       function normalizeInputUrl(raw) {
@@ -1601,7 +1618,8 @@
       async function ensureIconLibrary() {
         if (iconsCache !== null) return;
         try {
-          const response = await fetch(getIconsApiUrl(), { method: "GET" });
+          const response = await apiFetch(getIconsApiUrl(), { method: "GET" });
+          if (response.status === 401) return;
           iconsCache = await response.json();
         } catch (_) {
           iconsCache = [];
@@ -1678,7 +1696,7 @@
         publicIpValueEl.textContent = "获取中…";
         setPublicIpLoading(true);
         try {
-          const response = await fetch(getPublicIpApiUrl(), {
+          const response = await apiFetch(getPublicIpApiUrl(), {
             method: "GET",
             cache: "no-store",
             headers: { Accept: "application/json" },
@@ -1998,7 +2016,7 @@
           if (resultDraftUploadFile) {
             const formData = new FormData();
             formData.append("icon", resultDraftUploadFile);
-            const uploadResponse = await fetch(getSiteIconUploadUrl(siteId), {
+            const uploadResponse = await apiFetch(getSiteIconUploadUrl(siteId), {
               method: "POST",
               body: formData,
             });
@@ -2019,7 +2037,7 @@
             if (resultDraftIconFile) {
               body.icon_file = resultDraftIconFile;
             }
-            const response = await fetch(getSiteApiUrl(siteId), {
+            const response = await apiFetch(getSiteApiUrl(siteId), {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(body),
@@ -2178,7 +2196,7 @@
         reorderTimer = setTimeout(async () => {
           const siteIds = sitesCache.map((s) => s.id);
           try {
-            await fetch(getReorderApiUrl(), {
+            await apiFetch(getReorderApiUrl(), {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ site_ids: siteIds }),
@@ -2245,7 +2263,11 @@
       /* ===== 数据加载 ===== */
       async function loadTags() {
         try {
-          const response = await fetch(getTagsApiUrl(), { method: "GET" });
+          const response = await apiFetch(getTagsApiUrl(), { method: "GET" });
+          if (response.status === 401) {
+            renderTagBar();
+            return;
+          }
           const data = await response.json().catch(() => []);
           const tags = Array.isArray(data) ? data : [];
           const fresh = JSON.stringify(tags);
@@ -2273,7 +2295,15 @@
           setNavState("加载中...", false);
         }
         try {
-          const response = await fetch(getSitesApiUrl(), { method: "GET" });
+          const response = await apiFetch(getSitesApiUrl(), { method: "GET" });
+          if (response.status === 401) {
+            if (!bootedFromCache) {
+              setNavState("请输入访问 Token", false);
+              sitesCache = [];
+              navGridEl.innerHTML = "";
+            }
+            return;
+          }
           const data = await response.json().catch(() => []);
           if (!response.ok) {
             throw new Error("请求失败，状态码: " + response.status);
@@ -2540,54 +2570,48 @@
         setTokenMessage("", true);
       }
 
-      async function openTokenModal() {
+      function openTokenModal() {
+        if (!tokenModalEl.hidden) return;
         tokenModalEl.hidden = false;
-        tokenInputEl.value = "";
-        tokenInputEl.disabled = true;
+        tokenInputEl.value = authToken || "";
+        tokenInputEl.disabled = false;
         setTokenSaving(false);
-        setTokenMessage("加载中...", false);
-        try {
-          const response = await fetch(getIngestTokenSettingsApiUrl(), { method: "GET" });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            throw new Error(data.error || "请求失败，状态码: " + response.status);
-          }
-          tokenInputEl.value = data.token || "";
-          setTokenMessage(data.configured ? "当前 Token 已加载" : "当前未设置 Token", false);
-        } catch (error) {
-          setTokenMessage(
-            "读取失败：" + (error && error.message ? error.message : String(error)),
-            true
-          );
-        } finally {
-          tokenInputEl.disabled = false;
-          setTimeout(() => {
-            tokenInputEl.focus();
-            tokenInputEl.select();
-          }, 0);
-        }
+        setTokenMessage(authToken ? "" : "请输入部署时配置的访问 Token", false);
+        setTimeout(() => {
+          tokenInputEl.focus();
+          tokenInputEl.select();
+        }, 0);
       }
 
       async function submitTokenSettings(event) {
         event.preventDefault();
         if (tokenSaving) return;
         setTokenSaving(true);
-        setTokenMessage("", true);
+        setTokenMessage("验证中...", false);
+        authToken = tokenInputEl.value.trim();
         try {
-          const response = await fetch(getIngestTokenSettingsApiUrl(), {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: tokenInputEl.value.trim() }),
+          localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, authToken);
+        } catch (_) {}
+        try {
+          const response = await fetch(getSitesApiUrl(), {
+            method: "GET",
+            headers: authHeaders(),
           });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            throw new Error(data.error || "请求失败，状态码: " + response.status);
+          if (response.status === 401) {
+            setTokenMessage("Token 不正确", true);
+            return;
           }
-          tokenInputEl.value = data.token || "";
-          setTokenMessage(data.configured ? "已保存" : "已清空 Token", false);
+          if (!response.ok) {
+            throw new Error("请求失败，状态码: " + response.status);
+          }
+          setTokenMessage("", false);
+          closeTokenModal();
+          loadPublicIp();
+          await Promise.all([loadSites(), loadTags()]);
+          renderTagBar();
         } catch (error) {
           setTokenMessage(
-            "保存失败：" + (error && error.message ? error.message : String(error)),
+            "验证失败：" + (error && error.message ? error.message : String(error)),
             true
           );
         } finally {
@@ -2637,7 +2661,7 @@
           if (iconFileToSend) {
             body.icon_file = iconFileToSend;
           }
-          const response = await fetch(getSiteApiUrl(siteId), {
+          const response = await apiFetch(getSiteApiUrl(siteId), {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -2686,7 +2710,7 @@
 
         setDeleteSubmitting(true);
         try {
-          const response = await fetch(getSiteApiUrl(siteId), { method: "DELETE" });
+          const response = await apiFetch(getSiteApiUrl(siteId), { method: "DELETE" });
           const data = await response.json().catch(() => ({}));
           if (!response.ok) {
             throw new Error(data.error || "请求失败，状态码: " + response.status);
@@ -2716,7 +2740,7 @@
 
         setLoading(true);
         try {
-          const response = await fetch(getParseApiUrl(), {
+          const response = await apiFetch(getParseApiUrl(), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ url: preparedUrl }),
@@ -2932,7 +2956,7 @@
         formData.append("icon", file);
 
         try {
-          const response = await fetch(getSiteIconUploadUrl(siteId), {
+          const response = await apiFetch(getSiteIconUploadUrl(siteId), {
             method: "POST",
             body: formData,
           });
