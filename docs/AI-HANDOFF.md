@@ -22,6 +22,8 @@
 > **状态（2026-08-13）：回灌已完成。** B 的 `index.html` 已替换为 A 视觉 + 真实 API 数据层；emoji 内置图标已按决策整体切换为后端图标库 `GET /api/icons`；mock 存储键（`nav_sites_v1`/`nav_tags_v1`/`nav_token_v1`）已废弃并在启动时清理，现行键为 `nav_cache_v1:sites`/`nav_cache_v1:tags`/`nav_active_tag`/`nav_add_panel_collapsed`。
 >
 > **更新（2026-08-13）：已实施单用户 Token 门禁。** `GET/PUT /api/settings/ingest-token` 接口与页面 Token 管理已移除，token 改由部署环境变量 `NAV_TOKEN` 预配置（非空时全部 `/api/*` 需请求头 `X-Nav-Token`，详见 README「访问控制（单用户模式）」章节）。本文档 §3.1 路由表中的 settings 接口及相关 token 描述已过时，以 README 为准。
+>
+> **更新（2026-08-14）：门禁模式访客体验优化。** 新增公开状态接口 `GET /api/auth/status`（返回 `{token_required, authorized}`，已加入 `PUBLIC_READONLY_API_PATHS`）；前端启动时探测该接口感知门禁状态：无 token 访客打开页面零弹窗（公网 IP 显示「需 Token」、拖拽禁用），添加面板展开 / 右键菜单 / 编辑 / 删除等管理入口统一经 `requireManageToken()` 前置拦截（无 token 时弹 Token 配置窗，关闭即中止、不重放）；`submitTokenSettings` 改为「候选值验证通过才写入 localStorage」（旧实现用 `GET /api/sites` 验证，该接口对匿名放行后已失效），输入框留空保存 = 清除本机 Token。
 
 ---
 

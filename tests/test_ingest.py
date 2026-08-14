@@ -113,6 +113,32 @@ class TokenGuardTest(IsolatedAppTestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class AuthStatusTest(IsolatedAppTestCase):
+    def test_gated_mode_reports_required_and_authorized(self) -> None:
+        # 匿名可访问（在公开只读清单中），而非 401
+        response = self.client.get("/api/auth/status")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"token_required": True, "authorized": False})
+
+        response = self.client.get("/api/auth/status", headers={"X-Nav-Token": "wrong"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"token_required": True, "authorized": False})
+
+        response = self.client.get(
+            "/api/auth/status", headers={"X-Nav-Token": "secret-token"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"token_required": True, "authorized": True})
+
+    def test_open_mode_reports_not_required(self) -> None:
+        main.NAV_TOKEN = ""
+        response = self.client.get("/api/auth/status")
+        self.assertEqual(response.json(), {"token_required": False, "authorized": True})
+
+        response = self.client.get("/api/auth/status", headers={"X-Nav-Token": "anything"})
+        self.assertEqual(response.json(), {"token_required": False, "authorized": True})
+
+
 class VisibilityTest(IsolatedAppTestCase):
     def ingest(self, url: str, name: str):
         return self.client.post(
