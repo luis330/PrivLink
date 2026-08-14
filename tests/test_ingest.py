@@ -62,14 +62,28 @@ class IsolatedAppTestCase(unittest.TestCase):
 
 class TokenGuardTest(IsolatedAppTestCase):
     def test_api_requires_token_when_configured(self) -> None:
+        # 公开只读接口：无 token 也可访问（仅返回公开站点）
         response = self.client.get("/api/sites")
+        self.assertEqual(response.status_code, 200)
+        response = self.client.get("/api/tags")
+        self.assertEqual(response.status_code, 200)
+
+        # 其余接口未带 / 带错 token 一律 401
+        response = self.client.get("/api/icons")
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json(), {"error": "需要访问 token"})
 
-        response = self.client.get("/api/sites", headers={"X-Nav-Token": "wrong"})
+        response = self.client.get("/api/icons", headers={"X-Nav-Token": "wrong"})
         self.assertEqual(response.status_code, 401)
 
-        response = self.client.get("/api/sites", headers={"X-Nav-Token": "secret-token"})
+        response = self.client.put(
+            "/api/sites/reorder",
+            json={"site_ids": [1]},
+            headers={"X-Nav-Token": "wrong"},
+        )
+        self.assertEqual(response.status_code, 401)
+
+        response = self.client.get("/api/icons", headers={"X-Nav-Token": "secret-token"})
         self.assertEqual(response.status_code, 200)
 
     def test_open_mode_allows_api_without_token(self) -> None:
@@ -97,6 +111,74 @@ class TokenGuardTest(IsolatedAppTestCase):
             headers={"X-Nav-Token": "secret-token"},
         )
         self.assertEqual(response.status_code, 404)
+
+
+class VisibilityTest(IsolatedAppTestCase):
+    def ingest(self, url: str, name: str):
+        return self.client.post(
+            "/api/site/ingest",
+            json={"url": url, "final_url": url, "site_name": name, "icon": None},
+            headers={"X-Nav-Token": "secret-token"},
+        )
+
+    def put_site(self, site_id: int, **fields):
+        return self.client.put(
+            f"/api/sites/{site_id}",
+            json=fields,
+            headers={"X-Nav-Token": "secret-token"},
+        )
+
+    def test_private_sites_hidden_from_anonymous(self) -> None:
+        self.assertEqual(self.ingest("https://public.invalid/", "Public Site").status_code, 200)
+        self.assertEqual(self.ingest("https://secret.invalid/", "Secret Site").status_code, 200)
+
+        with_token = self.client.get(
+            "/api/sites", headers={"X-Nav-Token": "secret-token"}
+        ).json()
+        self.assertEqual(len(with_token), 2)
+        self.assertTrue(all(item["is_public"] for item in with_token))
+
+        secret = next(item for item in with_token if item["site_name"] == "Secret Site")
+        response = self.put_site(
+            secret["id"],
+            site_name="Secret Site",
+            url=secret["url"],
+            tags=["隐私"],
+            is_public=False,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["is_public"])
+
+        anonymous = self.client.get("/api/sites").json()
+        self.assertEqual([item["site_name"] for item in anonymous], ["Public Site"])
+
+        # 私有站点独有的标签名不对匿名访客泄露
+        self.assertEqual(self.client.get("/api/tags").json(), [])
+        owner_tags = self.client.get(
+            "/api/tags", headers={"X-Nav-Token": "secret-token"}
+        ).json()
+        self.assertEqual(owner_tags, [{"name": "隐私", "count": 1}])
+
+        full = self.client.get(
+            "/api/sites", headers={"X-Nav-Token": "secret-token"}
+        ).json()
+        self.assertEqual(len(full), 2)
+
+    def test_open_mode_shows_all_sites(self) -> None:
+        self.assertEqual(self.ingest("https://secret.invalid/", "Secret Site").status_code, 200)
+        rows = self.client.get(
+            "/api/sites", headers={"X-Nav-Token": "secret-token"}
+        ).json()
+        self.put_site(
+            rows[0]["id"],
+            site_name="Secret Site",
+            url=rows[0]["url"],
+            is_public=False,
+        )
+        main.NAV_TOKEN = ""
+        rows = self.client.get("/api/sites").json()
+        self.assertEqual(len(rows), 1)
+        self.assertFalse(rows[0]["is_public"])
 
 
 class BrowserIngestTest(IsolatedAppTestCase):
