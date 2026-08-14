@@ -29,41 +29,82 @@ class CollectorScriptTest(unittest.TestCase):
         )
 
 
-class BrowserIngestTest(unittest.TestCase):
+class IsolatedAppTestCase(unittest.TestCase):
+    """在临时目录中运行应用，token 由 main.NAV_TOKEN 直接控制（env 权威语义）。"""
+
+    nav_token = "secret-token"
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.old_cwd = Path.cwd()
         self.old_db_path = main.DB_PATH
         self.old_icon_dir = main.ICON_DIR
-        self.old_token = main.INGEST_TOKEN
+        self.old_frontend_path = main.FRONTEND_PATH
+        self.old_token = main.NAV_TOKEN
 
         os.chdir(self.temp_dir.name)
         main.DB_PATH = Path("data") / "sites.db"
         main.ICON_DIR = Path("ICON")
-        main.INGEST_TOKEN = "secret-token"
+        main.FRONTEND_PATH = self.old_cwd / "index.html"
+        main.NAV_TOKEN = self.nav_token
+        Path("icons").mkdir(exist_ok=True)
         main.init_storage()
         self.client = TestClient(main.app)
 
     def tearDown(self) -> None:
         main.DB_PATH = self.old_db_path
         main.ICON_DIR = self.old_icon_dir
-        main.INGEST_TOKEN = self.old_token
+        main.FRONTEND_PATH = self.old_frontend_path
+        main.NAV_TOKEN = self.old_token
         os.chdir(self.old_cwd)
         self.temp_dir.cleanup()
 
+
+class TokenGuardTest(IsolatedAppTestCase):
+    def test_api_requires_token_when_configured(self) -> None:
+        response = self.client.get("/api/sites")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json(), {"error": "需要访问 token"})
+
+        response = self.client.get("/api/sites", headers={"X-Nav-Token": "wrong"})
+        self.assertEqual(response.status_code, 401)
+
+        response = self.client.get("/api/sites", headers={"X-Nav-Token": "secret-token"})
+        self.assertEqual(response.status_code, 200)
+
+    def test_open_mode_allows_api_without_token(self) -> None:
+        main.NAV_TOKEN = ""
+        response = self.client.get("/api/sites")
+        self.assertEqual(response.status_code, 200)
+
+    def test_homepage_and_static_stay_public(self) -> None:
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # 静态挂载不经过 /api/ 门禁（404 也证明未被 401 拦截）
+        response = self.client.get("/icons/nonexistent.svg")
+        self.assertNotEqual(response.status_code, 401)
+        response = self.client.get("/ICON/nonexistent.png")
+        self.assertNotEqual(response.status_code, 401)
+
+    def test_options_requests_pass_through(self) -> None:
+        response = self.client.options("/api/sites")
+        self.assertNotEqual(response.status_code, 401)
+
+    def test_settings_endpoints_removed(self) -> None:
+        response = self.client.get(
+            "/api/settings/ingest-token",
+            headers={"X-Nav-Token": "secret-token"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+
+class BrowserIngestTest(IsolatedAppTestCase):
     def post_ingest(self, payload: dict, token: str = "secret-token"):
         return self.client.post(
             "/api/site/ingest",
             json=payload,
             headers={"X-Nav-Token": token},
-        )
-
-    def put_token(self, token: str, origin: str | None = None):
-        headers = {"Origin": origin} if origin is not None else {}
-        return self.client.put(
-            "/api/settings/ingest-token",
-            json={"token": token},
-            headers=headers,
         )
 
     def payload(self, **overrides: object) -> dict:
@@ -85,46 +126,9 @@ class BrowserIngestTest(unittest.TestCase):
         response = self.post_ingest(self.payload(), token="wrong-token")
         self.assertEqual(response.status_code, 401)
 
-        self.assertEqual(self.put_token("").status_code, 200)
+        main.NAV_TOKEN = ""
         response = self.post_ingest(self.payload())
         self.assertEqual(response.status_code, 403)
-
-    def test_environment_token_initializes_runtime_setting(self) -> None:
-        response = self.client.get("/api/settings/ingest-token")
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data["token"], "secret-token")
-        self.assertTrue(data["configured"])
-
-    def test_updates_token_without_restart(self) -> None:
-        response = self.put_token("new-secret-token")
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data["token"], "new-secret-token")
-        self.assertTrue(data["configured"])
-
-        old_token_response = self.post_ingest(self.payload(), token="secret-token")
-        self.assertEqual(old_token_response.status_code, 401)
-
-        new_token_response = self.post_ingest(
-            self.payload(url="https://example.invalid/updated/"),
-            token="new-secret-token",
-        )
-        self.assertEqual(new_token_response.status_code, 200)
-
-    def test_settings_api_rejects_cross_origin(self) -> None:
-        response = self.client.get(
-            "/api/settings/ingest-token",
-            headers={"Origin": "https://example.com"},
-        )
-        self.assertEqual(response.status_code, 403)
-
-        response = self.put_token("blocked-token", origin="https://example.com")
-        self.assertEqual(response.status_code, 403)
-
-        response = self.put_token("same-origin-token", origin="http://testserver")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["token"], "same-origin-token")
 
     def test_creates_site_with_browser_icon(self) -> None:
         response = self.post_ingest(self.payload())
