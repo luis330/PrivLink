@@ -11,7 +11,8 @@ services:
       - NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
       - NAV_HOST_ALIASES=*.freeba.org=192.168.50.15
       - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
-      - NAV_INGEST_TOKEN=${NAV_INGEST_TOKEN:-}
+      - NAV_MODE=${NAV_MODE:-single}
+      - NAV_TOKEN=${NAV_TOKEN:-}
     volumes:
       - ./data:/app/data
       - ./ICON:/app/ICON

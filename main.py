@@ -53,8 +53,10 @@ DEFAULT_USER_AGENT = (
 )
 USER_AGENT = (os.environ.get("NAV_USER_AGENT") or DEFAULT_USER_AGENT).strip() or DEFAULT_USER_AGENT
 ACCEPT_LANGUAGE = (os.environ.get("NAV_ACCEPT_LANGUAGE") or "zh-CN,zh;q=0.9,en;q=0.8").strip()
-INGEST_TOKEN = (os.environ.get("NAV_INGEST_TOKEN") or "").strip()
-INGEST_TOKEN_SETTING_KEY = "ingest_token"
+NAV_MODE = (os.environ.get("NAV_MODE") or "single").strip().lower() or "single"
+# 管理 token：部署时预配置，NAV_TOKEN 优先，兼容旧变量名 NAV_INGEST_TOKEN。
+# 为空 = 开放模式（API 无门禁，浏览器采集接口禁用）；非空 = 全部 /api/ 需 X-Nav-Token。
+NAV_TOKEN = (os.environ.get("NAV_TOKEN") or os.environ.get("NAV_INGEST_TOKEN") or "").strip()
 PROXY_ENV_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
 ALLOWED_SCHEMES = {"http", "https"}
 DEFAULT_ALLOWED_PRIVATE_NETWORKS = "192.168.50.0/24"
@@ -317,14 +319,6 @@ def init_storage() -> None:
             );
             """
         )
-        if INGEST_TOKEN:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-                VALUES (?, ?, ?);
-                """,
-                (INGEST_TOKEN_SETTING_KEY, INGEST_TOKEN, utc_now()),
-            )
         conn.commit()
 
         conn.execute(
@@ -413,17 +407,6 @@ def set_app_setting(key: str, value: str) -> None:
             (key, value, now),
         )
         conn.commit()
-
-
-def get_ingest_token() -> str:
-    value = get_app_setting(INGEST_TOKEN_SETTING_KEY)
-    if value is not None:
-        return value.strip()
-    return INGEST_TOKEN
-
-
-def set_ingest_token(token: str) -> None:
-    set_app_setting(INGEST_TOKEN_SETTING_KEY, token.strip())
 
 
 def normalize_url(raw_url: str) -> str:
@@ -1144,15 +1127,6 @@ class SiteUpdateRequest(BaseModel):
     tags: list[str] | None = None
 
 
-class IngestTokenUpdateRequest(BaseModel):
-    token: str = ""
-
-
-class IngestTokenStatus(BaseModel):
-    token: str
-    configured: bool
-
-
 class PublicIPv4Response(BaseModel):
     ip: str
 
@@ -1161,43 +1135,20 @@ class MessageResponse(BaseModel):
     message: str
 
 
-def parse_origin_tuple(origin: str) -> tuple[str, str, int | None] | None:
-    try:
-        parsed = parse.urlsplit(origin)
-        if not parsed.scheme or not parsed.hostname:
-            return None
-        port = parsed.port
-    except ValueError:
+def resolve_request_identity(request: Request) -> str | None:
+    """校验 X-Nav-Token 并返回请求身份；多用户体系下将改为按 token 查询用户。"""
+    if not NAV_TOKEN:
         return None
-
-    scheme = parsed.scheme.lower()
-    if port is None:
-        if scheme == "http":
-            port = 80
-        elif scheme == "https":
-            port = 443
-    return (scheme, parsed.hostname.lower(), port)
-
-
-def validate_settings_origin(request: Request) -> JSONResponse | None:
-    origin = (request.headers.get("origin") or "").strip()
-    if not origin:
-        return None
-
-    host = (request.headers.get("host") or request.url.netloc).strip()
-    current_origin = f"{request.url.scheme}://{host}"
-    if parse_origin_tuple(origin) == parse_origin_tuple(current_origin):
-        return None
-    return JSONResponse(status_code=403, content={"error": "仅允许同源页面管理 token"})
+    provided = (request.headers.get("X-Nav-Token") or "").strip()
+    if provided and secrets.compare_digest(provided, NAV_TOKEN):
+        return "owner"
+    return None
 
 
 def validate_ingest_token(request: Request) -> JSONResponse | None:
-    ingest_token = get_ingest_token()
-    if not ingest_token:
+    if not NAV_TOKEN:
         return JSONResponse(status_code=403, content=error_payload("浏览器采集接口未启用"))
-
-    provided = (request.headers.get("X-Nav-Token") or "").strip()
-    if not provided or not secrets.compare_digest(provided, ingest_token):
+    if resolve_request_identity(request) is None:
         return JSONResponse(status_code=401, content=error_payload("浏览器采集 token 无效"))
     return None
 
@@ -1310,6 +1261,10 @@ def scan_icons_library() -> list[dict[str, str]]:
 @asynccontextmanager
 async def app_lifespan(_: FastAPI):
     global _icons_cache
+    if NAV_MODE != "single":
+        logger.warning("NAV_MODE=%s 暂未实现，按 single 模式运行", NAV_MODE)
+    if not NAV_TOKEN:
+        logger.warning("未设置 NAV_TOKEN，API 处于开放模式；公网部署请配置访问 token")
     init_storage()
     _icons_cache = scan_icons_library()
     logger.info("服务启动完成，图标库加载 %d 个图标", len(_icons_cache))
@@ -1325,6 +1280,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+
+
+@app.middleware("http")
+async def token_guard_middleware(request: Request, call_next):
+    if (
+        NAV_TOKEN
+        and request.url.path.startswith("/api/")
+        and request.method != "OPTIONS"
+        and resolve_request_identity(request) is None
+    ):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "需要访问 token"},
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
+    return await call_next(request)
 
 
 class CachedStaticFiles(StaticFiles):
@@ -1414,28 +1385,6 @@ def read_public_ipv4() -> JSONResponse:
         content={"ip": public_ip},
         headers={"Cache-Control": "no-store"},
     )
-
-
-@app.get("/api/settings/ingest-token", response_model=IngestTokenStatus)
-def read_ingest_token_setting(request: Request) -> JSONResponse | dict[str, Any]:
-    auth_error = validate_settings_origin(request)
-    if auth_error:
-        return auth_error
-    token = get_ingest_token()
-    return {"token": token, "configured": bool(token)}
-
-
-@app.put("/api/settings/ingest-token", response_model=IngestTokenStatus)
-def update_ingest_token_setting(
-    request: Request,
-    payload: IngestTokenUpdateRequest,
-) -> JSONResponse | dict[str, Any]:
-    auth_error = validate_settings_origin(request)
-    if auth_error:
-        return auth_error
-    token = payload.token.strip()
-    set_ingest_token(token)
-    return {"token": token, "configured": bool(token)}
 
 
 @app.post("/api/site/parse", response_model=ParseResponse)
