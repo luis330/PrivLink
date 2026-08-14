@@ -6,13 +6,16 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - HTTP_PROXY=http://192.168.50.16:7890
-      - HTTPS_PROXY=http://192.168.50.16:7890
-      - NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
-      - NAV_HOST_ALIASES=*.freeba.org=192.168.50.15
-      - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
+      # 全部取自同目录 .env（复制 .env.example 为 .env 后修改）
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-127.0.0.1,localhost,::1}
+      - NAV_HOST_ALIASES=${NAV_HOST_ALIASES:-}
+      - NAV_ALLOWED_PRIVATE_NETWORKS=${NAV_ALLOWED_PRIVATE_NETWORKS:-}
       - NAV_MODE=${NAV_MODE:-single}
       - NAV_TOKEN=${NAV_TOKEN:-}
+      - NAV_USER_AGENT=${NAV_USER_AGENT:-}
+      - NAV_ACCEPT_LANGUAGE=${NAV_ACCEPT_LANGUAGE:-}
     volumes:
       - ./data:/app/data
       - ./ICON:/app/ICON

@@ -21,13 +21,15 @@
 uv sync
 ```
 
-2. 启动服务：
+2. 配置参数（可选）：复制 `.env.example` 为 `.env` 并按需修改（见下文「配置方式」）。
+
+3. 启动服务：
 
 ```bash
 uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-3. 访问：
+4. 访问：
 
 - 页面：`http://127.0.0.1:8000/`
 - OpenAPI：`http://127.0.0.1:8000/docs`
@@ -125,21 +127,14 @@ X-Nav-Token: your-secret-token
 
 ### 启用 token
 
-浏览器采集与访问控制共用同一个 token，由部署时环境变量 `NAV_TOKEN` 配置（见上文“访问控制”章节；修改后需重启服务生效）。
-
-本地 uv 示例：
+浏览器采集与访问控制共用同一个 token，在 `.env` 中设置 `NAV_TOKEN` 后重启服务生效（见上文「访问控制」与「配置方式」章节）：
 
 ```bash
-export NAV_TOKEN="your-secret-token"
-uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+# .env
+NAV_TOKEN=your-secret-token
 ```
 
-Docker Compose 示例：
-
-```bash
-export NAV_TOKEN="your-secret-token"
-docker compose up -d --build
-```
+源码部署重启：`systemctl restart nav-local`（或重新运行 uvicorn）；Docker 部署重启：`docker compose up -d`。
 
 ### Tampermonkey
 
@@ -157,9 +152,17 @@ docker compose up -d --build
 3. 打开插件“选项”，填写 API 地址和 `X-Nav-Token`。
 4. 在目标网站页面通过验证后，点击插件按钮保存。
 
+## 配置方式（.env）
+
+所有参数统一通过项目根目录的 `.env` 文件配置：复制 `.env.example` 为 `.env` 后按需修改。两种部署方式共用同一文件——源码部署时服务启动自动加载（真实环境变量优先），Docker Compose 部署时由 compose 自动读取做变量替换。
+
+通用默认体验只需配置 `NAV_TOKEN` 一项；代理、主机映射、内网白名单等属于「抓取增强」可选项——不配置时，服务端抓不到的站点（被墙、内网、需验证）改用浏览器采集器上报即可入库。
+
 ## 代理支持（HTTP / SOCKS5）
 
-服务请求目标网站时支持代理，读取标准环境变量：
+> 可选配置：无代理时解析失败的站点可用浏览器采集模式兜底。
+
+服务请求目标网站时支持代理，读取标准环境变量（在 `.env` 中配置）：
 
 - `HTTP_PROXY`
 - `HTTPS_PROXY`
@@ -192,22 +195,17 @@ export NO_PROXY=127.0.0.1,localhost
 
 `NAV_HOST_ALIASES` 用于给应用进程配置主机解析映射，支持精确域名和 `*.example.com` 通配子域名。映射只改变 TCP 连接目标 IP，HTTP `Host` 和 HTTPS SNI 仍保留原始域名。
 
-示例：
+示例（`.env`）：
 
-```yaml
-services:
-  nav-local:
-    environment:
-      - HTTP_PROXY=http://192.168.50.16:7890
-      - HTTPS_PROXY=http://192.168.50.16:7890
-      - NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
-      - NAV_HOST_ALIASES=*.freeba.org=192.168.50.15  # 改成 Caddy 的内网 IP
-      - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
-      - NAV_MODE=${NAV_MODE:-single}
-      - NAV_TOKEN=${NAV_TOKEN:-}
+```bash
+HTTP_PROXY=http://192.168.50.16:7890
+HTTPS_PROXY=http://192.168.50.16:7890
+NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
+NAV_HOST_ALIASES=*.freeba.org=192.168.50.15
+NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
 ```
 
-`NAV_ALLOWED_PRIVATE_NETWORKS` 是 SSRF 防护的内网白名单。Caddy 如果不在 `192.168.50.0/24`，需要把实际网段加入这个变量，例如 `192.168.50.0/24,172.17.0.0/16`。
+`NAV_ALLOWED_PRIVATE_NETWORKS` 是 SSRF 防护的内网白名单，**默认全禁内网**（最安全）。需要服务端直接抓取内网站点时才显式放行网段（如 `192.168.50.0/24,172.17.0.0/16`）；更推荐的做法是内网站点用浏览器采集器上报，白名单保持默认。
 
 ## Debian 13 Docker 部署
 
@@ -236,31 +234,27 @@ git clone <your-repo-url>
 cd Nav_Loacl
 ```
 
-2. 启动服务：
+2. 配置参数（可选但公网部署强烈建议）：
+
+```bash
+cp .env.example .env
+# 编辑 .env：至少设置 NAV_TOKEN；代理/内网白名单等按需
+```
+
+3. 启动服务：
 
 ```bash
 docker compose up -d --build
 ```
 
-当前仓库默认采用“写死代理地址”模式（不依赖外部环境变量）：
-
-```yaml
-environment:
-  - HTTP_PROXY=http://192.168.50.16:7890
-  - HTTPS_PROXY=http://192.168.50.16:7890
-  - NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
-  - NAV_HOST_ALIASES=*.freeba.org=192.168.50.15
-  - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
-```
-
-3. 查看状态：
+4. 查看状态：
 
 ```bash
 docker compose ps
 docker compose logs -f
 ```
 
-4. 验证访问：
+5. 验证访问：
 
 - 页面：`http://<服务器IP>:8000/`
 - 接口：`POST http://<服务器IP>:8000/api/site/parse`
@@ -310,9 +304,11 @@ docker compose restart
 ```bash
 git clone <仓库地址> nav-local && cd nav-local
 uv sync
-NAV_TOKEN="your-secret-token" uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+cp .env.example .env   # 编辑 .env：至少设置 NAV_TOKEN
+uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
+- 服务启动时自动加载项目根目录 `.env`（真实环境变量优先）。
 - `--workers 1` 为硬约束（SQLite 单写入者）；Linux 下自动启用 uvloop / httptools，单实例足够个人使用。
 - 生产环境建议用 systemd 托管（开机自启、崩溃自动拉起）：
 
@@ -324,7 +320,6 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=/opt/nav-local
-Environment=NAV_TOKEN=your-secret-token
 ExecStart=/usr/local/bin/uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=on-failure
 
@@ -336,7 +331,8 @@ WantedBy=multi-user.target
 systemctl daemon-reload && systemctl enable --now nav-local
 ```
 
-- 对外域名场景经 Nginx / Caddy 反向代理并启用 HTTPS（需正确传递 `Host` 头，Nginx 加 `proxy_set_header Host $host;`）。
+- 配置全部来自 `WorkingDirectory` 下的 `.env`，改配置只需编辑 `.env` 后 `systemctl restart nav-local`。
+- 对外域名场景经 Nginx / Caddy 反向代理并启用 HTTPS；本服务对反代无特殊要求（Caddy 一行 `reverse_proxy 127.0.0.1:8000` 即可）。
 - 更新：`git pull` 后 `systemctl restart nav-local`。
 - 备份 / 迁移：只需 `data/`（数据库）与 `ICON/`（站点图标）两个目录；从 Docker 迁移时把挂载卷中的这两个目录拷入项目根即可。
 
@@ -344,7 +340,7 @@ systemctl daemon-reload && systemctl enable --now nav-local
 
 - `url` 冲突时执行 upsert 更新。
 - 启动时自动创建 `data/`、`ICON/`、数据表。
-- 启用 SSRF 防护，默认禁止本机/内网地址；放行 `192.168.50.0/24` 网段。
+- 启用 SSRF 防护，默认禁止本机/内网地址；需要抓取内网站点时在 `.env` 的 `NAV_ALLOWED_PRIVATE_NETWORKS` 显式放行（或改用浏览器采集器上报）。
 - Docker 默认单实例运行（`workers=1`），适配 SQLite。
 
 ## 性能与缓存策略
