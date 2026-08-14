@@ -1427,7 +1427,9 @@
       }
 
       function toggleAddPanel() {
-        setAddCollapsed(!addPanelEl.classList.contains("collapsed"));
+        const willExpand = addPanelEl.classList.contains("collapsed");
+        if (willExpand && !requireManageToken()) return;
+        setAddCollapsed(!willExpand);
       }
 
       addTitleEl.addEventListener("click", toggleAddPanel);
@@ -1520,6 +1522,13 @@
         return "/api/network/public-ip";
       }
 
+      function getAuthStatusApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/auth/status";
+        }
+        return "/api/auth/status";
+      }
+
       function getIconLibUrl(filename) {
         const base = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
         return base + "/icons/" + encodeURIComponent(filename);
@@ -1570,6 +1579,9 @@
       } catch (_) {}
 
       /* ===== 访问鉴权 ===== */
+      let serverTokenRequired = false;
+      let authStatusReady = Promise.resolve();
+
       function authHeaders(extra) {
         const headers = Object.assign({}, extra || {});
         if (authToken) {
@@ -1583,9 +1595,42 @@
         opts.headers = authHeaders(opts.headers);
         const response = await fetch(url, opts);
         if (response.status === 401) {
-          openTokenModal();
+          openTokenModal(authToken ? "Token 已失效或不正确，请重新保存" : undefined);
         }
         return response;
+      }
+
+      async function loadAuthStatus() {
+        try {
+          const response = await fetch(getAuthStatusApiUrl(), {
+            method: "GET",
+            cache: "no-store",
+            headers: authHeaders({ Accept: "application/json" }),
+          });
+          if (!response.ok) {
+            throw new Error("状态码: " + response.status);
+          }
+          const data = await response.json();
+          serverTokenRequired = data.token_required === true;
+        } catch (_) {
+          serverTokenRequired = false; // 探测失败降级为开放行为，服务端 401 仍会兜底
+        }
+        if (serverTokenRequired && !authToken && !addPanelEl.classList.contains("collapsed")) {
+          setAddCollapsed(true); // 清理上一会话残留的展开态，避免对访客暴露添加面板
+        }
+        if (sitesCache.length > 0) {
+          renderSites(); // loadSites 在 JSON 未变时跳渲染，draggable 需在探测落定后强刷
+        }
+      }
+
+      function hasManageAccess() {
+        return !serverTokenRequired || Boolean(authToken);
+      }
+
+      function requireManageToken() {
+        if (hasManageAccess()) return true;
+        openTokenModal("请先保存访问 Token，才能进行管理操作");
+        return false;
       }
 
       /* ===== 工具函数 ===== */
@@ -1739,6 +1784,11 @@
         publicIpValueEl.textContent = "获取中…";
         setPublicIpLoading(true);
         try {
+          await authStatusReady; // 首次加载与点击刷新都基于已落定的探测结果
+          if (serverTokenRequired && !authToken) {
+            publicIpValueEl.textContent = "需 Token";
+            return;
+          }
           const response = await apiFetch(getPublicIpApiUrl(), {
             method: "GET",
             cache: "no-store",
@@ -2126,7 +2176,7 @@
         link.target = "_blank";
         link.rel = "noopener noreferrer";
         link.title = site.site_name || site.url;
-        link.draggable = activeTag === "";
+        link.draggable = activeTag === "" && hasManageAccess();
         link.dataset.index = String(index);
 
         link.addEventListener("dragstart", (e) => {
@@ -2243,6 +2293,7 @@
       }
 
       function handleReorder(fromIndex, toIndex) {
+        if (!hasManageAccess()) return; // 静默拦截：探测落定前完成的拖放不动本地顺序、不发请求
         if (fromIndex === toIndex) return;
         const item = sitesCache.splice(fromIndex, 1)[0];
         sitesCache.splice(toIndex, 0, item);
@@ -2391,6 +2442,7 @@
       }
 
       function showContextMenu(x, y, siteId) {
+        if (!requireManageToken()) return;
         menuSiteId = Number(siteId) || 0;
         contextMenuEl.hidden = false;
         const viewportPadding = 8;
@@ -2424,6 +2476,7 @@
       }
 
       function openEditModal(site) {
+        if (!requireManageToken()) return;
         editSiteId = Number(site.id) || 0;
         editNameInput.value = (site.site_name || "").trim();
         editUrlInput.value = (site.url || "").trim();
@@ -2618,6 +2671,7 @@
       }
 
       function openDeleteModal(siteId) {
+        if (!requireManageToken()) return;
         deleteSiteId = Number(siteId) || 0;
         deleteModalEl.hidden = false;
       }
@@ -2630,17 +2684,27 @@
         setTokenMessage("", true);
       }
 
-      function openTokenModal() {
+      function openTokenModal(hint) {
+        const message = typeof hint === "string" ? hint : ""; // 该函数被直接绑为 click 处理器，首参可能是事件对象
         if (!tokenModalEl.hidden) return;
         tokenModalEl.hidden = false;
         tokenInputEl.value = authToken || "";
         tokenInputEl.disabled = false;
         setTokenSaving(false);
-        setTokenMessage(authToken ? "" : "请输入部署时配置的访问 Token", false);
+        setTokenMessage(message || (authToken ? "" : "请输入部署时配置的访问 Token"), false);
         setTimeout(() => {
           tokenInputEl.focus();
           tokenInputEl.select();
         }, 0);
+      }
+
+      async function refreshAfterAuthChange() {
+        loadPublicIp();
+        await Promise.all([loadSites(), loadTags()]);
+        renderTagBar();
+        if (sitesCache.length > 0) {
+          renderSites(); // JSON 未变时 loadSites 跳渲染，draggable 等鉴权态需强刷
+        }
       }
 
       async function submitTokenSettings(event) {
@@ -2648,27 +2712,45 @@
         if (tokenSaving) return;
         setTokenSaving(true);
         setTokenMessage("验证中...", false);
-        authToken = tokenInputEl.value.trim();
+        const candidate = tokenInputEl.value.trim();
         try {
-          localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, authToken);
-        } catch (_) {}
-        try {
-          const response = await fetch(getSitesApiUrl(), {
-            method: "GET",
-            headers: authHeaders(),
-          });
-          if (response.status === 401) {
-            setTokenMessage("Token 不正确", true);
+          if (!candidate) {
+            // 空输入 = 清除本地 Token，回到访客视图
+            authToken = "";
+            try {
+              localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, "");
+            } catch (_) {}
+            closeTokenModal();
+            await refreshAfterAuthChange();
             return;
           }
+          // 用候选值验证，通过才落盘，避免污染已保存的旧 Token
+          const response = await fetch(getAuthStatusApiUrl(), {
+            method: "GET",
+            cache: "no-store",
+            headers: { "X-Nav-Token": candidate, Accept: "application/json" },
+          });
           if (!response.ok) {
             throw new Error("请求失败，状态码: " + response.status);
           }
+          const data = await response.json().catch(() => ({}));
+          if (data.token_required === true && data.authorized !== true) {
+            setTokenMessage("Token 不正确", true);
+            return;
+          }
+          serverTokenRequired = data.token_required === true;
+          authToken = candidate;
+          try {
+            localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, authToken);
+          } catch (_) {}
+          if (!serverTokenRequired) {
+            setTokenMessage("当前为开放模式，无需 Token（已保存，启用门禁后生效）", false);
+            refreshAfterAuthChange();
+            return;
+          }
           setTokenMessage("", false);
           closeTokenModal();
-          loadPublicIp();
-          await Promise.all([loadSites(), loadTags()]);
-          renderTagBar();
+          await refreshAfterAuthChange();
         } catch (error) {
           setTokenMessage(
             "验证失败：" + (error && error.message ? error.message : String(error)),
@@ -2794,6 +2876,7 @@
       /* ===== URL 提交 ===== */
       async function submitUrl(event) {
         event.preventDefault();
+        if (!requireManageToken()) return;
         const preparedUrl = normalizeInputUrl(urlInput.value);
         if (!preparedUrl) {
           renderResult({ status: "invalid", error: "请输入网址" });
@@ -3191,6 +3274,7 @@
         renderTagBar();
         renderSites();
       }
+      authStatusReady = loadAuthStatus();
       loadPublicIp();
       Promise.all([loadSites(), loadTags()]).then(() => {
         renderTagBar();

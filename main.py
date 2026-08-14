@@ -1168,6 +1168,11 @@ class MessageResponse(BaseModel):
     message: str
 
 
+class AuthStatusResponse(BaseModel):
+    token_required: bool
+    authorized: bool
+
+
 def resolve_request_identity(request: Request) -> str | None:
     """校验 X-Nav-Token 并返回请求身份；多用户体系下将改为按 token 查询用户。"""
     if not NAV_TOKEN:
@@ -1323,8 +1328,9 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
-# 公开只读接口：无 token 也放行到路由，由路由内按身份过滤（仅返回公开站点）
-PUBLIC_READONLY_API_PATHS = {"/api/sites", "/api/tags"}
+# 公开只读接口：无 token 也放行到路由，由路由内按身份过滤（仅返回公开站点）；
+# auth/status 供前端探测门禁状态，不泄露敏感信息
+PUBLIC_READONLY_API_PATHS = {"/api/sites", "/api/tags", "/api/auth/status"}
 
 
 @app.middleware("http")
@@ -1413,6 +1419,16 @@ async def index_page(request: Request):
 @app.get("/index.html", include_in_schema=False, response_model=None)
 async def index_page_alias(request: Request):
     return await index_page(request)
+
+
+@app.get("/api/auth/status", response_model=AuthStatusResponse)
+def read_auth_status(request: Request, response: Response) -> AuthStatusResponse:
+    """公开状态接口：token_required=是否门禁模式；authorized=本请求是否具备管理身份（开放模式恒 True）。"""
+    response.headers["Cache-Control"] = "no-store"
+    return AuthStatusResponse(
+        token_required=bool(NAV_TOKEN),
+        authorized=(not NAV_TOKEN) or (resolve_request_identity(request) is not None),
+    )
 
 
 @app.get("/api/network/public-ip", response_model=PublicIPv4Response)
