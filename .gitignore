@@ -12,3 +12,6 @@ wheels/
 # Runtime data
 data/
 ICON/
+
+# Local configuration (contains NAV_TOKEN etc.)
+.env
