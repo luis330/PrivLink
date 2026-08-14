@@ -28,6 +28,29 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+
+def load_env_file(path: str = ".env") -> None:
+    """加载项目 .env 文件（KEY=VALUE 格式）；已存在的真实环境变量优先。"""
+    env_path = Path(path)
+    if not env_path.is_file():
+        return
+    try:
+        content = env_path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file()
+
 APP_HOST = "0.0.0.0"
 APP_PORT = 8000
 DB_PATH = Path("data") / "sites.db"
@@ -59,7 +82,8 @@ NAV_MODE = (os.environ.get("NAV_MODE") or "single").strip().lower() or "single"
 NAV_TOKEN = (os.environ.get("NAV_TOKEN") or os.environ.get("NAV_INGEST_TOKEN") or "").strip()
 PROXY_ENV_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
 ALLOWED_SCHEMES = {"http", "https"}
-DEFAULT_ALLOWED_PRIVATE_NETWORKS = "192.168.50.0/24"
+# SSRF 白名单默认全禁内网；内网站点建议改用浏览器采集器上报，或在 .env 中显式放行网段
+DEFAULT_ALLOWED_PRIVATE_NETWORKS = ""
 HOST_ALIASES_ENV = "NAV_HOST_ALIASES"
 ALLOWED_ICON_EXTENSIONS = {
     ".ico",
