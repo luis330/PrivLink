@@ -80,7 +80,7 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 
 浏览器采集上报接口，用于 Cloudflare 等 Web 验证导致服务端无法直接抓取的站点。用户先在真实浏览器中打开目标网站并通过验证，再由 Tampermonkey 脚本或浏览器插件读取当前页标题、URL 和 icon 后上报。
 
-该接口默认禁用，需要先在首页右下角“Token 设置”中保存 token，并在请求头中携带相同 token：
+该接口默认禁用，需要部署时通过环境变量 `NAV_TOKEN` 配置访问 token，并在请求头中携带相同 token：
 
 ```http
 X-Nav-Token: your-secret-token
@@ -106,12 +106,18 @@ X-Nav-Token: your-secret-token
 - icon 大小限制为 1MB。
 - 支持常见图片类型：`ico/png/jpg/jpeg/svg/webp/gif/bmp/avif`。
 
-### Token 管理接口
+## 访问控制（单用户模式）
 
-首页右下角“Token 设置”使用以下接口读取和保存浏览器采集 token。接口只允许同源页面访问；非同源请求会被拒绝。
+通过部署时的环境变量控制：
 
-- `GET /api/settings/ingest-token`：返回当前 token 和是否已配置。
-- `PUT /api/settings/ingest-token`：请求体为 `{"token":"your-secret-token"}`；传空字符串会禁用浏览器采集接口。
+- `NAV_MODE`：体系模式，默认 `single`（单用户自部署）。`multi`（多用户）为未来预留值，当前设置后按 single 运行并输出警告。
+- `NAV_TOKEN`：访问 token（兼容旧变量名 `NAV_INGEST_TOKEN`，`NAV_TOKEN` 优先）。
+  - **不设置 = 开放模式**：所有 API 无需鉴权（适合内网/本机自用），浏览器采集接口保持禁用。
+  - **设置后 = 门禁模式**：全部 `/api/*` 接口要求请求头 `X-Nav-Token` 与之一致，未携带或不一致返回 401；首页页面与静态图标仍公开（图标文件名为不可枚举哈希，无目录列表）。
+
+门禁模式下的使用流程：浏览器首次打开首页会提示输入访问 Token（也可随时点右上角“访问 Token”按钮），输入正确后保存在该浏览器的 localStorage 并同步服务器数据，此后使用无感；换浏览器或清除站点数据后重新输入一次即可。
+
+安全建议：token 使用 32 位以上随机字符串（如 `openssl rand -hex 24` 生成）；公网部署务必经反向代理启用 HTTPS；修改 token 需更新环境变量并重启服务，浏览器与采集器端同步更新。
 
 ## 浏览器采集模式
 
@@ -119,21 +125,19 @@ X-Nav-Token: your-secret-token
 
 ### 启用 token
 
-服务启动后，打开首页右下角“Token 设置”，粘贴并保存 token。保存后立即生效，不需要重启服务或重新部署 Docker。
+浏览器采集与访问控制共用同一个 token，由部署时环境变量 `NAV_TOKEN` 配置（见上文“访问控制”章节；修改后需重启服务生效）。
 
-也可以通过环境变量提供首次初始化 token；数据库中已有设置时，以页面保存的值为准。
-
-本地 uv 首次初始化示例：
+本地 uv 示例：
 
 ```bash
-export NAV_INGEST_TOKEN="your-secret-token"
+export NAV_TOKEN="your-secret-token"
 uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-Docker Compose 首次初始化示例：
+Docker Compose 示例：
 
 ```bash
-export NAV_INGEST_TOKEN="your-secret-token"
+export NAV_TOKEN="your-secret-token"
 docker compose up -d --build
 ```
 
@@ -143,7 +147,7 @@ docker compose up -d --build
 2. 新建脚本并使用 `collectors/nav-local.user.js` 的内容。
 3. 在任意目标网站页面中打开 Tampermonkey 菜单：
    - 先执行“设置 Nav Local API 地址”，默认是 `http://127.0.0.1:8000`。
-   - 再执行“设置 Nav Local Token”，填入首页保存的 token。
+   - 再执行“设置 Nav Local Token”，填入部署配置的访问 token。
    - 通过验证并停留在目标页后，执行“保存当前页到 Nav Local”。
 
 ### Chrome / Edge 插件
@@ -199,7 +203,8 @@ services:
       - NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
       - NAV_HOST_ALIASES=*.freeba.org=192.168.50.15  # 改成 Caddy 的内网 IP
       - NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
-      - NAV_INGEST_TOKEN=${NAV_INGEST_TOKEN:-}
+      - NAV_MODE=${NAV_MODE:-single}
+      - NAV_TOKEN=${NAV_TOKEN:-}
 ```
 
 `NAV_ALLOWED_PRIVATE_NETWORKS` 是 SSRF 防护的内网白名单。Caddy 如果不在 `192.168.50.0/24`，需要把实际网段加入这个变量，例如 `192.168.50.0/24,172.17.0.0/16`。
@@ -298,6 +303,43 @@ docker compose logs -f --tail=100
 docker compose restart
 ```
 
+## 源码部署（无 Docker）
+
+适合不便使用 Docker 的服务器。项目无前端构建步骤，克隆后即可运行：
+
+```bash
+git clone <仓库地址> nav-local && cd nav-local
+uv sync
+NAV_TOKEN="your-secret-token" uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+```
+
+- `--workers 1` 为硬约束（SQLite 单写入者）；Linux 下自动启用 uvloop / httptools，单实例足够个人使用。
+- 生产环境建议用 systemd 托管（开机自启、崩溃自动拉起）：
+
+```ini
+# /etc/systemd/system/nav-local.service
+[Unit]
+Description=Nav Local Service
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/nav-local
+Environment=NAV_TOKEN=your-secret-token
+ExecStart=/usr/local/bin/uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload && systemctl enable --now nav-local
+```
+
+- 对外域名场景经 Nginx / Caddy 反向代理并启用 HTTPS（需正确传递 `Host` 头，Nginx 加 `proxy_set_header Host $host;`）。
+- 更新：`git pull` 后 `systemctl restart nav-local`。
+- 备份 / 迁移：只需 `data/`（数据库）与 `ICON/`（站点图标）两个目录；从 Docker 迁移时把挂载卷中的这两个目录拷入项目根即可。
+
 ## 运行策略说明
 
 - `url` 冲突时执行 upsert 更新。
@@ -312,3 +354,9 @@ docker compose restart
 - 静态图标带浏览器缓存：`/ICON` 缓存 1 天，`/icons` 图标库缓存 7 天。更换站点图标后浏览器最多 1 天内仍显示旧图，Ctrl+F5 强制刷新可立即生效。
 - 前端把站点和标签数据缓存在 localStorage（`nav_cache_v1:*`）：再次打开页面立即渲染本地数据，后台拉取最新数据后自动更新；清除浏览器站点数据即可重置本地缓存。
 - Linux 容器内自动启用 uvloop / httptools（依赖 `uvicorn[standard]`）；Windows 开发环境自动跳过 uvloop，启动命令不变。
+
+## 图标库版权
+
+- `icons/` 目录的预设图标库来自字节跳动开源的 [IconPark](https://github.com/bytedance/IconPark)，以 [Apache License 2.0](icons/LICENSE) 授权使用与再分发（许可证全文见 `icons/LICENSE`）。
+- 其中的品牌类图标（如支付宝、Adobe 系列等）图形以 Apache-2.0 授权，但商标权归各品牌方所有，本项目仅用于指示对应站点，不构成品牌背书。
+- `ICON/` 目录存放的是各网站抓取的 favicon，仅用于指向其对应站点（与浏览器书签同类的指示性使用）。
