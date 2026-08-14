@@ -177,6 +177,11 @@ class PublicIpHomepageTest(unittest.TestCase):
         self.assertIn('publicIpValueEl.textContent = "获取失败";', html)
         self.assertIn("loadPublicIp();", html)
 
+    def test_homepage_declares_auth_status_endpoint(self) -> None:
+        # 前端须接入门禁状态探测接口（访客静默浏览 + 管理动作前置 token 检查的基础）
+        response = self.client.get("/")
+        self.assertIn('return "/api/auth/status";', response.text)
+
 
 if __name__ == "__main__":
     unittest.main()
