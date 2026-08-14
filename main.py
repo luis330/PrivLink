@@ -369,6 +369,13 @@ def init_storage() -> None:
         except sqlite3.OperationalError:
             pass  # 列已存在
 
+        # 迁移：添加 is_public 列（1=公开站点，0=仅持 token 可见）
+        try:
+            conn.execute("ALTER TABLE sites ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+
         # 初始化已有数据的 sort_order（仅所有值都为 0 时执行）
         all_zero = conn.execute("SELECT COUNT(*) FROM sites WHERE sort_order != 0").fetchone()[0]
         if all_zero == 0:
@@ -1141,6 +1148,7 @@ class SiteItem(BaseModel):
     icon_rel_path: str
     updated_at: str
     sort_order: int
+    is_public: bool = True
     tags: list[str] = []
 
 
@@ -1149,6 +1157,7 @@ class SiteUpdateRequest(BaseModel):
     url: str = Field(min_length=1)
     icon_file: str | None = None
     tags: list[str] | None = None
+    is_public: bool | None = None
 
 
 class PublicIPv4Response(BaseModel):
@@ -1167,6 +1176,13 @@ def resolve_request_identity(request: Request) -> str | None:
     if provided and secrets.compare_digest(provided, NAV_TOKEN):
         return "owner"
     return None
+
+
+def can_view_private(request: Request) -> bool:
+    """开放模式（未配置 token）全可见；门禁模式下仅持有效 token 的请求可见私有站点。"""
+    if not NAV_TOKEN:
+        return True
+    return resolve_request_identity(request) is not None
 
 
 def validate_ingest_token(request: Request) -> JSONResponse | None:
@@ -1204,6 +1220,7 @@ def to_site_item(
         "icon_rel_path": (row[3] or "").strip(),
         "updated_at": (row[4] or "").strip(),
         "sort_order": int(row[5]),
+        "is_public": bool(row[6]) if len(row) > 6 else True,
         "tags": list(tags) if tags else [],
     }
 
@@ -1306,12 +1323,17 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
+# 公开只读接口：无 token 也放行到路由，由路由内按身份过滤（仅返回公开站点）
+PUBLIC_READONLY_API_PATHS = {"/api/sites", "/api/tags"}
+
+
 @app.middleware("http")
 async def token_guard_middleware(request: Request, call_next):
     if (
         NAV_TOKEN
         and request.url.path.startswith("/api/")
         and request.method != "OPTIONS"
+        and not (request.method == "GET" and request.url.path in PUBLIC_READONLY_API_PATHS)
         and resolve_request_identity(request) is None
     ):
         return JSONResponse(
@@ -1422,12 +1444,15 @@ def parse_site(payload: ParseRequest) -> JSONResponse:
 
 
 @app.get("/api/sites", response_model=list[SiteItem])
-def list_sites() -> list[dict[str, Any]]:
+def list_sites(request: Request) -> list[dict[str, Any]]:
+    show_private = can_view_private(request)
+    where_clause = "" if show_private else "WHERE is_public = 1"
     with db_connect() as conn:
         rows = conn.execute(
-            """
-            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
+            f"""
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order, is_public
             FROM sites
+            {where_clause}
             ORDER BY sort_order ASC, id ASC;
             """
         ).fetchall()
@@ -1454,17 +1479,29 @@ class TagItem(BaseModel):
 
 
 @app.get("/api/tags", response_model=list[TagItem])
-def list_tags() -> list[dict[str, Any]]:
-    with db_connect() as conn:
-        rows = conn.execute(
-            """
+def list_tags(request: Request) -> list[dict[str, Any]]:
+    show_private = can_view_private(request)
+    if show_private:
+        sql = """
             SELECT tags.name, COUNT(site_tags.site_id) AS usage_count
             FROM tags
             LEFT JOIN site_tags ON site_tags.tag_id = tags.id
             GROUP BY tags.id
             ORDER BY tags.name COLLATE NOCASE ASC;
             """
-        ).fetchall()
+    else:
+        # 公开视图：只统计公开站点，且不展示仅私有站点使用的标签名
+        sql = """
+            SELECT tags.name, COUNT(sites.id) AS usage_count
+            FROM tags
+            LEFT JOIN site_tags ON site_tags.tag_id = tags.id
+            LEFT JOIN sites ON sites.id = site_tags.site_id AND sites.is_public = 1
+            GROUP BY tags.id
+            HAVING COUNT(sites.id) > 0
+            ORDER BY tags.name COLLATE NOCASE ASC;
+            """
+    with db_connect() as conn:
+        rows = conn.execute(sql).fetchall()
     return [{"name": row[0], "count": int(row[1])} for row in rows]
 
 
@@ -1626,7 +1663,7 @@ def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict
     with db_connect() as conn:
         row = conn.execute(
             """
-            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order, is_public
             FROM sites
             WHERE id = ?;
             """,
@@ -1658,13 +1695,18 @@ def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict
                 )
             if normalized_tags is not None:
                 replace_site_tags(conn, site_id, normalized_tags, now)
+            if payload.is_public is not None:
+                conn.execute(
+                    "UPDATE sites SET is_public = ? WHERE id = ?;",
+                    (1 if payload.is_public else 0, site_id),
+                )
             conn.commit()
         except sqlite3.IntegrityError:
             return JSONResponse(status_code=409, content={"error": "该网址已存在"})
 
         updated_row = conn.execute(
             """
-            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order, is_public
             FROM sites
             WHERE id = ?;
             """,
@@ -1701,7 +1743,7 @@ async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONRe
     with db_connect() as conn:
         row = conn.execute(
             """
-            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order, is_public
             FROM sites
             WHERE id = ?;
             """,
@@ -1721,7 +1763,7 @@ async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONRe
         conn.commit()
         updated_row = conn.execute(
             """
-            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order
+            SELECT id, url, site_name, icon_rel_path, updated_at, sort_order, is_public
             FROM sites
             WHERE id = ?;
             """,

@@ -180,6 +180,7 @@
       }
 
       .icon-shell {
+        position: relative;
         width: 52px;
         height: 52px;
         border-radius: 12px;
@@ -190,6 +191,16 @@
         transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s;
         cursor: pointer;
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+      }
+
+      .nav-private-badge {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        font-size: 11px;
+        line-height: 1;
+        filter: drop-shadow(0 1px 2px rgba(6, 18, 46, 0.45));
+        pointer-events: none;
       }
 
       .nav-icon {
@@ -493,6 +504,24 @@
       .msg.result-manager-msg {
         margin-top: 6px;
         color: var(--link);
+      }
+
+      .public-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--ink);
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .public-toggle input[type="checkbox"] {
+        width: 15px;
+        height: 15px;
+        accent-color: var(--button-bg);
+        cursor: pointer;
+        margin: 0;
       }
 
       .result-manager-msg.error {
@@ -1216,6 +1245,12 @@
                 </div>
                 <div id="result-tags-suggest" class="tag-suggest" hidden></div>
               </div>
+              <div class="result-manager-row">
+                <span class="result-manager-label">可见</span>
+                <label class="public-toggle" for="result-public-checkbox">
+                  <input id="result-public-checkbox" type="checkbox" checked />公开站点
+                </label>
+              </div>
             </div>
           </div>
           <div id="result-icon-picker" class="result-icon-picker" hidden>
@@ -1273,6 +1308,10 @@
             <input id="edit-tags-input" class="modal-input" type="text" placeholder="输入新标签或从下拉选择..." autocomplete="off" />
             <div id="edit-tags-suggest" class="tag-suggest" hidden></div>
           </div>
+          <label class="modal-label">可见性</label>
+          <label class="public-toggle" for="edit-public-checkbox">
+            <input id="edit-public-checkbox" type="checkbox" checked />公开站点（未持 Token 的访客可见并可跳转）
+          </label>
           <div id="edit-error" class="modal-error"></div>
           <div class="modal-actions">
             <button id="edit-cancel-btn" class="ghost-btn" type="button">取消</button>
@@ -1336,6 +1375,7 @@
       const resultTagsInputEl = document.getElementById("result-tags-input");
       const resultTagsSuggestEl = document.getElementById("result-tags-suggest");
       const resultSaveBtn = document.getElementById("result-save-btn");
+      const resultPublicCheckbox = document.getElementById("result-public-checkbox");
       const warningEl = document.getElementById("warning");
       const errorEl = document.getElementById("error");
       const iconWrapEl = document.getElementById("icon-wrap");
@@ -1370,6 +1410,7 @@
       const editTagsChipsEl = document.getElementById("edit-tags-chips");
       const editTagsInputEl = document.getElementById("edit-tags-input");
       const editTagsSuggestEl = document.getElementById("edit-tags-suggest");
+      const editPublicCheckbox = document.getElementById("edit-public-checkbox");
       const publicIpRefreshBtn = document.getElementById("public-ip-refresh");
       const publicIpValueEl = document.getElementById("public-ip-value");
       const tokenSettingsBtn = document.getElementById("token-settings-btn");
@@ -1514,6 +1555,7 @@
       let resultDraftIconFile = "";
       let resultDraftUploadFile = null;
       let resultDraftUploadUrl = "";
+      let resultDraftPublic = true;
       let resultSaving = false;
       let resultTagSuggestActiveIdx = -1;
       let resultIconSearchTimer = null;
@@ -1587,6 +1629,7 @@
           icon_rel_path: site.icon_rel_path || "",
           updated_at: site.updated_at || "",
           sort_order: Number(site.sort_order) || 0,
+          is_public: site.is_public === undefined ? true : Boolean(site.is_public),
           tags: Array.isArray(site.tags) ? site.tags.slice() : [],
         };
       }
@@ -1764,6 +1807,7 @@
         return (
           Boolean(resultDraftIconFile) ||
           Boolean(resultDraftUploadFile) ||
+          resultDraftPublic !== (resultOriginalSite.is_public !== false) ||
           !arraysEqual(resultDraftTags, resultOriginalSite.tags || [])
         );
       }
@@ -1773,6 +1817,7 @@
         resultIconPickBtn.disabled = resultSaving || !resultSiteId;
         resultIconUploadBtn.disabled = resultSaving || !resultSiteId;
         resultTagsInputEl.disabled = resultSaving || !resultSiteId;
+        resultPublicCheckbox.disabled = resultSaving || !resultSiteId;
       }
 
       function clearResultManager(message) {
@@ -1781,6 +1826,8 @@
         resultDraftTags = [];
         resultDraftIconFile = "";
         resultDraftUploadFile = null;
+        resultDraftPublic = true;
+        resultPublicCheckbox.checked = true;
         revokeResultDraftUploadUrl();
         resultTagSuggestActiveIdx = -1;
         resultManagerEl.hidden = true;
@@ -1958,6 +2005,8 @@
         resultDraftTags = Array.isArray(site.tags) ? site.tags.slice() : [];
         resultDraftIconFile = "";
         resultDraftUploadFile = null;
+        resultDraftPublic = site.is_public !== false;
+        resultPublicCheckbox.checked = resultDraftPublic;
         revokeResultDraftUploadUrl();
         resultIconPickerEl.hidden = true;
         resultIconSearchInput.value = "";
@@ -2027,12 +2076,16 @@
             latestSite = updateSiteCacheFromResponse(siteId, uploadData) || latestSite;
           }
 
-          const shouldPutSite = Boolean(resultDraftIconFile) || !arraysEqual(resultDraftTags, latestSite.tags || []);
+          const shouldPutSite =
+            Boolean(resultDraftIconFile) ||
+            resultDraftPublic !== (latestSite.is_public !== false) ||
+            !arraysEqual(resultDraftTags, latestSite.tags || []);
           if (shouldPutSite) {
             const body = {
               site_name: latestSite.site_name,
               url: latestSite.url,
               tags: resultDraftTags.slice(),
+              is_public: resultDraftPublic,
             };
             if (resultDraftIconFile) {
               body.icon_file = resultDraftIconFile;
@@ -2124,6 +2177,12 @@
           event.stopPropagation();
           showContextMenu(event.clientX, event.clientY, site.id);
         });
+        if (site.is_public === false) {
+          const privateBadge = document.createElement("span");
+          privateBadge.className = "nav-private-badge";
+          privateBadge.textContent = "🔒";
+          iconShell.appendChild(privateBadge);
+        }
 
         const iconUrl = toIconUrl(site.icon_rel_path || "");
         if (iconUrl) {
@@ -2368,6 +2427,7 @@
         editSiteId = Number(site.id) || 0;
         editNameInput.value = (site.site_name || "").trim();
         editUrlInput.value = (site.url || "").trim();
+        editPublicCheckbox.checked = site.is_public !== false;
         editErrorEl.textContent = "";
         selectedIconFile = "";
         iconPickerEl.hidden = true;
@@ -2645,9 +2705,11 @@
         const optimistic = cloneSite(sitesCache[index]);
         const iconFileToSend = selectedIconFile;
         const tagsToSend = editDraftTags.slice();
+        const publicToSend = editPublicCheckbox.checked;
         optimistic.site_name = nextName;
         optimistic.url = nextUrl;
         optimistic.tags = tagsToSend.slice();
+        optimistic.is_public = publicToSend;
         if (iconFileToSend) {
           optimistic.icon_rel_path = "__pending__";
         }
@@ -2657,7 +2719,7 @@
         closeEditModal();
         setEditSaving(true);
         try {
-          const body = { site_name: nextName, url: nextUrl, tags: tagsToSend };
+          const body = { site_name: nextName, url: nextUrl, tags: tagsToSend, is_public: publicToSend };
           if (iconFileToSend) {
             body.icon_file = iconFileToSend;
           }
@@ -2914,6 +2976,12 @@
 
       resultSaveBtn.addEventListener("click", saveResultManager);
 
+      resultPublicCheckbox.addEventListener("change", () => {
+        resultDraftPublic = resultPublicCheckbox.checked;
+        setResultManagerMessage("", false);
+        updateResultSaveState();
+      });
+
       editIconBtn.addEventListener("click", async () => {
         if (iconPickerEl.hidden) {
           iconPickerEl.hidden = false;
@@ -3072,6 +3140,13 @@
         if (!contextMenuEl.hidden && !contextMenuEl.contains(event.target)) {
           hideContextMenu();
         }
+      });
+      document.addEventListener("click", (event) => {
+        if (addPanelEl.classList.contains("collapsed")) return;
+        if (addPanelEl.contains(event.target)) return;
+        if (!editModalEl.hidden || !deleteModalEl.hidden || !tokenModalEl.hidden) return;
+        if (contextMenuEl.contains(event.target)) return;
+        setAddCollapsed(true);
       });
       window.addEventListener("resize", hideContextMenu);
       window.addEventListener("scroll", hideContextMenu, true);
