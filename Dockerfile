@@ -1,4 +1,6 @@
-FROM docker.freeba.org/gfcr.ip/astral-sh/uv:python3.12-bookworm-slim
+# 如需走私有代理/镜像源，构建时覆盖：docker build --build-arg BASE_IMAGE=<你的镜像地址> .
+ARG BASE_IMAGE=ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+FROM ${BASE_IMAGE}
 
 WORKDIR /app
 

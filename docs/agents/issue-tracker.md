@@ -4,7 +4,7 @@
 
 - **仓库 slug**：`luis/Nav_Loacl`（canonical，与 `git remote -v` 一致）
 - **服务器**：由 helper 脚本从 tea 配置（`.tea-config/tea/config.yml` 或
-  `~/.config/tea/config.yml`）自动发现，当前为 `https://git.freeba.org`
+  `~/.config/tea/config.yml`）自动发现（私有部署地址不在仓库中记录）
 - **访问方式**：使用 `gitea-issues` skill —— 通过 `curl.exe --noproxy "*"`
   调用 Gitea REST API。不要使用 `tea` CLI（此环境下有代理/SSL 握手问题）。
 
