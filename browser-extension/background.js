@@ -15,7 +15,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   const token = String(options.token || "").trim();
   if (!token) {
     await chrome.runtime.openOptionsPage();
-    await showMessage(tab.id, "请先在插件选项里配置 Nav Local Token。");
+    await showMessage(tab.id, "请先在插件选项里配置 PrivLink Token。");
     return;
   }
 
@@ -31,7 +31,7 @@ chrome.action.onClicked.addListener(async (tab) => {
     };
     const result = await postIngest(apiBase, token, payload);
     await setBadge(tab.id, "OK");
-    await showMessage(tab.id, "已保存到 Nav Local：" + (result.site_name || result.url || metadata.url));
+    await showMessage(tab.id, "已保存到 PrivLink：" + (result.site_name || result.url || metadata.url));
   } catch (error) {
     await setBadge(tab.id, "ERR");
     await showMessage(tab.id, "保存失败：" + (error && error.message ? error.message : String(error)));
