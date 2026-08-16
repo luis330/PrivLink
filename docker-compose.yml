@@ -1,6 +1,10 @@
 services:
   nav-local:
-    build: .
+    build:
+      context: .
+      args:
+        # 基础镜像可在 .env 中用 DOCKER_BASE_IMAGE 覆盖（如私有代理源），默认官方源
+        BASE_IMAGE: ${DOCKER_BASE_IMAGE:-ghcr.io/astral-sh/uv:python3.12-bookworm-slim}
     container_name: nav-local
     restart: unless-stopped
     ports:
