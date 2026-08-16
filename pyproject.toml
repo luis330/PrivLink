@@ -11,7 +11,3 @@ dependencies = [
     "python-multipart>=0.0.20",
     "uvicorn[standard]>=0.41.0",
 ]
-
-[[tool.uv.index]]
-url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
-default = true
