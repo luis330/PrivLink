@@ -219,7 +219,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 2. 服务器允许访问外网（需要抓取目标网站 HTML/icon）。
 3. 服务器开放应用端口（默认 `8000`）。
 4. 项目目录可写（用于 `data/` 和 `ICON/` 持久化）。
-5. `Dockerfile` 基础镜像默认为官方 `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`；拉取官方镜像困难时，构建传入 `--build-arg BASE_IMAGE=<你的代理镜像地址>` 覆盖。
+5. `Dockerfile` 基础镜像默认为官方 `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`；拉取官方镜像困难时，在 `.env` 中配置 `DOCKER_BASE_IMAGE=<你的代理镜像地址>` 即可（`docker compose build` 自动生效）；不经 compose 直接构建时用 `docker build --build-arg BASE_IMAGE=<地址> .` 覆盖。
 
 ### Debian 13 安装 Docker（如未安装）
 
