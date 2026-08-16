@@ -2,7 +2,7 @@
 
 本仓库的 issue 和 PRD 记录在 Gitea Issues 中。
 
-- **仓库 slug**：`luis/Nav_Loacl`（canonical，与 `git remote -v` 一致）
+- **仓库 slug**：`luis/PrivLink`（canonical，与 `git remote -v` 一致）
 - **服务器**：由 helper 脚本从 tea 配置（`.tea-config/tea/config.yml` 或
   `~/.config/tea/config.yml`）自动发现（私有部署地址不在仓库中记录）
 - **访问方式**：使用 `gitea-issues` skill —— 通过 `curl.exe --noproxy "*"`

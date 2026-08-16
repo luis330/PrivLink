@@ -6,7 +6,7 @@
 
 ### Issue tracker
 
-Issue 记录在 Gitea（`luis/Nav_Loacl`），通过 gitea-issues skill 调用
+Issue 记录在 Gitea（`luis/PrivLink`），通过 gitea-issues skill 调用
 Gitea REST API 读写。见 `docs/agents/issue-tracker.md`。
 
 ### Domain docs

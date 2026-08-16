@@ -18,14 +18,14 @@ PNG_BASE64 = (
 
 class CollectorScriptTest(unittest.TestCase):
     def test_tampermonkey_collector_runs_only_in_top_frame(self) -> None:
-        script_path = Path(__file__).resolve().parents[1] / "collectors" / "nav-local.user.js"
+        script_path = Path(__file__).resolve().parents[1] / "collectors" / "privlink.user.js"
         script = script_path.read_text(encoding="utf-8")
 
         self.assertIn("// @noframes", script)
         self.assertIn("window.top !== window.self", script)
         self.assertLess(
             script.index("window.top !== window.self"),
-            script.index('GM_registerMenuCommand("保存当前页到 Nav Local"'),
+            script.index('GM_registerMenuCommand("保存当前页到 PrivLink"'),
         )
 
 
