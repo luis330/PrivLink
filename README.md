@@ -21,6 +21,8 @@
 uv sync
 ```
 
+> 中国大陆网络环境下如需加速，可在用户级 uv 配置（`~/.config/uv/uv.toml` 或 Windows `%APPDATA%\uv\uv.toml`）中配置 PyPI 镜像（如 `https://pypi.tuna.tsinghua.edu.cn/simple/`），项目本身不锁定镜像源。
+
 2. 配置参数（可选）：复制 `.env.example` 为 `.env` 并按需修改（见下文「配置方式」）。
 
 3. 启动服务：
@@ -191,7 +193,7 @@ export NO_PROXY=127.0.0.1,localhost
 
 ### 本地域名 / hosts 域名
 
-如果目标网站只能通过本机 hosts 或内网 DNS 解析，例如 `*.freeba.org` 指向 Caddy 反代，Docker 容器里也必须具备同样的解析结果。否则浏览器能访问，不代表服务端抓取进程能访问。
+如果目标网站只能通过本机 hosts 或内网 DNS 解析，例如 `*.example.com` 指向内网反向代理，Docker 容器里也必须具备同样的解析结果。否则浏览器能访问，不代表服务端抓取进程能访问。
 
 同时，内网站点必须放进 `NO_PROXY`，避免 HTTPS 请求被送到外部代理后出现 `SSL: UNEXPECTED_EOF_WHILE_READING`、代理解析失败或证书握手异常。
 
@@ -200,14 +202,14 @@ export NO_PROXY=127.0.0.1,localhost
 示例（`.env`）：
 
 ```bash
-HTTP_PROXY=http://192.168.50.16:7890
-HTTPS_PROXY=http://192.168.50.16:7890
-NO_PROXY=127.0.0.1,localhost,::1,freeba.org,.freeba.org
-NAV_HOST_ALIASES=*.freeba.org=192.168.50.15
-NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
+HTTP_PROXY=http://192.168.1.2:7890
+HTTPS_PROXY=http://192.168.1.2:7890
+NO_PROXY=127.0.0.1,localhost,::1,example.com,.example.com
+NAV_HOST_ALIASES=*.example.com=192.168.1.10
+NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 ```
 
-`NAV_ALLOWED_PRIVATE_NETWORKS` 是 SSRF 防护的内网白名单，**默认全禁内网**（最安全）。需要服务端直接抓取内网站点时才显式放行网段（如 `192.168.50.0/24,172.17.0.0/16`）；更推荐的做法是内网站点用浏览器采集器上报，白名单保持默认。
+`NAV_ALLOWED_PRIVATE_NETWORKS` 是 SSRF 防护的内网白名单，**默认全禁内网**（最安全）。需要服务端直接抓取内网站点时才显式放行网段（如 `192.168.1.0/24,172.17.0.0/16`）；更推荐的做法是内网站点用浏览器采集器上报，白名单保持默认。
 
 ## Debian 13 Docker 部署
 
@@ -217,7 +219,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.50.0/24
 2. 服务器允许访问外网（需要抓取目标网站 HTML/icon）。
 3. 服务器开放应用端口（默认 `8000`）。
 4. 项目目录可写（用于 `data/` 和 `ICON/` 持久化）。
-5. 当前 `Dockerfile` 基础镜像已改为私有代理地址：`docker.freeba.org/gfcr.ip/...`。
+5. `Dockerfile` 基础镜像默认为官方 `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`；拉取官方镜像困难时，构建传入 `--build-arg BASE_IMAGE=<你的代理镜像地址>` 覆盖。
 
 ### Debian 13 安装 Docker（如未安装）
 
@@ -358,3 +360,15 @@ systemctl daemon-reload && systemctl enable --now nav-local
 - `icons/` 目录的预设图标库来自字节跳动开源的 [IconPark](https://github.com/bytedance/IconPark)，以 [Apache License 2.0](icons/LICENSE) 授权使用与再分发（许可证全文见 `icons/LICENSE`）。
 - 其中的品牌类图标（如支付宝、Adobe 系列等）图形以 Apache-2.0 授权，但商标权归各品牌方所有，本项目仅用于指示对应站点，不构成品牌背书。
 - `ICON/` 目录存放的是各网站抓取的 favicon，仅用于指向其对应站点（与浏览器书签同类的指示性使用）。
+
+## 许可证（License）
+
+Copyright (c) 2026 luis
+
+本项目以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）开源：
+
+- 您可以自由使用、修改与再分发本项目；
+- 基于本项目修改后再分发，或**通过网络对外提供服务**（如部署为公开网站），必须以 AGPL-3.0 同等条款开放完整源代码，并保留原始版权声明与许可证文本，修改过的文件须标注改动说明；
+- 若您基于本项目二次开发，欢迎（非强制）在您的 README 中注明来源并链接回本仓库。
+
+第三方组件：`icons/` 图标库来自 IconPark（Apache-2.0，与 AGPL-3.0 兼容），归属声明见上文「图标库版权」章节。
