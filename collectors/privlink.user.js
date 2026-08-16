@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Nav Local Collector
-// @namespace    nav-local
+// @name         PrivLink Collector
+// @namespace    privlink
 // @version      0.1.1
-// @description  Save the current browser page to Nav Local.
+// @description  Save the current browser page to PrivLink.
 // @match        http://*/*
 // @match        https://*/*
 // @noframes
@@ -21,8 +21,8 @@
   }
 
   const DEFAULT_API_BASE = "http://127.0.0.1:8000";
-  const API_BASE_KEY = "navLocalApiBase";
-  const TOKEN_KEY = "navLocalToken";
+  const API_BASE_KEY = "privlinkApiBase";
+  const TOKEN_KEY = "privlinkToken";
   const ICON_MAX_BYTES = 1024 * 1024;
 
   function getApiBase() {
@@ -34,7 +34,7 @@
   }
 
   function setApiBase() {
-    const next = prompt("Nav Local API 地址", getApiBase());
+    const next = prompt("PrivLink API 地址", getApiBase());
     if (next === null) return;
     const clean = next.trim().replace(/\/+$/, "");
     if (!/^https?:\/\//i.test(clean)) {
@@ -46,7 +46,7 @@
   }
 
   function setToken() {
-    const next = prompt("Nav Local X-Nav-Token", getToken());
+    const next = prompt("PrivLink X-Nav-Token", getToken());
     if (next === null) return;
     GM_setValue(TOKEN_KEY, next.trim());
     alert("已保存 Token");
@@ -238,10 +238,10 @@
           resolve(data);
         },
         ontimeout() {
-          reject(new Error("Nav Local request timed out"));
+          reject(new Error("PrivLink request timed out"));
         },
         onerror() {
-          reject(new Error("Nav Local request failed"));
+          reject(new Error("PrivLink request failed"));
         },
       });
     });
@@ -250,7 +250,7 @@
   async function saveCurrentPage() {
     const token = getToken();
     if (!token) {
-      alert("请先设置 Nav Local Token");
+      alert("请先设置 PrivLink Token");
       setToken();
       return;
     }
@@ -264,13 +264,13 @@
 
     try {
       const data = await postJson(getApiBase() + "/api/site/ingest", token, payload);
-      alert("已保存到 Nav Local：" + (data.site_name || data.url || location.href));
+      alert("已保存到 PrivLink：" + (data.site_name || data.url || location.href));
     } catch (error) {
       alert("保存失败：" + (error && error.message ? error.message : String(error)));
     }
   }
 
-  GM_registerMenuCommand("保存当前页到 Nav Local", saveCurrentPage);
-  GM_registerMenuCommand("设置 Nav Local API 地址", setApiBase);
-  GM_registerMenuCommand("设置 Nav Local Token", setToken);
+  GM_registerMenuCommand("保存当前页到 PrivLink", saveCurrentPage);
+  GM_registerMenuCommand("设置 PrivLink API 地址", setApiBase);
+  GM_registerMenuCommand("设置 PrivLink Token", setToken);
 })();

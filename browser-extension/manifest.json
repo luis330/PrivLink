@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Nav Local Collector",
+  "name": "PrivLink Collector",
   "version": "0.1.0",
-  "description": "Save the current browser page to Nav Local.",
+  "description": "Save the current browser page to PrivLink.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "action": {
-    "default_title": "保存到 Nav Local"
+    "default_title": "保存到 PrivLink"
   },
   "background": {
     "service_worker": "background.js"

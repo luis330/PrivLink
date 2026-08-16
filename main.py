@@ -114,7 +114,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("nav-local")
+logger = logging.getLogger("privlink")
 
 
 @dataclass(frozen=True)
@@ -1317,7 +1317,7 @@ async def app_lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Nav Local Service", version="1.0.0", lifespan=app_lifespan)
+app = FastAPI(title="PrivLink", version="1.0.0", lifespan=app_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

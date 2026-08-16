@@ -1,4 +1,4 @@
-# Nav Local Service
+# PrivLink
 
 一个基于 FastAPI 的网站记录采集服务。输入网页 URL 后，服务会解析网站名称和 icon，并写入本地 SQLite。
 
@@ -138,16 +138,16 @@ X-Nav-Token: your-secret-token
 NAV_TOKEN=your-secret-token
 ```
 
-源码部署重启：`systemctl restart nav-local`（或重新运行 uvicorn）；Docker 部署重启：`docker compose up -d`。
+源码部署重启：`systemctl restart privlink`（或重新运行 uvicorn）；Docker 部署重启：`docker compose up -d`。
 
 ### Tampermonkey
 
 1. 安装 Tampermonkey。
-2. 新建脚本并使用 `collectors/nav-local.user.js` 的内容。
+2. 新建脚本并使用 `collectors/privlink.user.js` 的内容。
 3. 在任意目标网站页面中打开 Tampermonkey 菜单：
-   - 先执行“设置 Nav Local API 地址”，默认是 `http://127.0.0.1:8000`。
-   - 再执行“设置 Nav Local Token”，填入部署配置的访问 token。
-   - 通过验证并停留在目标页后，执行“保存当前页到 Nav Local”。
+   - 先执行“设置 PrivLink API 地址”，默认是 `http://127.0.0.1:8000`。
+   - 再执行“设置 PrivLink Token”，填入部署配置的访问 token。
+   - 通过验证并停留在目标页后，执行“保存当前页到 PrivLink”。
 
 ### Chrome / Edge 插件
 
@@ -159,6 +159,8 @@ NAV_TOKEN=your-secret-token
 ## 配置方式（.env）
 
 所有参数统一通过项目根目录的 `.env` 文件配置：复制 `.env.example` 为 `.env` 后按需修改。两种部署方式共用同一文件——源码部署时服务启动自动加载（真实环境变量优先），Docker Compose 部署时由 compose 自动读取做变量替换。
+
+> 环境变量沿用 `NAV_` 前缀、API 鉴权头沿用 `X-Nav-Token`（项目历史沿革），保持既有部署与采集器客户端的完全兼容。
 
 通用默认体验只需配置 `NAV_TOKEN` 一项；代理、主机映射、内网白名单等属于「抓取增强」可选项——不配置时，服务端抓不到的站点（被墙、内网、需验证）改用浏览器采集器上报即可入库。
 
@@ -235,7 +237,7 @@ sudo systemctl enable --now docker
 
 ```bash
 git clone <your-repo-url>
-cd Nav_Loacl
+cd PrivLink
 ```
 
 2. 配置参数（可选但公网部署强烈建议）：
@@ -282,7 +284,7 @@ docker compose up -d --build
 
 ```bash
 # 1) 进入项目目录
-cd Nav_Loacl
+cd PrivLink
 
 # 2) 拉取最新代码
 git pull
@@ -306,7 +308,7 @@ docker compose restart
 适合不便使用 Docker 的服务器。项目无前端构建步骤，克隆后即可运行：
 
 ```bash
-git clone <仓库地址> nav-local && cd nav-local
+git clone <仓库地址> privlink && cd privlink
 uv sync
 cp .env.example .env   # 编辑 .env：至少设置 NAV_TOKEN
 uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
@@ -317,13 +319,13 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 - 生产环境建议用 systemd 托管（开机自启、崩溃自动拉起）：
 
 ```ini
-# /etc/systemd/system/nav-local.service
+# /etc/systemd/system/privlink.service
 [Unit]
-Description=Nav Local Service
+Description=PrivLink
 After=network-online.target
 
 [Service]
-WorkingDirectory=/opt/nav-local
+WorkingDirectory=/opt/privlink
 ExecStart=/usr/local/bin/uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=on-failure
 
@@ -332,12 +334,12 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-systemctl daemon-reload && systemctl enable --now nav-local
+systemctl daemon-reload && systemctl enable --now privlink
 ```
 
-- 配置全部来自 `WorkingDirectory` 下的 `.env`，改配置只需编辑 `.env` 后 `systemctl restart nav-local`。
+- 配置全部来自 `WorkingDirectory` 下的 `.env`，改配置只需编辑 `.env` 后 `systemctl restart privlink`。
 - 对外域名场景经 Nginx / Caddy 反向代理并启用 HTTPS；本服务对反代无特殊要求（Caddy 一行 `reverse_proxy 127.0.0.1:8000` 即可）。
-- 更新：`git pull` 后 `systemctl restart nav-local`。
+- 更新：`git pull` 后 `systemctl restart privlink`。
 - 备份 / 迁移：只需 `data/`（数据库）与 `ICON/`（站点图标）两个目录；从 Docker 迁移时把挂载卷中的这两个目录拷入项目根即可。
 
 ## 运行策略说明
