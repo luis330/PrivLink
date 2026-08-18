@@ -7,6 +7,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -56,9 +57,11 @@ APP_PORT = 8000
 DB_PATH = Path("data") / "sites.db"
 ICON_DIR = Path("ICON")
 ICONS_LIB_DIR = Path("icons")
+BACKGROUND_DIR = Path("background")
 FRONTEND_PATH = Path("index.html")
 ICON_MAX_BYTES = 2 * 1024 * 1024
 ICON_UPLOAD_MAX_BYTES = 1024 * 1024
+BACKGROUND_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_RETRIES = 2
 MAX_REDIRECTS = 5
@@ -108,6 +111,10 @@ CONTENT_TYPE_TO_EXT = {
     "image/avif": ".avif",
 }
 ALLOWED_UPLOAD_ICON_EXTENSIONS = {".ico", ".png", ".svg"}
+ALLOWED_BACKGROUND_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+BACKGROUND_SETTING_KEY = "background"
+# 背景图文件名只承认本服务生成的内容寻址名（bg-<sha256[:24]><ext>），杜绝路径穿越与任意文件删除
+BACKGROUND_FILENAME_RE = re.compile(r"^bg-[0-9a-f]{24}\.(?:jpg|jpeg|png|webp)$")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -333,6 +340,7 @@ def normalize_tag_list(raw_tags: list[str] | None) -> list[str]:
 def init_storage() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     ICON_DIR.mkdir(parents=True, exist_ok=True)
+    BACKGROUND_DIR.mkdir(parents=True, exist_ok=True)
     with db_connect() as conn:
         conn.execute(
             """
@@ -1173,6 +1181,25 @@ class AuthStatusResponse(BaseModel):
     authorized: bool
 
 
+class BackgroundSettingResponse(BaseModel):
+    type: str
+    color: str
+    image: str
+    image_url: str
+
+
+class BackgroundSettingRequest(BaseModel):
+    type: str = Field(min_length=1)
+    color: str = ""
+    image: str = ""
+
+
+class BackgroundImageItem(BaseModel):
+    file: str
+    size: int
+    url: str
+
+
 def resolve_request_identity(request: Request) -> str | None:
     """校验 X-Nav-Token 并返回请求身份；多用户体系下将改为按 token 查询用户。"""
     if not NAV_TOKEN:
@@ -1304,6 +1331,87 @@ def scan_icons_library() -> list[dict[str, str]]:
     return items
 
 
+def default_background_setting() -> dict[str, str]:
+    return {"type": "default", "color": "", "image": "", "image_url": ""}
+
+
+def background_image_url(filename: str) -> str:
+    return f"/background/{filename}"
+
+
+def normalize_background_setting(raw: dict[str, Any]) -> dict[str, str]:
+    setting_type = str(raw.get("type") or "").strip().lower()
+    color = str(raw.get("color") or "").strip()
+    image = str(raw.get("image") or "").strip()
+    if setting_type == "default":
+        return default_background_setting()
+    if setting_type == "color":
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            raise ValueError("纯色背景需要形如 #RRGGBB 的颜色值")
+        return {"type": "color", "color": color, "image": "", "image_url": ""}
+    if setting_type == "image":
+        if not BACKGROUND_FILENAME_RE.fullmatch(image):
+            raise ValueError("背景图文件名不合法")
+        if not (BACKGROUND_DIR / image).is_file():
+            raise ValueError("背景图文件不存在")
+        return {"type": "image", "color": "", "image": image, "image_url": background_image_url(image)}
+    raise ValueError("背景类型必须是 default、color 或 image")
+
+
+def load_background_setting() -> dict[str, str]:
+    raw = get_app_setting(BACKGROUND_SETTING_KEY)
+    if not raw:
+        return default_background_setting()
+    try:
+        data = json.loads(raw)
+        setting = normalize_background_setting(data if isinstance(data, dict) else {})
+    except ValueError:
+        # 脏数据自愈：回写默认值，避免公开 GET 持续报错
+        setting = default_background_setting()
+        set_app_setting(BACKGROUND_SETTING_KEY, json.dumps(setting))
+        return setting
+    if setting["type"] == "image" and not (BACKGROUND_DIR / setting["image"]).is_file():
+        # 图片文件被手工删除时自愈回默认，避免悬空 image_url
+        setting = default_background_setting()
+        set_app_setting(BACKGROUND_SETTING_KEY, json.dumps(setting))
+    return setting
+
+
+def save_background_setting(payload: dict[str, Any]) -> dict[str, str]:
+    setting = normalize_background_setting(payload)
+    set_app_setting(BACKGROUND_SETTING_KEY, json.dumps(setting))
+    return setting
+
+
+def background_upload_filename(content: bytes, original_name: str) -> str:
+    ext = Path(original_name).suffix.lower()
+    if ext not in ALLOWED_BACKGROUND_EXTENSIONS:
+        raise ValueError("仅支持 jpg、png、webp 格式背景图")
+    digest = hashlib.sha256(content).hexdigest()[:24]
+    return f"bg-{digest}{ext}"
+
+
+def list_background_images() -> list[dict[str, Any]]:
+    if not BACKGROUND_DIR.is_dir():
+        return []
+    items: list[tuple[float, dict[str, Any]]] = []
+    for f in BACKGROUND_DIR.iterdir():
+        if not f.is_file() or not BACKGROUND_FILENAME_RE.fullmatch(f.name):
+            continue
+        stat = f.stat()
+        items.append(
+            (stat.st_mtime, {"file": f.name, "size": stat.st_size, "url": background_image_url(f.name)})
+        )
+    items.sort(key=lambda pair: pair[0], reverse=True)
+    return [item for _, item in items]
+
+
+def delete_background_image_file(filename: str) -> None:
+    if not BACKGROUND_FILENAME_RE.fullmatch(filename):
+        raise ValueError("文件名不合法")
+    (BACKGROUND_DIR / filename).unlink(missing_ok=True)
+
+
 @asynccontextmanager
 async def app_lifespan(_: FastAPI):
     global _icons_cache
@@ -1330,7 +1438,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 # 公开只读接口：无 token 也放行到路由，由路由内按身份过滤（仅返回公开站点）；
 # auth/status 供前端探测门禁状态，不泄露敏感信息
-PUBLIC_READONLY_API_PATHS = {"/api/sites", "/api/tags", "/api/auth/status"}
+PUBLIC_READONLY_API_PATHS = {"/api/sites", "/api/tags", "/api/auth/status", "/api/appearance/background"}
 
 
 @app.middleware("http")
@@ -1370,6 +1478,11 @@ app.mount(
     "/icons",
     CachedStaticFiles(directory=str(ICONS_LIB_DIR), cache_control="public, max-age=604800"),
     name="icon-lib",
+)
+app.mount(
+    "/background",
+    CachedStaticFiles(directory=str(BACKGROUND_DIR), check_dir=False, cache_control="public, max-age=86400"),
+    name="background",
 )
 
 
@@ -1447,6 +1560,62 @@ def read_public_ipv4() -> JSONResponse:
         content={"ip": public_ip},
         headers={"Cache-Control": "no-store"},
     )
+
+
+@app.get("/api/appearance/background", response_model=BackgroundSettingResponse)
+def read_background_setting() -> dict[str, str]:
+    """公开只读：匿名访客与管理员看到同一全局背景设置。"""
+    return load_background_setting()
+
+
+@app.put("/api/appearance/background", response_model=BackgroundSettingResponse)
+def update_background_setting(payload: BackgroundSettingRequest) -> JSONResponse | dict[str, str]:
+    try:
+        return save_background_setting({"type": payload.type, "color": payload.color, "image": payload.image})
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+
+@app.get("/api/appearance/background/images", response_model=list[BackgroundImageItem])
+def read_background_images() -> list[dict[str, Any]]:
+    return list_background_images()
+
+
+@app.post("/api/appearance/background/images", response_model=BackgroundSettingResponse)
+async def upload_background_image(image: UploadFile = File(...)) -> JSONResponse | dict[str, str]:
+    filename = (image.filename or "").strip()
+    if not filename:
+        return JSONResponse(status_code=400, content={"error": "请上传背景图片文件"})
+    if Path(filename).suffix.lower() not in ALLOWED_BACKGROUND_EXTENSIONS:
+        return JSONResponse(status_code=400, content={"error": "仅支持 jpg、png、webp 格式图片"})
+
+    content = await image.read()
+    if not content:
+        return JSONResponse(status_code=400, content={"error": "图片内容为空"})
+    if len(content) > BACKGROUND_UPLOAD_MAX_BYTES:
+        return JSONResponse(status_code=400, content={"error": "图片大小不能超过 5MB"})
+
+    try:
+        stored_name = background_upload_filename(content, filename)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    # 内容寻址文件名：同内容重传幂等覆盖；上传即生效，直接设为当前背景
+    (BACKGROUND_DIR / stored_name).write_bytes(content)
+    return save_background_setting({"type": "image", "image": stored_name})
+
+
+@app.delete("/api/appearance/background/images/{filename}", response_model=BackgroundSettingResponse)
+def delete_background_image(filename: str) -> JSONResponse | dict[str, str]:
+    try:
+        delete_background_image_file(filename)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    current = load_background_setting()
+    if current["type"] == "image" and current["image"] == filename:
+        # 删除的是当前背景：重置为默认并返回新设置供前端直接应用
+        return save_background_setting({"type": "default"})
+    return current
 
 
 @app.post("/api/site/parse", response_model=ParseResponse)

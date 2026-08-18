@@ -62,6 +62,15 @@
         padding: 18px 18px 190px;
       }
 
+      /* 自定义背景下的暗色遮罩：位于 body 背景之上、页面内容之下，按亮度调节透明度保证文字可读 */
+      .bg-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background: rgba(6, 18, 46, var(--bg-scrim-opacity, 0));
+      }
+
       .app {
         width: min(980px, 100%);
         margin: 0 auto;
@@ -867,6 +876,175 @@
         font-family: "IBM Plex Mono", Consolas, monospace;
       }
 
+      .background-modal-card {
+        width: min(660px, 100%);
+      }
+
+      .bg-mode-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .bg-tab {
+        flex: 1;
+        border-radius: 999px;
+        border: 1px solid rgba(15, 124, 240, 0.4);
+        padding: 8px 0;
+        background: rgba(255, 255, 255, 0.6);
+        color: #1d5fa8;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background 0.15s ease;
+      }
+
+      .bg-tab:hover {
+        background: rgba(255, 255, 255, 0.9);
+      }
+
+      .bg-tab.active {
+        background: linear-gradient(135deg, #0f7cf0, #0b69cd);
+        border-color: transparent;
+        color: #fff;
+      }
+
+      .bg-pane[hidden] {
+        display: none;
+      }
+
+      .bg-pane-hint {
+        margin: 0 0 4px;
+        color: var(--ink-muted);
+        font-size: 13px;
+      }
+
+      .bg-swatch-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin: 12px 0;
+      }
+
+      .bg-swatch {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.85);
+        cursor: pointer;
+        padding: 0;
+        transition: transform 0.12s ease;
+      }
+
+      .bg-swatch:hover {
+        transform: scale(1.08);
+      }
+
+      .bg-swatch.active {
+        outline: 2px solid var(--button-bg);
+        outline-offset: 2px;
+      }
+
+      .bg-custom-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 4px;
+      }
+
+      .bg-custom-row .bg-custom-label {
+        font-size: 14px;
+        color: var(--ink);
+      }
+
+      .bg-color-input {
+        width: 52px;
+        height: 36px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        cursor: pointer;
+        padding: 2px;
+      }
+
+      .bg-tools-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .bg-image-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 10px;
+        max-height: 320px;
+        overflow: auto;
+      }
+
+      .bg-thumb {
+        position: relative;
+        display: block;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: #fff;
+        cursor: pointer;
+        overflow: hidden;
+      }
+
+      .bg-thumb img {
+        display: block;
+        width: 100%;
+        height: 84px;
+        object-fit: cover;
+      }
+
+      .bg-thumb-name {
+        display: block;
+        padding: 4px 6px 5px;
+        font-size: 11px;
+        color: var(--ink-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .bg-thumb.selected {
+        outline: 2px solid var(--button-bg);
+        outline-offset: -2px;
+      }
+
+      .bg-thumb-badge {
+        position: absolute;
+        top: 6px;
+        left: 6px;
+        border-radius: 999px;
+        background: var(--button-bg);
+        color: #fff;
+        font-size: 11px;
+        line-height: 1;
+        padding: 4px 8px;
+        pointer-events: none;
+      }
+
+      .bg-thumb-check {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 16px;
+        height: 16px;
+        accent-color: #0f7cf0;
+      }
+
+      .bg-empty {
+        grid-column: 1 / -1;
+        color: var(--ink-muted);
+        font-size: 13px;
+        text-align: center;
+        padding: 24px 0;
+        margin: 0;
+      }
+
       .tag-edit-wrap {
         position: relative;
         display: flex;
@@ -1206,6 +1384,7 @@
               <span id="public-ip-value" class="public-ip-value">获取中…</span>
             </div>
             <button id="token-settings-btn" class="token-settings-btn" type="button">访问 Token</button>
+            <button id="background-settings-btn" class="token-settings-btn" type="button">背景</button>
           </div>
         </div>
 
@@ -1335,6 +1514,54 @@
       </section>
     </div>
 
+    <div id="background-modal" class="modal-overlay" hidden>
+      <section class="modal-card background-modal-card" role="dialog" aria-modal="true" aria-labelledby="background-title">
+        <div class="modal-head">
+          <h2 id="background-title" class="modal-title">背景设置</h2>
+          <button id="background-close-btn" class="close-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <form id="background-form" class="modal-form">
+          <div class="bg-mode-tabs" role="tablist" aria-label="背景类型">
+            <button type="button" id="bg-tab-default" class="bg-tab active">默认</button>
+            <button type="button" id="bg-tab-color" class="bg-tab">纯色</button>
+            <button type="button" id="bg-tab-image" class="bg-tab">图片</button>
+          </div>
+          <div id="bg-pane-default" class="bg-pane">
+            <p class="bg-pane-hint">恢复内置的蓝色渐变背景。</p>
+          </div>
+          <div id="bg-pane-color" class="bg-pane" hidden>
+            <p class="bg-pane-hint">选择纯色作为整页背景；过亮的颜色会自动叠加暗色遮罩以保持文字可读。</p>
+            <div class="bg-swatch-row" id="bg-swatch-row">
+              <button type="button" class="bg-swatch" data-color="#0a46b6" style="background: #0a46b6" aria-label="深蓝"></button>
+              <button type="button" class="bg-swatch" data-color="#1d81db" style="background: #1d81db" aria-label="湖蓝"></button>
+              <button type="button" class="bg-swatch" data-color="#0f7cf0" style="background: #0f7cf0" aria-label="亮蓝"></button>
+              <button type="button" class="bg-swatch" data-color="#12253d" style="background: #12253d" aria-label="墨蓝"></button>
+              <button type="button" class="bg-swatch" data-color="#06122e" style="background: #06122e" aria-label="藏蓝"></button>
+              <button type="button" class="bg-swatch" data-color="#156f3d" style="background: #156f3d" aria-label="墨绿"></button>
+            </div>
+            <div class="bg-custom-row">
+              <label class="bg-custom-label" for="bg-color-input">自定义颜色</label>
+              <input type="color" id="bg-color-input" class="bg-color-input" value="#0a46b6" />
+            </div>
+          </div>
+          <div id="bg-pane-image" class="bg-pane" hidden>
+            <div class="bg-tools-row">
+              <button type="button" id="bg-upload-btn" class="ghost-btn">上传图片</button>
+              <input type="file" id="bg-upload-input" accept=".jpg,.jpeg,.png,.webp" hidden />
+              <button type="button" id="bg-apply-image-btn" class="primary-btn" disabled>设置为背景</button>
+              <button type="button" id="bg-delete-image-btn" class="danger-btn" disabled>删除</button>
+            </div>
+            <div id="bg-image-grid" class="bg-image-grid"></div>
+          </div>
+          <div id="background-error" class="modal-error"></div>
+          <div class="modal-actions">
+            <button id="background-cancel-btn" class="ghost-btn" type="button">取消</button>
+            <button id="background-save-btn" class="primary-btn" type="submit">应用</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
     <div id="token-modal" class="modal-overlay" hidden>
       <section class="modal-card token-modal-card" role="dialog" aria-modal="true" aria-labelledby="token-title">
         <div class="modal-head">
@@ -1352,6 +1579,8 @@
         </form>
       </section>
     </div>
+
+    <div id="bg-overlay" class="bg-overlay" hidden></div>
 
     <script>
       /* ===== DOM 引用 ===== */
@@ -1453,6 +1682,26 @@
       const tokenCloseBtn = document.getElementById("token-close-btn");
       const tokenCancelBtn = document.getElementById("token-cancel-btn");
       const tokenSaveBtn = document.getElementById("token-save-btn");
+      const bgOverlayEl = document.getElementById("bg-overlay");
+      const backgroundSettingsBtn = document.getElementById("background-settings-btn");
+      const backgroundModalEl = document.getElementById("background-modal");
+      const backgroundForm = document.getElementById("background-form");
+      const backgroundErrorEl = document.getElementById("background-error");
+      const backgroundCloseBtn = document.getElementById("background-close-btn");
+      const backgroundCancelBtn = document.getElementById("background-cancel-btn");
+      const bgTabDefaultBtn = document.getElementById("bg-tab-default");
+      const bgTabColorBtn = document.getElementById("bg-tab-color");
+      const bgTabImageBtn = document.getElementById("bg-tab-image");
+      const bgPaneDefaultEl = document.getElementById("bg-pane-default");
+      const bgPaneColorEl = document.getElementById("bg-pane-color");
+      const bgPaneImageEl = document.getElementById("bg-pane-image");
+      const bgSwatchRowEl = document.getElementById("bg-swatch-row");
+      const bgColorInputEl = document.getElementById("bg-color-input");
+      const bgUploadBtn = document.getElementById("bg-upload-btn");
+      const bgUploadInputEl = document.getElementById("bg-upload-input");
+      const bgApplyImageBtn = document.getElementById("bg-apply-image-btn");
+      const bgDeleteImageBtn = document.getElementById("bg-delete-image-btn");
+      const bgImageGridEl = document.getElementById("bg-image-grid");
       const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
 
       /* ===== 常量 ===== */
@@ -1462,6 +1711,9 @@
       const TAGS_CACHE_STORAGE_KEY = "nav_cache_v1:tags";
       const AUTH_TOKEN_STORAGE_KEY = "nav_auth_token_v1";
       const ICON_UPLOAD_MAX_BYTES = 1024 * 1024;
+      const BACKGROUND_STORAGE_KEY = "nav_background_v1";
+      const BACKGROUND_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+      const BACKGROUND_IMAGE_RE = /\.(jpe?g|png|webp)$/i;
 
       /* ===== API 地址 ===== */
       function getParseApiUrl() {
@@ -1534,6 +1786,25 @@
         return base + "/icons/" + encodeURIComponent(filename);
       }
 
+      function getBackgroundSettingApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/appearance/background";
+        }
+        return "/api/appearance/background";
+      }
+
+      function getBackgroundImagesApiUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/appearance/background/images";
+        }
+        return "/api/appearance/background/images";
+      }
+
+      function getBackgroundImageUrl(filename) {
+        const base = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+        return base + "/background/" + encodeURIComponent(filename);
+      }
+
       function toIconUrl(iconPath) {
         const cleanPath = (iconPath || "").trim();
         if (!cleanPath) return "";
@@ -1562,6 +1833,11 @@
       let resultOriginalSite = null;
       let resultDraftTags = [];
       let resultDraftIconFile = "";
+      let backgroundSetting = null;
+      let bgActiveTab = "default";
+      let bgSelectedColor = "#0a46b6";
+      let backgroundImages = [];
+      let backgroundBusy = false;
       let resultDraftUploadFile = null;
       let resultDraftUploadUrl = "";
       let resultDraftPublic = true;
@@ -2761,6 +3037,382 @@
         }
       }
 
+      /* ===== 背景设置 ===== */
+      function clearBodyInlineBackground() {
+        document.body.style.backgroundColor = "";
+        document.body.style.backgroundImage = "";
+        document.body.style.backgroundSize = "";
+        document.body.style.backgroundPosition = "";
+        document.body.style.backgroundRepeat = "";
+        document.body.style.backgroundAttachment = "";
+      }
+
+      function setBgScrim(brightness) {
+        // 目标：叠加遮罩后等效背景亮度 ≤ 0.35；越亮遮罩越深，暗背景不加遮罩
+        const b = Math.min(Math.max(brightness, 0.01), 1);
+        const opacity = Math.min(Math.max(1 - 0.35 / b, 0), 0.85);
+        if (opacity > 0) {
+          bgOverlayEl.style.setProperty("--bg-scrim-opacity", String(opacity));
+          bgOverlayEl.hidden = false;
+        } else {
+          bgOverlayEl.hidden = true;
+        }
+      }
+
+      function hexBrightness(hex) {
+        const value = String(hex || "").replace("#", "");
+        if (!/^[0-9a-fA-F]{6}$/.test(value)) return 0.6;
+        const r = parseInt(value.slice(0, 2), 16) / 255;
+        const g = parseInt(value.slice(2, 4), 16) / 255;
+        const b = parseInt(value.slice(4, 6), 16) / 255;
+        return 0.299 * r + 0.587 * g + 0.114 * b;
+      }
+
+      function setImageScrim(url) {
+        const probe = new Image();
+        probe.onload = () => {
+          try {
+            const canvas = document.createElement("canvas");
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(probe, 0, 0, 32, 32);
+            const data = ctx.getImageData(0, 0, 32, 32).data;
+            let total = 0;
+            let count = 0;
+            for (let i = 0; i < data.length; i += 4) {
+              total += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+              count += 1;
+            }
+            setBgScrim(count ? total / count / 255 : 0.6);
+          } catch (_) {
+            setBgScrim(0.6); // 画布被跨域污染等异常：按中等偏亮处理，宁可多遮
+          }
+        };
+        probe.onerror = () => setBgScrim(0.6);
+        probe.src = url;
+      }
+
+      function applyBackgroundSetting(setting) {
+        backgroundSetting = setting || { type: "default", color: "", image: "", image_url: "" };
+        if (backgroundSetting.type === "color" && backgroundSetting.color) {
+          clearBodyInlineBackground();
+          document.body.style.backgroundColor = backgroundSetting.color;
+          document.body.style.backgroundImage = "none"; // 覆盖样式表渐变，否则纯色被画在其上的渐变遮住
+          setBgScrim(hexBrightness(backgroundSetting.color));
+        } else if (backgroundSetting.type === "image" && backgroundSetting.image) {
+          const url = getBackgroundImageUrl(backgroundSetting.image);
+          clearBodyInlineBackground();
+          document.body.style.backgroundColor = "#06122e"; // 图片加载前的底色
+          document.body.style.backgroundImage = 'url("' + url + '")';
+          document.body.style.backgroundSize = "cover";
+          document.body.style.backgroundPosition = "center";
+          document.body.style.backgroundRepeat = "no-repeat";
+          document.body.style.backgroundAttachment = "fixed";
+          setImageScrim(url);
+        } else {
+          clearBodyInlineBackground();
+          bgOverlayEl.hidden = true;
+        }
+      }
+
+      function persistBackgroundSetting(setting) {
+        try {
+          localStorage.setItem(BACKGROUND_STORAGE_KEY, JSON.stringify(setting));
+        } catch (_) {}
+      }
+
+      async function loadBackgroundSetting() {
+        try {
+          const response = await fetch(getBackgroundSettingApiUrl(), {
+            method: "GET",
+            cache: "no-store",
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) return;
+          const data = await response.json();
+          persistBackgroundSetting(data);
+          applyBackgroundSetting(data);
+        } catch (_) {
+          // 拉取失败时保留本地缓存呈现，不打扰访客
+        }
+      }
+
+      function setBackgroundError(message) {
+        backgroundErrorEl.textContent = message || "";
+      }
+
+      function selectBgTab(name) {
+        bgActiveTab = name;
+        bgTabDefaultBtn.classList.toggle("active", name === "default");
+        bgTabColorBtn.classList.toggle("active", name === "color");
+        bgTabImageBtn.classList.toggle("active", name === "image");
+        bgPaneDefaultEl.hidden = name !== "default";
+        bgPaneColorEl.hidden = name !== "color";
+        bgPaneImageEl.hidden = name !== "image";
+        setBackgroundError("");
+      }
+
+      function syncBgSwatches() {
+        bgSwatchRowEl.querySelectorAll(".bg-swatch").forEach((btn) => {
+          btn.classList.toggle("active", (btn.dataset.color || "").toLowerCase() === bgSelectedColor.toLowerCase());
+        });
+      }
+
+      function openBackgroundModal(hint) {
+        // 该函数被直接绑为 click 处理器，首参可能是事件对象
+        if (!requireManageToken()) return;
+        backgroundModalEl.hidden = false;
+        setBackgroundError(typeof hint === "string" ? hint : "");
+        const currentType = backgroundSetting ? backgroundSetting.type : "default";
+        const startTab = currentType === "color" || currentType === "image" ? currentType : "default";
+        bgSelectedColor =
+          currentType === "color" && backgroundSetting.color ? backgroundSetting.color : "#0a46b6";
+        bgColorInputEl.value = bgSelectedColor;
+        syncBgSwatches();
+        selectBgTab(startTab);
+        if (startTab === "image") {
+          loadBackgroundImages();
+        }
+      }
+
+      function closeBackgroundModal() {
+        backgroundModalEl.hidden = true;
+        bgUploadInputEl.value = "";
+      }
+
+      async function loadBackgroundImages() {
+        try {
+          const response = await apiFetch(getBackgroundImagesApiUrl(), {
+            method: "GET",
+            headers: { Accept: "application/json" },
+          });
+          if (!response.ok) return;
+          backgroundImages = await response.json();
+          renderBackgroundImages();
+        } catch (_) {
+          setBackgroundError("背景图片列表加载失败，请稍后重试");
+        }
+      }
+
+      function renderBackgroundImages() {
+        bgImageGridEl.innerHTML = "";
+        updateBgImageButtons();
+        if (!backgroundImages.length) {
+          const empty = document.createElement("p");
+          empty.className = "bg-empty";
+          empty.textContent = "暂无背景图片，点击“上传图片”添加一张。";
+          bgImageGridEl.appendChild(empty);
+          return;
+        }
+        const currentImage =
+          backgroundSetting && backgroundSetting.type === "image" ? backgroundSetting.image : "";
+        backgroundImages.forEach((item) => {
+          const label = document.createElement("label");
+          label.className = "bg-thumb";
+          const check = document.createElement("input");
+          check.type = "checkbox";
+          check.className = "bg-thumb-check";
+          check.dataset.file = item.file;
+          check.setAttribute("aria-label", "选择 " + item.file);
+          check.addEventListener("change", updateBgImageButtons);
+          const img = document.createElement("img");
+          img.src = getBackgroundImageUrl(item.file);
+          img.alt = "背景图 " + item.file;
+          img.loading = "lazy";
+          const name = document.createElement("span");
+          name.className = "bg-thumb-name";
+          name.textContent = item.file;
+          label.appendChild(check);
+          label.appendChild(img);
+          label.appendChild(name);
+          if (item.file === currentImage) {
+            const badge = document.createElement("span");
+            badge.className = "bg-thumb-badge";
+            badge.textContent = "当前背景";
+            label.appendChild(badge);
+          }
+          bgImageGridEl.appendChild(label);
+        });
+      }
+
+      function selectedBgFiles() {
+        return Array.from(bgImageGridEl.querySelectorAll(".bg-thumb-check:checked")).map((el) => el.dataset.file);
+      }
+
+      function updateBgImageButtons() {
+        bgImageGridEl.querySelectorAll(".bg-thumb").forEach((label) => {
+          const check = label.querySelector(".bg-thumb-check");
+          label.classList.toggle("selected", Boolean(check && check.checked));
+        });
+        const count = selectedBgFiles().length;
+        bgApplyImageBtn.disabled = count !== 1; // 设为背景仅对单选有意义
+        bgDeleteImageBtn.disabled = count === 0; // 删除支持批量
+      }
+
+      async function applySelectedImage() {
+        const files = selectedBgFiles();
+        if (files.length !== 1 || backgroundBusy) return;
+        backgroundBusy = true;
+        setBackgroundError("");
+        try {
+          const response = await apiFetch(getBackgroundSettingApiUrl(), {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ type: "image", image: files[0] }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            setBackgroundError(data.error || "设置失败，请稍后重试");
+            return;
+          }
+          persistBackgroundSetting(data);
+          applyBackgroundSetting(data);
+          closeBackgroundModal();
+        } catch (error) {
+          setBackgroundError("请求失败：" + (error && error.message ? error.message : String(error)));
+        } finally {
+          backgroundBusy = false;
+        }
+      }
+
+      async function deleteSelectedImages() {
+        const files = selectedBgFiles();
+        if (!files.length || backgroundBusy) return;
+        backgroundBusy = true;
+        setBackgroundError("");
+        try {
+          let lastSetting = null;
+          let failed = 0;
+          for (const file of files) {
+            const response = await apiFetch(
+              getBackgroundImagesApiUrl() + "/" + encodeURIComponent(file),
+              { method: "DELETE", headers: { Accept: "application/json" } }
+            );
+            if (!response.ok) {
+              failed += 1;
+              continue;
+            }
+            lastSetting = await response.json().catch(() => null);
+          }
+          if (lastSetting) {
+            // 删除当前背景时服务端返回重置后的设置，直接应用返回值
+            persistBackgroundSetting(lastSetting);
+            applyBackgroundSetting(lastSetting);
+          }
+          if (failed) {
+            setBackgroundError("有 " + failed + " 张图片删除失败，请重试");
+          }
+          await loadBackgroundImages();
+        } catch (error) {
+          setBackgroundError("请求失败：" + (error && error.message ? error.message : String(error)));
+        } finally {
+          backgroundBusy = false;
+        }
+      }
+
+      async function uploadBackgroundFile(file) {
+        if (backgroundBusy) return;
+        backgroundBusy = true;
+        setBackgroundError("");
+        try {
+          const formData = new FormData();
+          formData.append("image", file);
+          const response = await apiFetch(getBackgroundImagesApiUrl(), {
+            method: "POST",
+            body: formData,
+            headers: { Accept: "application/json" },
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            setBackgroundError(data.error || "上传失败，请稍后重试");
+            return;
+          }
+          // 上传即生效：应用返回的设置并刷新网格
+          persistBackgroundSetting(data);
+          applyBackgroundSetting(data);
+          await loadBackgroundImages();
+        } catch (error) {
+          setBackgroundError("上传失败：" + (error && error.message ? error.message : String(error)));
+        } finally {
+          backgroundBusy = false;
+        }
+      }
+
+      function handleBackgroundUploadChange() {
+        const file = bgUploadInputEl.files && bgUploadInputEl.files[0];
+        bgUploadInputEl.value = "";
+        if (!file) return;
+        if (!BACKGROUND_IMAGE_RE.test(file.name || "")) {
+          setBackgroundError("仅支持 .jpg、.png、.webp 格式图片");
+          return;
+        }
+        if (file.size > BACKGROUND_UPLOAD_MAX_BYTES) {
+          setBackgroundError("图片大小不能超过 5MB");
+          return;
+        }
+        uploadBackgroundFile(file);
+      }
+
+      async function submitBackgroundSetting(event) {
+        event.preventDefault();
+        if (backgroundBusy) return;
+        if (bgActiveTab === "image") {
+          await applySelectedImage();
+          return;
+        }
+        backgroundBusy = true;
+        setBackgroundError("");
+        try {
+          const payload =
+            bgActiveTab === "color" ? { type: "color", color: bgSelectedColor } : { type: "default" };
+          const response = await apiFetch(getBackgroundSettingApiUrl(), {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            setBackgroundError(data.error || "保存失败，请稍后重试");
+            return;
+          }
+          persistBackgroundSetting(data);
+          applyBackgroundSetting(data);
+          closeBackgroundModal();
+        } catch (error) {
+          setBackgroundError("请求失败：" + (error && error.message ? error.message : String(error)));
+        } finally {
+          backgroundBusy = false;
+        }
+      }
+
+      backgroundSettingsBtn.addEventListener("click", openBackgroundModal);
+      backgroundCloseBtn.addEventListener("click", closeBackgroundModal);
+      backgroundCancelBtn.addEventListener("click", closeBackgroundModal);
+      backgroundForm.addEventListener("submit", submitBackgroundSetting);
+      bgTabDefaultBtn.addEventListener("click", () => selectBgTab("default"));
+      bgTabColorBtn.addEventListener("click", () => selectBgTab("color"));
+      bgTabImageBtn.addEventListener("click", () => {
+        selectBgTab("image");
+        loadBackgroundImages();
+      });
+      bgUploadBtn.addEventListener("click", () => bgUploadInputEl.click());
+      bgUploadInputEl.addEventListener("change", handleBackgroundUploadChange);
+      bgApplyImageBtn.addEventListener("click", applySelectedImage);
+      bgDeleteImageBtn.addEventListener("click", deleteSelectedImages);
+      bgSwatchRowEl.addEventListener("click", (event) => {
+        const btn = event.target.closest(".bg-swatch");
+        if (!btn) return;
+        bgSelectedColor = btn.dataset.color || "#0a46b6";
+        bgColorInputEl.value = bgSelectedColor;
+        syncBgSwatches();
+        setBackgroundError("");
+      });
+      bgColorInputEl.addEventListener("input", () => {
+        bgSelectedColor = bgColorInputEl.value;
+        syncBgSwatches();
+      });
+
       /* ===== 编辑提交 ===== */
       async function submitEdit(event) {
         event.preventDefault();
@@ -3227,7 +3879,7 @@
       document.addEventListener("click", (event) => {
         if (addPanelEl.classList.contains("collapsed")) return;
         if (addPanelEl.contains(event.target)) return;
-        if (!editModalEl.hidden || !deleteModalEl.hidden || !tokenModalEl.hidden) return;
+        if (!editModalEl.hidden || !deleteModalEl.hidden || !tokenModalEl.hidden || !backgroundModalEl.hidden) return;
         if (contextMenuEl.contains(event.target)) return;
         setAddCollapsed(true);
       });
@@ -3239,11 +3891,18 @@
         if (!editModalEl.hidden) closeEditModal();
         if (!deleteModalEl.hidden) closeDeleteModal();
         if (!tokenModalEl.hidden) closeTokenModal();
+        if (!backgroundModalEl.hidden) closeBackgroundModal();
       });
 
       form.addEventListener("submit", submitUrl);
 
       /* ===== 初始化 ===== */
+      try {
+        const savedBackground = localStorage.getItem(BACKGROUND_STORAGE_KEY);
+        if (savedBackground) {
+          applyBackgroundSetting(JSON.parse(savedBackground)); // 先用本地缓存回显，避免首屏闪烁
+        }
+      } catch (_) {}
       try {
         ["nav_sites_v1", "nav_tags_v1", "nav_token_v1"].forEach((key) => {
           localStorage.removeItem(key);
@@ -3276,6 +3935,7 @@
       }
       authStatusReady = loadAuthStatus();
       loadPublicIp();
+      loadBackgroundSetting();
       Promise.all([loadSites(), loadTags()]).then(() => {
         renderTagBar();
       });
