@@ -19,7 +19,7 @@
 
 - **运行环境**：Python 3.11+（推荐用 [uv](https://docs.astral.sh/uv/) 管理依赖），或任意支持 Docker 的主机。
 - **网络**：服务端需能访问目标网站以抓取 HTML 与图标（可配代理，见[第 5 节](#5-代理支持http--socks5)）；默认监听 `8000` 端口。
-- **磁盘**：全部状态只落在 `data/`（SQLite 数据库）与 `ICON/`（站点图标）两个目录，项目目录需可写。
+- **磁盘**：全部状态只落在 `data/`（SQLite 数据库）、`ICON/`（站点图标）与 `background/`（背景图片）三个目录，项目目录需可写。
 - **单实例约束**：`--workers 1` 为硬约束（SQLite 单写入者），单实例足够个人使用；不要横向扩容多个实例指向同一数据目录。
 - 公网部署务必经反向代理启用 HTTPS。
 
@@ -122,7 +122,7 @@ systemctl daemon-reload && systemctl enable --now privlink
 - 配置全部来自 `WorkingDirectory` 下的 `.env`，改配置只需编辑 `.env` 后 `systemctl restart privlink`。
 - 对外域名场景经 Nginx / Caddy 反向代理并启用 HTTPS；本服务对反代无特殊要求（Caddy 一行 `reverse_proxy 127.0.0.1:8000` 即可）。
 - 更新：`git pull` 后 `systemctl restart privlink`。
-- **备份 / 迁移**：只需 `data/`（数据库）与 `ICON/`（站点图标）两个目录；从 Docker 迁移时把挂载卷中的这两个目录拷入项目根即可。
+- **备份 / 迁移**：只需 `data/`（数据库）、`ICON/`（站点图标）与 `background/`（背景图片）三个目录；从 Docker 迁移时把挂载卷中的这三个目录拷入项目根即可。
 
 > 本地开发同样使用上述 uv 命令。中国大陆网络环境下如需加速，可在用户级 uv 配置（`~/.config/uv/uv.toml` 或 Windows `%APPDATA%\uv\uv.toml`）中配置 PyPI 镜像（如 `https://pypi.tuna.tsinghua.edu.cn/simple/`），项目本身不锁定镜像源。
 
@@ -205,7 +205,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 ## 6. 运行策略说明
 
 - `url` 冲突时执行 upsert 更新。
-- 启动时自动创建 `data/`、`ICON/`、数据表，并自动执行 SQLite 列迁移（如 `is_public`）。
+- 启动时自动创建 `data/`、`ICON/`、`background/`、数据表，并自动执行 SQLite 列迁移（如 `is_public`）。
 - 启用 SSRF 防护，默认禁止本机/内网地址；需要抓取内网站点时在 `.env` 的 `NAV_ALLOWED_PRIVATE_NETWORKS` 显式放行（或改用浏览器采集器上报）。
 - Docker 默认单实例运行（`workers=1`），适配 SQLite。
 
@@ -213,7 +213,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 
 - 响应启用 gzip 压缩（大于 1KB 的 HTML/JSON），首页传输体积约为原始大小的 1/6。
 - 首页 `GET /` 支持 ETag / 304 协商缓存，内容未变化时刷新页面几乎零流量。
-- 静态图标带浏览器缓存：`/ICON` 缓存 1 天，`/icons` 图标库缓存 7 天。更换站点图标后浏览器最多 1 天内仍显示旧图，Ctrl+F5 强制刷新可立即生效。
+- 静态图标带浏览器缓存：`/ICON` 缓存 1 天，`/icons` 图标库缓存 7 天，`/background` 背景图缓存 1 天。更换站点图标后浏览器最多 1 天内仍显示旧图，Ctrl+F5 强制刷新可立即生效。
 - 前端把站点和标签数据缓存在 localStorage（`nav_cache_v1:*`）：再次打开页面立即渲染本地数据，后台拉取最新数据后自动更新；清除浏览器站点数据即可重置本地缓存。
 - Linux 容器内自动启用 uvloop / httptools（依赖 `uvicorn[standard]`）；Windows 开发环境自动跳过 uvloop，启动命令不变。
 
@@ -229,15 +229,20 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 | GET | `/api/auth/status` | 公开 | 门禁状态探测：`{token_required, authorized}` |
 | GET | `/api/sites` | 公开 | 站点列表；匿名只返回公开站点 |
 | GET | `/api/tags` | 公开 | 标签列表；匿名不含私有站点独占标签 |
+| GET | `/api/appearance/background` | 公开 | 当前背景设置 `{type, color, image, image_url}`；匿名访客可见 |
 | GET | `/api/network/public-ip` | 需 token | 服务端直连公网 IPv4 |
 | POST | `/api/site/parse` | 需 token | URL 解析入库 |
 | POST | `/api/site/ingest` | 需 token | 浏览器采集上报 |
 | GET | `/api/icons` | 需 token | 图标库列表 |
+| PUT | `/api/appearance/background` | 需 token | 设置背景（`type=default/color/image`） |
+| GET | `/api/appearance/background/images` | 需 token | 背景图片列表 |
+| POST | `/api/appearance/background/images` | 需 token | 上传背景图（multipart 字段 `image`，≤5MB，jpg/png/webp；上传即生效） |
+| DELETE | `/api/appearance/background/images/{file}` | 需 token | 删除背景图；删的是当前背景时自动重置为默认 |
 | PUT | `/api/sites/reorder` | 需 token | 拖拽排序持久化 |
 | PUT | `/api/sites/{id}` | 需 token | 更新站点（名称/URL/标签/可见性/图标） |
 | POST | `/api/sites/{id}/icon` | 需 token | 上传站点图标（multipart，≤1MB） |
 | DELETE | `/api/sites/{id}` | 需 token | 删除站点 |
-| GET | `/ICON/<file>`、`/icons/<file>` | 公开 | 静态图标（文件名为不可枚举哈希，无目录列表） |
+| GET | `/ICON/<file>`、`/icons/<file>`、`/background/<file>` | 公开 | 静态图标与背景图（文件名为不可枚举哈希，无目录列表） |
 
 ### `GET /api/network/public-ip`
 

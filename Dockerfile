@@ -13,7 +13,7 @@ RUN uv sync --frozen --no-dev
 
 COPY main.py index.html ./
 COPY icons/ ./icons/
-RUN mkdir -p /app/data /app/ICON
+RUN mkdir -p /app/data /app/ICON /app/background
 
 EXPOSE 8000
 
