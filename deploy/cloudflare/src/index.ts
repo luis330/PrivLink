@@ -101,6 +101,8 @@ function resolveIdentity(c: HonoContext): "owner" | null {
 }
 
 function canViewPrivate(c: HonoContext): boolean {
+  // 未设置 NAV_TOKEN = 开放模式 = 全站点可见（与 Python 端契约一致）
+  if (!c.env.NAV_TOKEN) return true;
   return resolveIdentity(c) !== null;
 }
 
