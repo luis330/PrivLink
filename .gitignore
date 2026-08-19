@@ -16,3 +16,10 @@ background/
 
 # Local configuration (contains NAV_TOKEN etc.)
 .env
+
+# Node.js (Cloudflare分支)
+deploy/cloudflare/node_modules/
+scripts/node_modules/
+
+# Cloudflare 本地开发状态（miniflare 数据库等）
+deploy/cloudflare/.wrangler/
