@@ -36,13 +36,11 @@ jobs:
           wranglerVersion: "4.124.0"
           workingDirectory: deploy/cloudflare
           command: deploy
-        env:
-          NAV_TOKEN: ${{ inputs.nav_token || secrets.NAV_TOKEN }}
 
       - name: Set NAV_TOKEN secret
-        if: ${{ env.NAV_TOKEN != '' }}
+        if: ${{ (inputs.nav_token != '' && inputs.nav_token != null) || secrets.NAV_TOKEN != '' }}
         working-directory: deploy/cloudflare
-        run: echo "$NAV_TOKEN" | npx wrangler@4.124.0 secret put NAV_TOKEN
+        run: echo "${{ inputs.nav_token || secrets.NAV_TOKEN }}" | npx wrangler@4.124.0 secret put NAV_TOKEN
 
       - name: 输出部署地址
         run: echo "部署完成：${{ steps.deploy.outputs.deployment-url }}"
