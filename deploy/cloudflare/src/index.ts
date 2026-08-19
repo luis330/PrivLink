@@ -413,7 +413,7 @@ app.post("/api/site/parse", async (c) => {
           : ".ico";
         const filename = await iconFilenameFromUrl(finalUrlStr, iconExt);
         await putObject(c.env.ICON_BUCKET, filename, iconResult.body);
-        iconRelPath = filename;
+        iconRelPath = "ICON/" + filename;
         iconSourceUrl = iconResult.finalUrl;
         break;
       } catch {
@@ -466,7 +466,8 @@ app.post("/api/site/parse", async (c) => {
     ? String((oldRow as any).icon_rel_path ?? "").trim()
     : "";
   if (oldIcon && oldIcon !== iconRelPath && !oldIcon.startsWith("https://")) {
-    await deleteObject(c.env.ICON_BUCKET, oldIcon);
+    const oldKey = oldIcon.replace(/^ICON\//, "");
+    if (oldKey) await deleteObject(c.env.ICON_BUCKET, oldKey);
   }
 
   const resp: ParseResponse = {
@@ -536,7 +537,7 @@ app.post("/api/site/ingest", async (c) => {
       const iconExt = ALLOWED_ICON_EXT.has(`.${ext}`) ? `.${ext}` : ".ico";
       const filename = await iconUploadFilename(bytes, payload.icon.filename ?? "");
       await putObject(c.env.ICON_BUCKET, filename, bytes);
-      iconRelPath = filename;
+      iconRelPath = "ICON/" + filename;
       iconSourceUrl =
         payload.icon.source_url?.trim() || `browser-upload://${filename}`;
     } catch (e: any) {
@@ -727,7 +728,8 @@ app.put("/api/sites/:id", async (c) => {
 
   // 清理旧图标
   if (oldIcon && oldIcon !== newIconPath && !oldIcon.startsWith("https://")) {
-    await deleteObject(c.env.ICON_BUCKET, oldIcon);
+    const oldKey = oldIcon.replace(/^ICON\//, "");
+    if (oldKey) await deleteObject(c.env.ICON_BUCKET, oldKey);
   }
 
   const updated = await (db as any)
@@ -760,6 +762,7 @@ app.post("/api/sites/:id/icon", async (c) => {
 
   const filename = await iconUploadFilename(new Uint8Array(bytes), file.name);
   await putObject(c.env.ICON_BUCKET, filename, bytes);
+  const iconRelPath = "ICON/" + filename;
 
   const now = utcNow();
   const row = await (db as any)
@@ -772,11 +775,12 @@ app.post("/api/sites/:id/icon", async (c) => {
     .prepare(
       "UPDATE sites SET icon_rel_path = ?, icon_source_url = ?, updated_at = ? WHERE id = ?"
     )
-    .bind(filename, `upload://${filename}`, now, siteId)
+    .bind(iconRelPath, `upload://${filename}`, now, siteId)
     .run();
 
-  if (oldIcon && oldIcon !== filename) {
-    await deleteObject(c.env.ICON_BUCKET, oldIcon);
+  if (oldIcon && oldIcon !== iconRelPath && !oldIcon.startsWith("https://")) {
+    const oldKey = oldIcon.replace(/^ICON\//, "");
+    if (oldKey) await deleteObject(c.env.ICON_BUCKET, oldKey);
   }
 
   const updated = await (db as any)
