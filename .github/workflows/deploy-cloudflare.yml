@@ -34,15 +34,12 @@ jobs:
           workingDirectory: deploy/cloudflare
           preCommands: |
             python3 ../../scripts/sync-frontend.py
-            wrangler r2 bucket create privlink-icons || true
-            wrangler r2 bucket create privlink-backgrounds || true
-            wrangler d1 execute privlink --file=migrations/001_init.sql || true
-            DB_ID=$(wrangler d1 list --json | python3 ../../scripts/parse-d1-id.py)
+            DB_ID=$(wrangler d1 list --json | python3 ../../scripts/parse-d1-id.py || true)
             if [ -n "$DB_ID" ]; then
               sed -i "s|database_id = \"\"|database_id = \"$DB_ID\"|" wrangler.toml
-              echo "Using D1 database_id: $DB_ID"
+              echo "Using existing D1 database_id: $DB_ID"
             else
-              echo "WARNING: 未能解析 D1 database_id，继续部署（首次运行会自动创建）"
+              echo "INFO: 未找到已有 D1 数据库，将使用 database_name='privlink'（首次运行会自动创建）"
             fi
           command: deploy
           postCommands: |
