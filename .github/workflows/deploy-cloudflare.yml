@@ -24,6 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Sync frontend assets
+        run: python3 scripts/sync-frontend.py
+
       - name: Deploy to Cloudflare Workers
         id: deploy
         uses: cloudflare/wrangler-action@v4
@@ -32,24 +35,14 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.124.0"
           workingDirectory: deploy/cloudflare
-          preCommands: |
-            python3 ../../scripts/sync-frontend.py
-            DB_ID=$(wrangler d1 list --json | python3 ../../scripts/parse-d1-id.py || true)
-            if [ -n "$DB_ID" ]; then
-              sed -i "s|database_id = \"\"|database_id = \"$DB_ID\"|" wrangler.toml
-              echo "Using existing D1 database_id: $DB_ID"
-            else
-              echo "INFO: 未找到已有 D1 数据库，将使用 database_name='privlink'（首次运行会自动创建）"
-            fi
           command: deploy
-          postCommands: |
-            if [ -n "$NAV_TOKEN" ]; then
-              echo "$NAV_TOKEN" | wrangler secret put NAV_TOKEN
-            else
-              echo "NAV_TOKEN 未配置，保持开放模式"
-            fi
         env:
           NAV_TOKEN: ${{ inputs.nav_token || secrets.NAV_TOKEN }}
+
+      - name: Set NAV_TOKEN secret
+        if: ${{ env.NAV_TOKEN != '' }}
+        working-directory: deploy/cloudflare
+        run: echo "$NAV_TOKEN" | npx wrangler@4.124.0 secret put NAV_TOKEN
 
       - name: 输出部署地址
         run: echo "部署完成：${{ steps.deploy.outputs.deployment-url }}"
