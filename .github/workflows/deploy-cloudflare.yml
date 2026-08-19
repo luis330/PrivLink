@@ -33,32 +33,21 @@ jobs:
           wranglerVersion: "4.124.0"
           workingDirectory: deploy/cloudflare
           preCommands: |
-            # 1. 同步根目录 index.html 与 simple-icons.json 到 assets
             python3 ../../scripts/sync-frontend.py
-            # 2. 查找或创建 D1 数据库，解析其 uuid
-            DB_LIST=$(npx wrangler@4.124.0 d1 list --json)
-            DB_ID=$(echo "$DB_LIST" | python3 ../../scripts/parse-d1-id.py)
-            if [ -z "$DB_ID" ]; then
-              echo "Creating D1 database 'privlink'..."
-              npx wrangler@4.124.0 d1 create privlink || true
-              DB_ID=$(npx wrangler@4.124.0 d1 list --json | python3 ../../scripts/parse-d1-id.py)
+            wrangler r2 bucket create privlink-icons || true
+            wrangler r2 bucket create privlink-backgrounds || true
+            wrangler d1 execute privlink --file=migrations/001_init.sql || true
+            DB_ID=$(wrangler d1 list --json | python3 ../../scripts/parse-d1-id.py)
+            if [ -n "$DB_ID" ]; then
+              sed -i "s|database_id = \"\"|database_id = \"$DB_ID\"|" wrangler.toml
+              echo "Using D1 database_id: $DB_ID"
+            else
+              echo "WARNING: 未能解析 D1 database_id，继续部署（首次运行会自动创建）"
             fi
-            if [ -z "$DB_ID" ]; then
-              echo "ERROR: 无法解析 D1 database_id" >&2
-              exit 1
-            fi
-            echo "Using D1 database_id: $DB_ID"
-            sed -i "s|database_id = \"\"|database_id = \"$DB_ID\"|" wrangler.toml
-            # 3. 确保 R2 存储桶存在（幂等）
-            npx wrangler@4.124.0 r2 bucket create privlink-icons || true
-            npx wrangler@4.124.0 r2 bucket create privlink-backgrounds || true
-            # 4. 执行数据库迁移（幂等，CREATE TABLE IF NOT EXISTS）
-            npx wrangler@4.124.0 d1 execute privlink --file=migrations/001_init.sql
           command: deploy
           postCommands: |
-            # 5. 设置 NAV_TOKEN 为 Worker secret（仅在配置时；覆盖语义）
             if [ -n "$NAV_TOKEN" ]; then
-              echo "$NAV_TOKEN" | npx wrangler@4.124.0 secret put NAV_TOKEN
+              echo "$NAV_TOKEN" | wrangler secret put NAV_TOKEN
             else
               echo "NAV_TOKEN 未配置，保持开放模式"
             fi
