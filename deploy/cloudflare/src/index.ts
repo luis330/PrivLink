@@ -407,7 +407,12 @@ app.post("/api/site/parse", async (c) => {
     for (const ic of info.iconLinks) {
       try {
         const iconResult = await fetchIcon(ic.url, 2 * 1024 * 1024, finalUrlStr);
-        const ext = ic.url.split(".").pop()?.toLowerCase() ?? "ico";
+        let ext = "ico";
+        try {
+          ext = new URL(ic.url).pathname.split(".").pop()?.toLowerCase() ?? "ico";
+        } catch {
+          ext = ic.url.split(".").pop()?.toLowerCase() ?? "ico";
+        }
         const iconExt = ["ico", "png", "svg", "webp", "gif", "bmp", "avif"].includes(ext)
           ? `.${ext}`
           : ".ico";
