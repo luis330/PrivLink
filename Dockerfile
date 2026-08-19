@@ -11,7 +11,7 @@ ENV UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev
 
-COPY main.py index.html ./
+COPY main.py index.html simple-icons.json ./
 COPY icons/ ./icons/
 RUN mkdir -p /app/data /app/ICON /app/background
 

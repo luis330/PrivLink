@@ -9,7 +9,6 @@ import logging
 import os
 import re
 import secrets
-import shutil
 import socket
 import sqlite3
 import time
@@ -56,7 +55,6 @@ APP_HOST = "0.0.0.0"
 APP_PORT = 8000
 DB_PATH = Path("data") / "sites.db"
 ICON_DIR = Path("ICON")
-ICONS_LIB_DIR = Path("icons")
 BACKGROUND_DIR = Path("background")
 FRONTEND_PATH = Path("index.html")
 ICON_MAX_BYTES = 2 * 1024 * 1024
@@ -913,14 +911,106 @@ def write_browser_icon(
     return relative_path.as_posix(), (source_url or f"browser-upload://{filename_to_store}").strip()
 
 
-def copy_library_icon(icon_file: str) -> str:
-    source = ICONS_LIB_DIR / icon_file
-    key = "icon-lib:" + icon_file
-    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
-    filename = f"{digest}.svg"
-    dest = ICON_DIR / filename
-    shutil.copy2(str(source), str(dest))
-    return (Path("ICON") / filename).as_posix()
+def icon_url_for_slug(slug: str) -> str:
+    """返回 Simple Icons CDN URL。"""
+    return f"https://cdn.simpleicons.org/{slug}"
+
+
+# 共享 Simple Icons 数据文件（由 scripts/fetch-simple-icons.py 生成）
+SIMPLE_ICONS_FILE = "simple-icons.json"
+
+
+# 内置 Simple Icons 数据（兜底）；完整列表由 scripts/fetch-simple-icons.py 生成
+# 到仓库根 simple-icons.json，启动时优先加载该文件。
+_SIMPLE_ICONS_FALLBACK: list[dict[str, str]] = [
+    {"name": "GitHub", "slug": "github", "url": "https://cdn.simpleicons.org/github"},
+    {"name": "GitLab", "slug": "gitlab", "url": "https://cdn.simpleicons.org/gitlab"},
+    {"name": "Figma", "slug": "figma", "url": "https://cdn.simpleicons.org/figma"},
+    {"name": "Docker", "slug": "docker", "url": "https://cdn.simpleicons.org/docker"},
+    {"name": "Telegram", "slug": "telegram", "url": "https://cdn.simpleicons.org/telegram"},
+    {"name": "Discord", "slug": "discord", "url": "https://cdn.simpleicons.org/discord"},
+    {"name": "YouTube", "slug": "youtube", "url": "https://cdn.simpleicons.org/youtube"},
+    {"name": "Twitter", "slug": "twitter", "url": "https://cdn.simpleicons.org/twitter"},
+    {"name": "Instagram", "slug": "instagram", "url": "https://cdn.simpleicons.org/instagram"},
+    {"name": "LinkedIn", "slug": "linkedin", "url": "https://cdn.simpleicons.org/linkedin"},
+    {"name": "Reddit", "slug": "reddit", "url": "https://cdn.simpleicons.org/reddit"},
+    {"name": "Slack", "slug": "slack", "url": "https://cdn.simpleicons.org/slack"},
+    {"name": "Notion", "slug": "notion", "url": "https://cdn.simpleicons.org/notion"},
+    {"name": "Vercel", "slug": "vercel", "url": "https://cdn.simpleicons.org/vercel"},
+    {"name": "Next.js", "slug": "nextdotjs", "url": "https://cdn.simpleicons.org/nextdotjs"},
+    {"name": "React", "slug": "react", "url": "https://cdn.simpleicons.org/react"},
+    {"name": "Vue.js", "slug": "vue-dot-js", "url": "https://cdn.simpleicons.org/vue-dot-js"},
+    {"name": "Angular", "slug": "angular", "url": "https://cdn.simpleicons.org/angular"},
+    {"name": "Svelte", "slug": "svelte", "url": "https://cdn.simpleicons.org/svelte"},
+    {"name": "Node.js", "slug": "node-dot-js", "url": "https://cdn.simpleicons.org/node-dot-js"},
+    {"name": "Python", "slug": "python", "url": "https://cdn.simpleicons.org/python"},
+    {"name": "TypeScript", "slug": "typescript", "url": "https://cdn.simpleicons.org/typescript"},
+    {"name": "JavaScript", "slug": "javascript", "url": "https://cdn.simpleicons.org/javascript"},
+    {"name": "Go", "slug": "go", "url": "https://cdn.simpleicons.org/go"},
+    {"name": "Rust", "slug": "rust", "url": "https://cdn.simpleicons.org/rust"},
+    {"name": "Kubernetes", "slug": "kubernetes", "url": "https://cdn.simpleicons.org/kubernetes"},
+    {"name": "AWS", "slug": "amazonaws", "url": "https://cdn.simpleicons.org/amazonaws"},
+    {"name": "Google Cloud", "slug": "googlecloud", "url": "https://cdn.simpleicons.org/googlecloud"},
+    {"name": "Azure", "slug": "azure", "url": "https://cdn.simpleicons.org/azure"},
+    {"name": "FastAPI", "slug": "fastapi", "url": "https://cdn.simpleicons.org/fastapi"},
+    {"name": "Hono", "slug": "hono", "url": "https://cdn.simpleicons.org/hono"},
+    {"name": "Cloudflare", "slug": "cloudflare", "url": "https://cdn.simpleicons.org/cloudflare"},
+    {"name": "Tailwind CSS", "slug": "tailwindcss", "url": "https://cdn.simpleicons.org/tailwindcss"},
+    {"name": "Stripe", "slug": "stripe", "url": "https://cdn.simpleicons.org/stripe"},
+    {"name": "PayPal", "slug": "paypal", "url": "https://cdn.simpleicons.org/paypal"},
+    {"name": "Spotify", "slug": "spotify", "url": "https://cdn.simpleicons.org/spotify"},
+    {"name": "Netflix", "slug": "netflix", "url": "https://cdn.simpleicons.org/netflix"},
+    {"name": "TikTok", "slug": "tiktok", "url": "https://cdn.simpleicons.org/tiktok"},
+    {"name": "Stack Overflow", "slug": "stackoverflow", "url": "https://cdn.simpleicons.org/stackoverflow"},
+    {"name": "Dev.to", "slug": "dev", "url": "https://cdn.simpleicons.org/dev"},
+    {"name": "Medium", "slug": "medium", "url": "https://cdn.simpleicons.org/medium"},
+    {"name": "Substack", "slug": "substack", "url": "https://cdn.simpleicons.org/substack"},
+    {"name": "Mastodon", "slug": "mastodon", "url": "https://cdn.simpleicons.org/mastodon"},
+    {"name": "Threads", "slug": "threads", "url": "https://cdn.simpleicons.org/threads"},
+    {"name": "Bluesky", "slug": "bluesky", "url": "https://cdn.simpleicons.org/bluesky"},
+    {"name": "OpenAI", "slug": "openai", "url": "https://cdn.simpleicons.org/openai"},
+    {"name": "ChatGPT", "slug": "chatgpt", "url": "https://cdn.simpleicons.org/chatgpt"},
+    {"name": "Claude", "slug": "anthropic", "url": "https://cdn.simpleicons.org/anthropic"},
+    {"name": "Perplexity", "slug": "perplexity", "url": "https://cdn.simpleicons.org/perplexity"},
+    {"name": "Zhihu", "slug": "zhihu", "url": "https://cdn.simpleicons.org/zhihu"},
+    {"name": "Bilibili", "slug": "bilibili", "url": "https://cdn.simpleicons.org/bilibili"},
+    {"name": "Weibo", "slug": "weibo", "url": "https://cdn.simpleicons.org/weibo"},
+    {"name": "Baidu", "slug": "baidu", "url": "https://cdn.simpleicons.org/baidu"},
+    {"name": "Google", "slug": "google", "url": "https://cdn.simpleicons.org/google"},
+    {"name": "Microsoft", "slug": "microsoft", "url": "https://cdn.simpleicons.org/microsoft"},
+    {"name": "Apple", "slug": "apple", "url": "https://cdn.simpleicons.org/apple"},
+    {"name": "Linux", "slug": "linux", "url": "https://cdn.simpleicons.org/linux"},
+    {"name": "Windows", "slug": "windows", "url": "https://cdn.simpleicons.org/windows"},
+    {"name": "Android", "slug": "android", "url": "https://cdn.simpleicons.org/android"},
+    {"name": "Adobe", "slug": "adobe", "url": "https://cdn.simpleicons.org/adobe"},
+]
+
+
+def list_simple_icons() -> list[dict[str, str]]:
+    """返回 Simple Icons 图标列表。
+
+    优先从共享数据文件（仓库根 simple-icons.json，由 scripts/fetch-simple-icons.py
+    生成）加载完整列表；文件缺失或解析失败时回退到内置兜底列表。
+    """
+    file_path = Path(SIMPLE_ICONS_FILE)
+    try:
+        if file_path.is_file():
+            raw = json.loads(file_path.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                return [
+                    {
+                        "name": item["title"],
+                        "slug": item["slug"],
+                        "url": icon_url_for_slug(item["slug"]),
+                    }
+                    for item in raw
+                    if isinstance(item, dict)
+                    and "title" in item
+                    and "slug" in item
+                ]
+    except (OSError, ValueError, KeyError):
+        logger.exception("simple-icons.json 加载失败，回退内置图标列表")
+    return list(_SIMPLE_ICONS_FALLBACK)
 
 
 def download_icon(
@@ -1316,19 +1406,8 @@ _icons_cache: list[dict[str, str]] = []
 
 
 def scan_icons_library() -> list[dict[str, str]]:
-    if not ICONS_LIB_DIR.is_dir():
-        return []
-    items: list[dict[str, str]] = []
-    for f in sorted(ICONS_LIB_DIR.iterdir()):
-        if f.suffix.lower() != ".svg" or not f.is_file():
-            continue
-        stem = f.stem
-        if "_" in stem:
-            name, keyword = stem.split("_", 1)
-        else:
-            name, keyword = stem, stem
-        items.append({"name": name, "keyword": keyword, "file": f.name})
-    return items
+    """保留兼容接口，实际由 list_simple_icons() 提供。"""
+    return list_simple_icons()
 
 
 def default_background_setting() -> dict[str, str]:
@@ -1420,7 +1499,7 @@ async def app_lifespan(_: FastAPI):
     if not NAV_TOKEN:
         logger.warning("未设置 NAV_TOKEN，API 处于开放模式；公网部署请配置访问 token")
     init_storage()
-    _icons_cache = scan_icons_library()
+    _icons_cache = list_simple_icons()
     logger.info("服务启动完成，图标库加载 %d 个图标", len(_icons_cache))
     yield
 
@@ -1473,11 +1552,6 @@ app.mount(
     "/ICON",
     CachedStaticFiles(directory=str(ICON_DIR), check_dir=False, cache_control="public, max-age=86400"),
     name="icon",
-)
-app.mount(
-    "/icons",
-    CachedStaticFiles(directory=str(ICONS_LIB_DIR), cache_control="public, max-age=604800"),
-    name="icon-lib",
 )
 app.mount(
     "/background",
@@ -1654,7 +1728,7 @@ async def list_icons(q: str = "") -> list[dict[str, str]]:
     return [
         item
         for item in _icons_cache
-        if query in item["name"].lower() or query in item["keyword"].lower()
+        if query in item["name"].lower() or query in item["slug"].lower()
     ]
 
 
@@ -1833,9 +1907,11 @@ def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict
     if icon_file:
         if "/" in icon_file or "\\" in icon_file or ".." in icon_file:
             return JSONResponse(status_code=400, content={"error": "无效的图标文件名"})
-        if not (ICONS_LIB_DIR / icon_file).is_file():
-            return JSONResponse(status_code=400, content={"error": "图标文件不存在"})
-        new_icon_rel_path = copy_library_icon(icon_file)
+        # 验证 slug 是否为已知图标
+        slug_lower = icon_file.lower()
+        if not any(item["slug"].lower() == slug_lower for item in _icons_cache):
+            return JSONResponse(status_code=400, content={"error": "图标不存在"})
+        new_icon_rel_path = icon_url_for_slug(icon_file)
 
     try:
         normalized_tags = (
@@ -1866,8 +1942,8 @@ def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse | dict
                         icon_source_url = ?, updated_at = ?
                     WHERE id = ?;
                     """,
-                    (normalized_url, next_name, new_icon_rel_path,
-                     f"icon-lib://{icon_file}", now, site_id),
+                     (normalized_url, next_name, new_icon_rel_path,
+                      icon_url_for_slug(icon_file), now, site_id),
                 )
             else:
                 conn.execute(

@@ -1781,11 +1781,6 @@
         return "/api/auth/status";
       }
 
-      function getIconLibUrl(filename) {
-        const base = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
-        return base + "/icons/" + encodeURIComponent(filename);
-      }
-
       function getBackgroundSettingApiUrl() {
         if (window.location.protocol === "file:") {
           return "http://127.0.0.1:8000/api/appearance/background";
@@ -2289,20 +2284,20 @@
         const fragment = document.createDocumentFragment();
         icons.forEach((item) => {
           const div = document.createElement("div");
-          div.className = "icon-grid-item" + (resultDraftIconFile === item.file ? " selected" : "");
-          div.title = item.name + " (" + item.keyword + ")";
+          div.className = "icon-grid-item" + (resultDraftIconFile === item.slug ? " selected" : "");
+          div.title = item.name + " (" + item.slug + ")";
           const img = document.createElement("img");
-          img.src = getIconLibUrl(item.file);
+          img.src = item.url;
           img.alt = item.name;
           img.loading = "lazy";
           div.appendChild(img);
           div.addEventListener("click", () => {
-            resultDraftIconFile = item.file;
+            resultDraftIconFile = item.slug;
             resultDraftUploadFile = null;
             revokeResultDraftUploadUrl();
             iconWrapEl.hidden = false;
             iconEl.style.display = "";
-            iconEl.src = getIconLibUrl(item.file);
+            iconEl.src = item.url;
             const fb = iconWrapEl.querySelector(".nav-fallback");
             if (fb) fb.style.display = "none";
             renderResultIconGrid(icons);
@@ -2319,7 +2314,7 @@
         const q = (query || "").trim().toLowerCase();
         const filtered = q
           ? iconsCache.filter(
-              (item) => item.name.toLowerCase().includes(q) || item.keyword.toLowerCase().includes(q)
+              (item) => item.name.toLowerCase().includes(q) || item.slug.toLowerCase().includes(q)
             )
           : iconsCache;
         renderResultIconGrid(filtered);
@@ -2906,14 +2901,14 @@
         const fragment = document.createDocumentFragment();
         icons.forEach((item) => {
           const div = document.createElement("div");
-          div.className = "icon-grid-item" + (selectedIconFile === item.file ? " selected" : "");
-          div.title = item.name + " (" + item.keyword + ")";
+          div.className = "icon-grid-item" + (selectedIconFile === item.slug ? " selected" : "");
+          div.title = item.name + " (" + item.slug + ")";
           const img = document.createElement("img");
-          img.src = getIconLibUrl(item.file);
+          img.src = item.url;
           img.alt = item.name;
           img.loading = "lazy";
           div.appendChild(img);
-          div.addEventListener("click", () => selectIcon(item.file));
+          div.addEventListener("click", () => selectIcon(item.slug));
           fragment.appendChild(div);
         });
         iconGridEl.appendChild(fragment);
@@ -2927,14 +2922,14 @@
           return;
         }
         const filtered = iconsCache.filter(
-          (item) => item.name.toLowerCase().includes(q) || item.keyword.toLowerCase().includes(q)
+          (item) => item.name.toLowerCase().includes(q) || item.slug.toLowerCase().includes(q)
         );
         renderIconGrid(filtered);
       }
 
-      function selectIcon(iconFile) {
-        selectedIconFile = iconFile;
-        editIconPreview.src = getIconLibUrl(iconFile);
+      function selectIcon(iconSlug) {
+        selectedIconFile = iconSlug;
+        editIconPreview.src = iconSlug ? "https://cdn.simpleicons.org/" + iconSlug : "";
         editIconPreview.style.display = "";
         editIconFallback.style.display = "none";
         filterIcons(iconSearchInput.value);

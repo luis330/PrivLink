@@ -1,0 +1,23 @@
+name = "privlink"
+main = "src/index.ts"
+compatibility_date = "2024-06-03"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+NAV_MODE = "single"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "privlink"
+database_id = "80266b23-49d4-47f1-ba6b-638158e82f8d"
+
+[[r2_buckets]]
+binding = "ICON_BUCKET"
+bucket_name = "privlink-icons"
+
+[[r2_buckets]]
+binding = "BACKGROUND_BUCKET"
+bucket_name = "privlink-backgrounds"
+
+[assets]
+directory = "assets"
