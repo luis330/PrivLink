@@ -5,3 +5,8 @@ __pycache__/
 data/
 ICON/
 background/
+
+# Cloudflare TS 分支（Docker 部署不需要）
+deploy/
+docs/
+scripts/
