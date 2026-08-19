@@ -31,6 +31,33 @@ docker compose up -d --build
 
 打开 `http://127.0.0.1:8000/` 即可使用；交互式 API 文档见 `/docs`。
 
+## Cloudflare 一键部署
+
+免费上云：TypeScript/Hono 实现部署到 Cloudflare Workers（D1 数据库 + R2 存储 + Workers Assets 静态资源），免费层覆盖个人使用，无需服务器。
+
+### 方式一：GitHub Actions（推荐，全自动）
+
+[![Deploy via GitHub Actions](https://img.shields.io/badge/Deploy%20via%20GitHub%20Actions-black?logo=githubactions&logoColor=white)](https://github.com/luis330/PrivLink/actions/workflows/deploy-cloudflare.yml)
+
+> **使用步骤**：
+> 1. Fork 本仓库
+> 2. 在仓库 **Settings → Secrets and variables → Actions** 添加：
+>    - `CLOUDFLARE_API_TOKEN`（必需）：Cloudflare API Token（含 Workers / D1 / R2 读写权限，模板选 "Edit Cloudflare Workers"）
+>    - `CLOUDFLARE_ACCOUNT_ID`（建议）：Cloudflare 账户 ID；不填则由 Token 自动解析
+>    - `NAV_TOKEN`（可选）：门禁 Token；不配置则为开放模式
+> 3. 进入 **Actions** 标签页 → **Deploy to Cloudflare Workers** → **Run workflow** 手动触发首次部署
+> 4. 部署成功后访问 `https://privlink.<你的-workers-子域>.workers.dev`；之后每次 push 到 `main` 分支自动重新部署
+>
+> 首次运行自动创建 D1 数据库与 R2 存储桶（幂等），无需手动配置任何资源。
+
+### 方式二：Cloudflare 官方按钮
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/luis330/PrivLink)
+
+> 此方式引导你登录 Cloudflare Dashboard 创建 Worker，但 D1 数据库与 R2 存储桶需按 [deploy/cloudflare/README.md](deploy/cloudflare/README.md) 手动创建并绑定，适合进阶用户。
+
+> Cloudflare 分支完整部署与维护文档见 [docs/CLOUDFLARE-DEPLOYMENT.md](docs/CLOUDFLARE-DEPLOYMENT.md) 与 [deploy/cloudflare/README.md](deploy/cloudflare/README.md)。
+
 ## 部署概览
 
 | 项目 | 要求 |

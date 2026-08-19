@@ -9,7 +9,9 @@ NAV_MODE = "single"
 [[d1_databases]]
 binding = "DB"
 database_name = "privlink"
-database_id = "80266b23-49d4-47f1-ba6b-638158e82f8d"
+# database_id 占位：GitHub Actions 部署时按名称查找/创建后自动填充（见 .github/workflows/deploy-cloudflare.yml）
+# 手动部署请先 `wrangler d1 create privlink` 并把返回的 uuid 填入此处
+database_id = ""
 
 [[r2_buckets]]
 binding = "ICON_BUCKET"
