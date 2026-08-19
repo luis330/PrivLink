@@ -181,7 +181,10 @@ app.get("/ICON/*", async (c) => {
 });
 
 app.get("/background/*", async (c) => {
-  const obj = await getObject(c.env.BACKGROUND_BUCKET, c.req.path.slice(11));
+  const obj = await getObject(
+    c.env.BACKGROUND_BUCKET,
+    c.req.path.replace(/^\/background\//, "")
+  );
   if (!obj) return c.notFound();
   return new Response(obj.body, {
     status: 200,
@@ -295,13 +298,15 @@ app.put("/api/appearance/background", async (c) => {
 // ── /api/appearance/background/images ──────────────────
 
 app.get("/api/appearance/background/images", async (c) => {
-  const items = await listObjects(c.env.BACKGROUND_BUCKET, "background/");
+  const prefix = "background/";
+  const items = await listObjects(c.env.BACKGROUND_BUCKET, prefix);
   return c.json(
-    items.map((o: any) => ({
-      file: o.key,
-      size: o.size,
-      url: backgroundImageUrl(o.key),
-    }))
+    items
+      .filter((o: any) => typeof o.key === "string" && o.key.startsWith(prefix))
+      .map((o: any) => {
+        const name = o.key.slice(prefix.length);
+        return { file: name, size: o.size, url: backgroundImageUrl(name) };
+      })
   );
 });
 
