@@ -662,25 +662,21 @@ app.put("/api/sites/:id", async (c) => {
   if (!row) return c.json({ error: "网站不存在" }, 404);
   const oldIcon = String((row as any).icon_rel_path ?? "").trim();
 
-  await (db as any)
-    .prepare(
-      newIconPath
-        ? `UPDATE sites SET url = ?, site_name = ?, icon_rel_path = ?, icon_source_url = ?, updated_at = ? WHERE id = ?`
-        : `UPDATE sites SET url = ?, site_name = ?, updated_at = ? WHERE id = ?`
-    )
-    .bind(
-      newUrl,
-      name,
-      newIconPath,
-      newIconPath ? iconSourceUrl : null,
-      now,
-      siteId,
-      newUrl,
-      name,
-      now,
-      siteId
-    )
-    .run();
+  if (newIconPath) {
+    await (db as any)
+      .prepare(
+        `UPDATE sites SET url = ?, site_name = ?, icon_rel_path = ?, icon_source_url = ?, updated_at = ? WHERE id = ?`
+      )
+      .bind(newUrl, name, newIconPath, iconSourceUrl, now, siteId)
+      .run();
+  } else {
+    await (db as any)
+      .prepare(
+        `UPDATE sites SET url = ?, site_name = ?, updated_at = ? WHERE id = ?`
+      )
+      .bind(newUrl, name, now, siteId)
+      .run();
+  }
 
   // 标签
   if (payload.tags !== undefined) {
