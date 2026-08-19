@@ -432,6 +432,15 @@ app.post("/api/site/parse", async (c) => {
       : "failed";
   const now = utcNow();
 
+  // 先取旧图标（必须在 upsert 之前，否则 upsert 已写入新值，SELECT 拿到的就是新值，删除分支永不触发）
+  const oldRow = await (db as any)
+    .prepare("SELECT icon_rel_path FROM sites WHERE url = ?")
+    .bind(finalUrlStr)
+    .first();
+  const oldIcon = oldRow
+    ? String((oldRow as any).icon_rel_path ?? "").trim()
+    : "";
+
   // upsert
   await (db as any)
     .prepare(`
@@ -458,13 +467,6 @@ app.post("/api/site/parse", async (c) => {
     .run();
 
   // 清理旧图标
-  const oldRow = await (db as any)
-    .prepare("SELECT icon_rel_path FROM sites WHERE url = ?")
-    .bind(finalUrlStr)
-    .first();
-  const oldIcon = oldRow
-    ? String((oldRow as any).icon_rel_path ?? "").trim()
-    : "";
   if (oldIcon && oldIcon !== iconRelPath && !oldIcon.startsWith("https://")) {
     await deleteObject(c.env.ICON_BUCKET, oldIcon);
   }
