@@ -51,21 +51,36 @@ docker compose up -d --build
 >
 > 首次运行自动创建 D1 数据库与 R2 存储桶（幂等），无需手动配置任何资源。
 
-### 方式二：Cloudflare 官方按钮（半自动，适合已有 Cloudflare 项目的用户）
+### 方式二：命令行本地部署（仅推荐高级用户）
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/luis330/PrivLink)
-
-> 点击按钮后登录 Cloudflare，会自动创建一个 Worker 项目（名称可自定义）。
+> **注意**：由于 TS Worker 代码位于 `deploy/cloudflare/` 子目录而非仓库根目录，Cloudflare 官方一键部署按钮无法直接使用。
+> 如果你熟悉 Cloudflare Workers 和 Wrangler CLI，可以按以下步骤在本地完成部署：
 >
-> ⚠️ 此方式**不会自动创建 D1 数据库和 R2 存储桶**，部署完成后需按以下步骤手动补齐：
+> ```bash
+> # 1. 安装依赖
+> cd deploy/cloudflare
+> npm install
 >
-> 1. 进入 Cloudflare Dashboard → 找到刚创建的 Worker → **Settings → Variables** 添加 `NAV_MODE = single`
-> 2. 创建 D1 数据库：`Wrangler CLI` 运行 `npx wrangler d1 create <name>`，在 **D1 数据库** 绑定该数据库，binding 名为 `DB`
-> 3. 创建 R2 存储桶并绑定：在 **R2 存储桶** 分别绑定 `privlink-icons` 和 `privlink-backgrounds`（binding 名分别为 `ICON_BUCKET` 和 `BACKGROUND_BUCKET`）
-> 4. 执行迁移：`npx wrangler d1 execute <db-name> --file=migrations/001_init.sql`
-> 5. 可选：`npx wrangler secret put NAV_TOKEN` 设置门禁 Token
+> # 2. 登录 Cloudflare
+> npx wrangler login
 >
-> 适合已熟悉 Cloudflare Workers 配置的用户；**新用户请直接使用方式一（GitHub Actions）**。
+> # 3. 创建资源（幂等，重复运行安全）
+> npx wrangler d1 create privlink
+> npx wrangler r2 bucket create privlink-icons
+> npx wrangler r2 bucket create privlink-backgrounds
+>
+> # 4. 编辑 wrangler.toml，把 database_id 占位符替换为上一步返回的 uuid
+> # 5. 同步前端文件
+> python ../../scripts/sync-frontend.py
+> # 6. 执行数据库迁移
+> npx wrangler d1 execute privlink --file=migrations/001_init.sql
+> # 7. 可选：设置门禁 Token
+> npx wrangler secret put NAV_TOKEN
+> # 8. 部署
+> npx wrangler deploy
+> ```
+>
+> 详见 [deploy/cloudflare/README.md](deploy/cloudflare/README.md)。
 
 > Cloudflare 分支完整部署与维护文档见 [docs/CLOUDFLARE-DEPLOYMENT.md](docs/CLOUDFLARE-DEPLOYMENT.md) 与 [deploy/cloudflare/README.md](deploy/cloudflare/README.md)。
 
