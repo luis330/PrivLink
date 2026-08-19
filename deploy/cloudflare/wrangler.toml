@@ -1,6 +1,6 @@
 name = "privlink"
 main = "src/index.ts"
-compatibility_date = "2024-06-03"
+compatibility_date = "2026-08-19"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]

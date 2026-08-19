@@ -40,21 +40,32 @@ docker compose up -d --build
 [![Deploy via GitHub Actions](https://img.shields.io/badge/Deploy%20via%20GitHub%20Actions-black?logo=githubactions&logoColor=white)](https://github.com/luis330/PrivLink/actions/workflows/deploy-cloudflare.yml)
 
 > **使用步骤**：
-> 1. Fork 本仓库
-> 2. 在仓库 **Settings → Secrets and variables → Actions** 添加：
+> 1. Fork 本仓库到 GitHub 个人账号
+> 2. 在 Fork 后的仓库页面点击顶部 **Actions** 标签，找到 **Deploy to Cloudflare Workers**，点击 **"I understand my workflows, go ahead and enable them"** 启用 Actions
+> 3. 在仓库 **Settings → Secrets and variables → Actions** 添加：
 >    - `CLOUDFLARE_API_TOKEN`（必需）：Cloudflare API Token（含 Workers / D1 / R2 读写权限，模板选 "Edit Cloudflare Workers"）
 >    - `CLOUDFLARE_ACCOUNT_ID`（建议）：Cloudflare 账户 ID；不填则由 Token 自动解析
 >    - `NAV_TOKEN`（可选）：门禁 Token；不配置则为开放模式
-> 3. 进入 **Actions** 标签页 → **Deploy to Cloudflare Workers** → **Run workflow** 手动触发首次部署
-> 4. 部署成功后访问 `https://privlink.<你的-workers-子域>.workers.dev`；之后每次 push 到 `main` 分支自动重新部署
+> 4. 在 **Actions** 标签页 → **Deploy to Cloudflare Workers** → **Run workflow** 手动触发首次部署
+> 5. 部署成功后访问 `https://privlink.<你的-workers-子域>.workers.dev`；之后每次 push 到 `main` 分支且涉及 `deploy/cloudflare/`、`index.html`、`simple-icons.json` 或 workflow 文件时自动重新部署
 >
 > 首次运行自动创建 D1 数据库与 R2 存储桶（幂等），无需手动配置任何资源。
 
-### 方式二：Cloudflare 官方按钮
+### 方式二：Cloudflare 官方按钮（半自动，适合已有 Cloudflare 项目的用户）
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/luis330/PrivLink)
 
-> 此方式引导你登录 Cloudflare Dashboard 创建 Worker，但 D1 数据库与 R2 存储桶需按 [deploy/cloudflare/README.md](deploy/cloudflare/README.md) 手动创建并绑定，适合进阶用户。
+> 点击按钮后登录 Cloudflare，会自动创建一个 Worker 项目（名称可自定义）。
+>
+> ⚠️ 此方式**不会自动创建 D1 数据库和 R2 存储桶**，部署完成后需按以下步骤手动补齐：
+>
+> 1. 进入 Cloudflare Dashboard → 找到刚创建的 Worker → **Settings → Variables** 添加 `NAV_MODE = single`
+> 2. 创建 D1 数据库：`Wrangler CLI` 运行 `npx wrangler d1 create <name>`，在 **D1 数据库** 绑定该数据库，binding 名为 `DB`
+> 3. 创建 R2 存储桶并绑定：在 **R2 存储桶** 分别绑定 `privlink-icons` 和 `privlink-backgrounds`（binding 名分别为 `ICON_BUCKET` 和 `BACKGROUND_BUCKET`）
+> 4. 执行迁移：`npx wrangler d1 execute <db-name> --file=migrations/001_init.sql`
+> 5. 可选：`npx wrangler secret put NAV_TOKEN` 设置门禁 Token
+>
+> 适合已熟悉 Cloudflare Workers 配置的用户；**新用户请直接使用方式一（GitHub Actions）**。
 
 > Cloudflare 分支完整部署与维护文档见 [docs/CLOUDFLARE-DEPLOYMENT.md](docs/CLOUDFLARE-DEPLOYMENT.md) 与 [deploy/cloudflare/README.md](deploy/cloudflare/README.md)。
 
