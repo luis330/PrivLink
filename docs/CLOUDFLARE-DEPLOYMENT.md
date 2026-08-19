@@ -459,6 +459,8 @@ CI 或本地脚本扫描两端端点，确保无遗漏：
 
 ### 11.1 首次初始化
 
+> 注意：仓库中的 `deploy/cloudflare/wrangler.toml` 里 `database_id` 是空占位符。通过 GitHub Actions 部署（11.6）会自动查找/创建数据库并填充，**无需手动填写**；以下手动步骤仅适用于本地/命令行部署。
+
 ```bash
 # 1. 登录
 npx wrangler login
@@ -496,6 +498,45 @@ npx wrangler d1 execute privlink --file=deploy/cloudflare/migrations/001_init.sq
 
 - 站点 / 标签 / 背景设置：导出 SQLite 为 SQL，用 `d1 execute --file` 导入。
 - 图标 / 背景图：将 `ICON/`、`background/` 目录内文件按 key 上传到对应 R2 bucket。
+
+### 11.6 GitHub Actions 自动化部署
+
+Fork 本仓库后，通过 GitHub Actions 一键完成全部 Cloudflare 资源配置与部署，无需本地环境。
+
+#### 前置准备
+
+在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中添加：
+
+| Secret 名 | 必需 | 说明 |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | ✅ | Cloudflare API Token（需含 Workers / D1 / R2 读写权限；模板选 "Edit Cloudflare Workers"） |
+| `CLOUDFLARE_ACCOUNT_ID` | ⚠️ 建议 | Cloudflare 账户 ID；不填则由 workflow 从 Token 自动解析 |
+| `NAV_TOKEN` | ❌ 可选 | 门禁 Token；不配置则部署为开放模式 |
+
+#### 触发方式
+
+- **自动部署**：推送到 `main` 分支且涉及 `deploy/cloudflare/`、根目录 `index.html`、`simple-icons.json` 或 workflow 文件本身时自动触发。
+- **手动触发**：仓库 **Actions** 标签页 → **Deploy to Cloudflare Workers** → **Run workflow**；可选填 `NAV_TOKEN` 输入框临时覆盖仓库 Secret（留空则用 Secret，均未配置则为开放模式）。
+
+#### 首次部署流程
+
+Workflow 自动完成：
+
+1. 同步根目录 `index.html` 与 `simple-icons.json` 到 `deploy/cloudflare/assets/`
+2. 查找或创建 D1 数据库 `privlink`（按名称幂等），并把 uuid 写入 `wrangler.toml` 占位符
+3. 创建 R2 存储桶 `privlink-icons` / `privlink-backgrounds`（幂等）
+4. 执行数据库迁移 `migrations/001_init.sql`（`CREATE TABLE IF NOT EXISTS`，可重复）
+5. 构建并部署 Worker
+6. 若配置了 `NAV_TOKEN`，通过 `wrangler secret put` 写入 Worker secret（覆盖语义）
+
+部署成功后日志输出 `deployment-url`，格式为 `https://privlink.<你的-workers-子域>.workers.dev`。
+
+#### 注意事项
+
+- `database_id` 仅在 CI 环境临时写入 `wrangler.toml`，不会提交到仓库；fork 用户互不干扰，也不会误连原作者数据库。
+- R2 bucket 已存在时 `create` 报错会被忽略（`|| true`），重复运行安全。
+- 更换 `NAV_TOKEN`：改 Secret 或手动触发时填写输入框，重新运行 workflow 即可覆盖。
+- Worker 名称固定为 `privlink`（见 `wrangler.toml`），若账户中已存在同名 Worker 会复用并覆盖部署。
 
 ---
 
