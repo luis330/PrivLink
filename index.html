@@ -1803,6 +1803,7 @@
       function toIconUrl(iconPath) {
         const cleanPath = (iconPath || "").trim();
         if (!cleanPath) return "";
+        if (/^https?:\/\//i.test(cleanPath)) return cleanPath;
         const base = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
         return base + "/" + cleanPath.replace(/^\/+/, "");
       }
