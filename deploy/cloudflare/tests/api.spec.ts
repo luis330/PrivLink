@@ -118,6 +118,8 @@ describe("PrivLink Cloudflare - API 结构测试", () => {
     } as never);
     expect(res.status).toBe(200);
     expect(requestedKey).toBe("ICON/abc123.svg");
+    // 缺 Content-Type 时浏览器不会在 <img> 中渲染，SVG 尤其严格
+    expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
   });
 
   // 回归：读取路由曾用 slice(11) 得到 "/bg.png"，而上传端点写入的 key 是
@@ -137,5 +139,6 @@ describe("PrivLink Cloudflare - API 结构测试", () => {
     } as never);
     expect(res.status).toBe(200);
     expect(requestedKey).toBe("background/bg.png");
+    expect(res.headers.get("Content-Type")).toBe("image/png");
   });
 });

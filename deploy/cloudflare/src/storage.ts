@@ -2,6 +2,33 @@
  * R2 存储抽象层：替代 main.py 中的 Path IO。
  */
 
+// ── MIME 推断 ──────────────────────────────────────────
+
+const MIME_BY_EXT: Record<string, string> = {
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".bmp": "image/bmp",
+  ".avif": "image/avif",
+};
+
+/**
+ * 按 key 的扩展名推断 Content-Type。
+ *
+ * 必须显式回给浏览器：`<img>` 加载缺少 MIME 的资源时不会渲染，
+ * SVG 尤其严格。Python 端由 StaticFiles 按扩展名自动处理，
+ * Workers 侧的 Response 需要自己带上。
+ */
+export function contentTypeForKey(key: string): string {
+  const i = key.lastIndexOf(".");
+  const ext = i >= 0 ? key.slice(i).toLowerCase() : "";
+  return MIME_BY_EXT[ext] ?? "application/octet-stream";
+}
+
 // ── 核心操作 ───────────────────────────────────────────
 
 export async function putObject(
@@ -10,7 +37,11 @@ export async function putObject(
   body: ArrayBuffer | Uint8Array
 ): Promise<void> {
   await (bucket as any).put(key, body, {
-    httpMetadata: { "cache-control": "public, max-age=86400" },
+    // R2 的 httpMetadata 用驼峰键；此处曾误写 "cache-control"，该项一直未生效
+    httpMetadata: {
+      contentType: contentTypeForKey(key),
+      cacheControl: "public, max-age=86400",
+    },
   });
 }
 
