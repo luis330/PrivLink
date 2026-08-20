@@ -24,6 +24,7 @@ import {
   backgroundImageUrl,
   iconUploadFilename,
   iconFilenameFromUrl,
+  contentTypeForKey,
 } from "./storage";
 import { listIcons, iconUrlForSlug } from "./simple-icons";
 import {
@@ -229,11 +230,16 @@ app.use("/api/*", async (c, next) => {
 
 app.get("/ICON/*", async (c) => {
   // path 形如 "/ICON/<hash>.<ext>"，去掉前导斜杠即为 R2 key（与 icon_rel_path 同值）
-  const obj = await getObject(c.env.ICON_BUCKET, c.req.path.slice(1));
+  const key = c.req.path.slice(1);
+  const obj = await getObject(c.env.ICON_BUCKET, key);
   if (!obj) return c.notFound();
   return new Response(obj.body, {
     status: 200,
-    headers: { "Cache-Control": "public, max-age=86400" },
+    headers: {
+      // 缺少 Content-Type 时浏览器不会在 <img> 中渲染该资源
+      "Content-Type": contentTypeForKey(key),
+      "Cache-Control": "public, max-age=86400",
+    },
   });
 });
 
@@ -242,11 +248,15 @@ app.get("/background/*", async (c) => {
   // 与上传端点的 putObject(..., `background/${filename}`) 对应。
   // 曾误用 slice(11)，得到 "/bg-xxx.png"（多一个前导斜杠、少了前缀），
   // 与写入 key 完全对不上，背景图上传后一律取不到。
-  const obj = await getObject(c.env.BACKGROUND_BUCKET, c.req.path.slice(1));
+  const key = c.req.path.slice(1);
+  const obj = await getObject(c.env.BACKGROUND_BUCKET, key);
   if (!obj) return c.notFound();
   return new Response(obj.body, {
     status: 200,
-    headers: { "Cache-Control": "public, max-age=86400" },
+    headers: {
+      "Content-Type": contentTypeForKey(key),
+      "Cache-Control": "public, max-age=86400",
+    },
   });
 });
 
