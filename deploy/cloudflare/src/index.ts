@@ -93,6 +93,50 @@ function errorPayload(msg: string): Record<string, string> {
   };
 }
 
+/**
+ * URL scheme 是否为 http/https。
+ *
+ * 注意：`URL.protocol` 返回带尾随冒号的值（"https:"），与 Python 端
+ * `urlsplit().scheme`（"https"）不同。直接拿 protocol 去比对不带冒号的
+ * 白名单会恒为 false，导致所有 URL 被判为 invalid。
+ */
+export function isAllowedScheme(parsed: URL): boolean {
+  const scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
+  return scheme === "http" || scheme === "https";
+}
+
+/**
+ * URL 规范化，与 Python 端 `normalize_url()` 对齐：
+ * scheme/host 小写、路径尾部斜杠去除（"/" 视为空）、丢弃 fragment、
+ * 保留 query 与 userinfo。两端对同一网址必须产出同一字符串，
+ * 否则 sites.url 的 UNIQUE 约束会把它当成两条不同记录。
+ *
+ * 已知残留差异：显式写出的默认端口（如 https://x:443）会被 URL API
+ * 归一化掉，Python 端 urlsplit 则保留 ":443"。该输入形式极罕见，
+ * 未做字符串级还原。
+ */
+export function normalizeUrl(parsed: URL): string {
+  const scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
+
+  let auth = "";
+  if (parsed.username) {
+    auth = parsed.password
+      ? `${parsed.username}:${parsed.password}`
+      : parsed.username;
+    auth = `${auth}@`;
+  }
+
+  // URL.hostname 已小写，且 IPv6 自带方括号（Python 端需手动补）
+  const host = parsed.hostname.toLowerCase();
+  const port = parsed.port ? `:${parsed.port}` : "";
+
+  let path = parsed.pathname || "";
+  if (path === "/") path = "";
+  else if (path) path = path.replace(/\/+$/, "");
+
+  return `${scheme}://${auth}${host}${port}${path}${parsed.search}`;
+}
+
 function resolveIdentity(c: HonoContext): "owner" | null {
   const t = c.env.NAV_TOKEN ?? "";
   if (!t) return null;
@@ -377,13 +421,13 @@ app.post("/api/site/parse", async (c) => {
       400
     );
   }
-  if (!["http", "https"].includes(parsed.protocol))
+  if (!isAllowedScheme(parsed))
     return c.json(
       { ...errorPayload("URL scheme must be http or https"), status: "invalid" },
       400
     );
 
-  const finalUrlStr = parsed.toString();
+  const finalUrlStr = normalizeUrl(parsed);
   let htmlResult: Awaited<ReturnType<typeof fetchHtml>> | null = null;
   let htmlError = "";
 
@@ -515,12 +559,36 @@ app.post("/api/site/ingest", async (c) => {
       400
     );
   }
-  const finalUrlStr = parsed.toString();
+  // 与 Python 端 validate_remote_url 对齐：只接受 http/https
+  if (!isAllowedScheme(parsed))
+    return c.json(
+      { ...errorPayload("URL scheme must be http or https"), status: "invalid" },
+      400
+    );
+  const finalUrlStr = normalizeUrl(parsed);
   const siteName =
     ((payload.site_name ?? "").trim()) || parsed.hostname || "";
-  const finalUrl = payload.final_url
-    ? (payload.final_url.trim() || finalUrlStr)
-    : finalUrlStr;
+
+  // 与 Python 端一致：final_url 同样要经过 scheme 校验与规范化
+  let finalUrl = finalUrlStr;
+  const rawFinalUrl = (payload.final_url ?? "").trim();
+  if (rawFinalUrl) {
+    let finalParsed: URL;
+    try {
+      finalParsed = new URL(rawFinalUrl);
+    } catch {
+      return c.json(
+        { ...errorPayload("Invalid URL"), status: "invalid" },
+        400
+      );
+    }
+    if (!isAllowedScheme(finalParsed))
+      return c.json(
+        { ...errorPayload("URL scheme must be http or https"), status: "invalid" },
+        400
+      );
+    finalUrl = normalizeUrl(finalParsed);
+  }
 
   // 处理图标
   let iconRelPath = "", iconSourceUrl = "";
