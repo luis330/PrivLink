@@ -213,7 +213,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 
 - 响应启用 gzip 压缩（大于 1KB 的 HTML/JSON），首页传输体积约为原始大小的 1/6。
 - 首页 `GET /` 支持 ETag / 304 协商缓存，内容未变化时刷新页面几乎零流量。
-- 静态图标带浏览器缓存：`/ICON` 缓存 1 天，`/icons` 图标库缓存 7 天，`/background` 背景图缓存 1 天。更换站点图标后浏览器最多 1 天内仍显示旧图，Ctrl+F5 强制刷新可立即生效。
+- 静态图标带浏览器缓存：`/ICON` 缓存 1 天，`/background` 背景图缓存 1 天。更换站点图标后浏览器最多 1 天内仍显示旧图，Ctrl+F5 强制刷新可立即生效。
 - 前端把站点和标签数据缓存在 localStorage（`nav_cache_v1:*`）：再次打开页面立即渲染本地数据，后台拉取最新数据后自动更新；清除浏览器站点数据即可重置本地缓存。
 - Linux 容器内自动启用 uvloop / httptools（依赖 `uvicorn[standard]`）；Windows 开发环境自动跳过 uvloop，启动命令不变。
 
@@ -233,7 +233,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 | GET | `/api/network/public-ip` | 需 token | 服务端直连公网 IPv4 |
 | POST | `/api/site/parse` | 需 token | URL 解析入库 |
 | POST | `/api/site/ingest` | 需 token | 浏览器采集上报 |
-| GET | `/api/icons` | 需 token | 图标库列表 |
+| GET | `/api/icons` | 需 token | 内置图标库列表（Simple Icons，返回 `{name, slug, url}`） |
 | PUT | `/api/appearance/background` | 需 token | 设置背景（`type=default/color/image`） |
 | GET | `/api/appearance/background/images` | 需 token | 背景图片列表 |
 | POST | `/api/appearance/background/images` | 需 token | 上传背景图（multipart 字段 `image`，≤5MB，jpg/png/webp；上传即生效） |
@@ -242,7 +242,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 | PUT | `/api/sites/{id}` | 需 token | 更新站点（名称/URL/标签/可见性/图标） |
 | POST | `/api/sites/{id}/icon` | 需 token | 上传站点图标（multipart，≤1MB） |
 | DELETE | `/api/sites/{id}` | 需 token | 删除站点 |
-| GET | `/ICON/<file>`、`/icons/<file>`、`/background/<file>` | 公开 | 静态图标与背景图（文件名为不可枚举哈希，无目录列表） |
+| GET | `/ICON/<file>`、`/background/<file>` | 公开 | 静态图标与背景图（文件名为不可枚举哈希，无目录列表） |
 
 ### `GET /api/network/public-ip`
 

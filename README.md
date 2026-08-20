@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- **一键收录**：粘贴网址，服务端自动抓取网站名称（`og:site_name > title > 域名`）与 favicon 入库；同一网址重复提交自动更新，也支持从内置图标库挑选或上传自定义图标。
+- **一键收录**：粘贴网址，服务端自动抓取网站名称（`og:site_name > title > 域名`）与 favicon 入库；同一网址重复提交自动更新，也支持从内置图标库（Simple Icons，3400+ 品牌图标）挑选或上传自定义图标。
 - **可视化管理**：玻璃拟态卡片网格、多标签筛选（多选胶囊面板）、拖拽排序、右键编辑/删除。
 - **公开 / 私有站点**：每个站点可勾选「公开站点」属性（默认公开）。私有站点带 🔒 标识，仅自己可见——连它的标签名都不会向访客泄露。
 - **单用户 Token 门禁**：不设 Token 为开放模式（内网自用零门槛）；设置后，未持 Token 的访客打开页面即可静默浏览全部公开站点（只读、可点击跳转、零弹窗），触发添加/修改/删除/排序等管理动作时才引导保存 Token。
@@ -35,11 +35,25 @@ docker compose up -d --build
 
 免费上云：TypeScript/Hono 实现部署到 Cloudflare Workers（D1 数据库 + R2 存储 + Workers Assets 静态资源），免费层覆盖个人使用，无需服务器。
 
-### 方式一：GitHub Actions（推荐，全自动）
+### 方式一：GitHub Actions（推荐，日常自动部署）
 
 [![Deploy via GitHub Actions](https://img.shields.io/badge/Deploy%20via%20GitHub%20Actions-black?logo=githubactions&logoColor=white)](https://github.com/luis330/PrivLink/actions/workflows/deploy-cloudflare.yml)
 
-> **使用步骤**：
+> **一次性准备（首次部署前必做）**：workflow 只负责部署，**不会自动创建 Cloudflare 资源**。请先在本地执行一次：
+>
+> ```bash
+> cd deploy/cloudflare
+> npm install
+> npx wrangler login
+> npx wrangler d1 create privlink                    # 记下返回的 database_id
+> npx wrangler r2 bucket create privlink-icons
+> npx wrangler r2 bucket create privlink-backgrounds
+> npx wrangler d1 execute privlink --remote --file=migrations/001_init.sql
+> ```
+>
+> 然后把上一步返回的 uuid 填入 `deploy/cloudflare/wrangler.toml` 的 `database_id = ""` 并提交。这三项资源与迁移只需建一次。
+>
+> **之后的自动部署配置**：
 > 1. Fork 本仓库到 GitHub 个人账号
 > 2. 在 Fork 后的仓库页面点击顶部 **Actions** 标签，找到 **Deploy to Cloudflare Workers**，点击 **"I understand my workflows, go ahead and enable them"** 启用 Actions
 > 3. 在仓库 **Settings → Secrets and variables → Actions** 添加：
@@ -48,8 +62,6 @@ docker compose up -d --build
 >    - `NAV_TOKEN`（可选）：门禁 Token；不配置则为开放模式
 > 4. 在 **Actions** 标签页 → **Deploy to Cloudflare Workers** → **Run workflow** 手动触发首次部署
 > 5. 部署成功后访问 `https://privlink.<你的-workers-子域>.workers.dev`；之后每次 push 到 `main` 分支且涉及 `deploy/cloudflare/`、`index.html`、`simple-icons.json` 或 workflow 文件时自动重新部署
->
-> 首次运行自动创建 D1 数据库与 R2 存储桶（幂等），无需手动配置任何资源。
 
 ### 方式二：命令行本地部署（仅推荐高级用户）
 
@@ -72,8 +84,8 @@ docker compose up -d --build
 > # 4. 编辑 wrangler.toml，把 database_id 占位符替换为上一步返回的 uuid
 > # 5. 同步前端文件
 > python ../../scripts/sync-frontend.py
-> # 6. 执行数据库迁移
-> npx wrangler d1 execute privlink --file=migrations/001_init.sql
+> # 6. 执行数据库迁移（--remote 作用于线上 D1，缺省会写到本地 miniflare 库）
+> npx wrangler d1 execute privlink --remote --file=migrations/001_init.sql
 > # 7. 可选：设置门禁 Token
 > npx wrangler secret put NAV_TOKEN
 > # 8. 部署
@@ -121,8 +133,8 @@ docker compose up -d --build
 
 ## 图标库版权
 
-- `icons/` 目录的预设图标库来自字节跳动开源的 [IconPark](https://github.com/bytedance/IconPark)，以 [Apache License 2.0](icons/LICENSE) 授权使用与再分发（许可证全文见 `icons/LICENSE`）。
-- 其中的品牌类图标（如支付宝、Adobe 系列等）图形以 Apache-2.0 授权，但商标权归各品牌方所有，本项目仅用于指示对应站点，不构成品牌背书。
+- 内置图标库使用 [Simple Icons](https://github.com/simple-icons/simple-icons)（CC0-1.0）的品牌图标元数据，图标本身由 `cdn.simpleicons.org` 外链提供，仓库内只保存名称与 slug 索引（`simple-icons.json`）。
+- 品牌图标的商标权归各品牌方所有，本项目仅用于指示对应站点，不构成品牌背书。
 - `ICON/` 目录存放的是各网站抓取的 favicon，仅用于指向其对应站点（与浏览器书签同类的指示性使用）。
 
 ## 许可证（License）
@@ -135,4 +147,4 @@ Copyright (c) 2026 luis
 - 基于本项目修改后再分发，或**通过网络对外提供服务**（如部署为公开网站），必须以 AGPL-3.0 同等条款开放完整源代码，并保留原始版权声明与许可证文本，修改过的文件须标注改动说明；
 - 若您基于本项目二次开发，欢迎（非强制）在您的 README 中注明来源并链接回本仓库。
 
-第三方组件：`icons/` 图标库来自 IconPark（Apache-2.0，与 AGPL-3.0 兼容），归属声明见上文「图标库版权」章节。
+第三方组件：内置图标库数据来自 [Simple Icons](https://github.com/simple-icons/simple-icons)（CC0-1.0，与 AGPL-3.0 兼容），归属声明见上文「图标库版权」章节。

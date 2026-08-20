@@ -1405,11 +1405,6 @@ def replace_site_tags(
 _icons_cache: list[dict[str, str]] = []
 
 
-def scan_icons_library() -> list[dict[str, str]]:
-    """保留兼容接口，实际由 list_simple_icons() 提供。"""
-    return list_simple_icons()
-
-
 def default_background_setting() -> dict[str, str]:
     return {"type": "default", "color": "", "image": "", "image_url": ""}
 

@@ -13,6 +13,10 @@ import re
 import sys
 from pathlib import Path
 
+# Windows 控制台默认 GBK，输出中的 ✅/❌ 会触发 UnicodeEncodeError。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 ROOT = Path(__file__).resolve().parents[1]
 MAIN_PY = ROOT / "main.py"
 TS_INDEX = ROOT / "deploy/cloudflare" / "src" / "index.ts"
