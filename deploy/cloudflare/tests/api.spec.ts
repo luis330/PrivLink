@@ -99,4 +99,43 @@ describe("PrivLink Cloudflare - API 结构测试", () => {
     expect(body.image).toBe("");
     expect(body.image_url).toBe("");
   });
+
+  // 回归：icon_rel_path 曾只存裸文件名（"abc.svg"），前端 toIconUrl 拼成
+  // "/abc.svg"，而代理路由只认 "/ICON/*"，图标一律 404。
+  // icon_rel_path 与 R2 key 必须是同一个字符串——deleteObject 也直接拿它当 key。
+  it("GET /ICON/* 用带前缀的 key 取对象", async () => {
+    let requestedKey = "";
+    const bucket = {
+      get: async (k: string) => {
+        requestedKey = k;
+        // R2 对象契约：getObject 会调用 arrayBuffer() 与 size
+        return { arrayBuffer: async () => new ArrayBuffer(0), size: 0 };
+      },
+    };
+    const res = await app.request("/ICON/abc123.svg", undefined, {
+      ...(env as object),
+      ICON_BUCKET: bucket,
+    } as never);
+    expect(res.status).toBe(200);
+    expect(requestedKey).toBe("ICON/abc123.svg");
+  });
+
+  // 回归：读取路由曾用 slice(11) 得到 "/bg.png"，而上传端点写入的 key 是
+  // "background/bg.png"，两者对不上，背景图上传后永远取不到。
+  it("GET /background/* 用带前缀的 key 取对象", async () => {
+    let requestedKey = "";
+    const bucket = {
+      get: async (k: string) => {
+        requestedKey = k;
+        // R2 对象契约：getObject 会调用 arrayBuffer() 与 size
+        return { arrayBuffer: async () => new ArrayBuffer(0), size: 0 };
+      },
+    };
+    const res = await app.request("/background/bg.png", undefined, {
+      ...(env as object),
+      BACKGROUND_BUCKET: bucket,
+    } as never);
+    expect(res.status).toBe(200);
+    expect(requestedKey).toBe("background/bg.png");
+  });
 });
