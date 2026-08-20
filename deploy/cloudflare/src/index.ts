@@ -314,28 +314,36 @@ app.get("/api/tags", async (c) => {
 
 // ── /api/appearance/background ────────────────────────
 
-app.get("/api/appearance/background", async (c) => {
-  const db = getDb(c);
-  const raw = await getAppSetting(db, BACKGROUND_SETTING_KEY);
-  if (!raw) return c.json(bgSettingResponse("default"));
+/**
+ * 由 app_settings 中存储的原始 JSON 构造背景设置响应。
+ * 值缺失或不合法时一律回落到 default（与 Python 端 load_background_setting 的自愈行为一致）。
+ */
+function bgResponseFromRaw(raw: string | null): BackgroundSettingResponse {
+  if (!raw) return bgSettingResponse("default");
   try {
     const d = JSON.parse(raw) as Record<string, unknown>;
     const t = String(d.type ?? "").toLowerCase();
-    if (t === "default") return c.json(bgSettingResponse("default"));
+    if (t === "default") return bgSettingResponse("default");
     if (t === "color") {
       const color = String(d.color ?? "").trim();
       if (!/^#[0-9a-fA-F]{6}$/.test(color)) throw new Error();
-      return c.json(bgSettingResponse("color", color));
+      return bgSettingResponse("color", color);
     }
     if (t === "image") {
       const image = String(d.image ?? "").trim();
       if (!BACKGROUND_FILENAME_RE.test(image)) throw new Error();
-      return c.json(bgSettingResponse("image", "", image));
+      return bgSettingResponse("image", "", image);
     }
     throw new Error();
   } catch {
-    return c.json(bgSettingResponse("default"));
+    return bgSettingResponse("default");
   }
+}
+
+app.get("/api/appearance/background", async (c) => {
+  const db = getDb(c);
+  const raw = await getAppSetting(db, BACKGROUND_SETTING_KEY);
+  return c.json(bgResponseFromRaw(raw));
 });
 
 app.put("/api/appearance/background", async (c) => {
@@ -368,11 +376,18 @@ app.put("/api/appearance/background", async (c) => {
 app.get("/api/appearance/background/images", async (c) => {
   const items = await listObjects(c.env.BACKGROUND_BUCKET, "background/");
   return c.json(
-    items.map((o: any) => ({
-      file: o.key,
-      size: o.size,
-      url: backgroundImageUrl(o.key),
-    }))
+    items
+      // listObjects 返回完整 R2 key（"background/<file>"），而上传返回值、
+      // 删除端点与 PUT /api/appearance/background 的 image 字段用的都是
+      // 裸文件名，此处必须剥掉前缀，否则前端拿到的名字过不了文件名校验，
+      // 缩略图也会被拼成 "/background/background/<file>"。
+      .map((o) => ({
+        file: o.key.replace(/^background\//, ""),
+        size: o.size,
+      }))
+      // 与 Python 端 list_background_images() 一致：跳过不符合命名规则的对象
+      .filter((o) => isValidBackgroundFilename(o.file))
+      .map((o) => ({ ...o, url: backgroundImageUrl(o.file) }))
   );
 });
 
@@ -417,7 +432,10 @@ app.delete("/api/appearance/background/images/:file", async (c) => {
       return c.json(bgSettingResponse("default"));
     }
   }
-  return c.json(bgSettingResponse("default"));
+  // 删的不是当前背景时保持原设置不变（对应 Python 端
+  // test_delete_keeps_setting_when_other_image）；此前一律返回 default，
+  // 前端会据此把已生效的背景清掉。
+  return c.json(bgResponseFromRaw(raw));
 });
 
 // ── /api/icons ─────────────────────────────────────────
