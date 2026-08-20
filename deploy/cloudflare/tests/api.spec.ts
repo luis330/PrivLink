@@ -141,4 +141,38 @@ describe("PrivLink Cloudflare - API 结构测试", () => {
     expect(requestedKey).toBe("background/bg.png");
     expect(res.headers.get("Content-Type")).toBe("image/png");
   });
+
+  // 回归：listObjects 返回完整 R2 key（"background/<file>"），端点曾直接
+  // 把它当文件名返回，导致前端显示 "background/bg-…"、文件名校验判为
+  // 不合法，缩略图被拼成 "/background/background/<file>"。
+  it("GET /api/appearance/background/images 返回裸文件名", async () => {
+    const bucket = {
+      list: async () => ({
+        objects: [
+          {
+            key: "background/bg-8e7c640d2f7bf412abcd1234.png",
+            size: 1234,
+            uploaded: new Date("2026-08-20T00:00:00Z"),
+          },
+          // 不符合命名规则的对象应被过滤（与 Python 端 list_background_images 一致）
+          {
+            key: "background/not-a-valid-name.txt",
+            size: 1,
+            uploaded: new Date("2026-08-19T00:00:00Z"),
+          },
+        ],
+      }),
+    };
+    const res = await app.request(
+      "/api/appearance/background/images",
+      undefined,
+      { ...(env as object), BACKGROUND_BUCKET: bucket } as never
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(1);
+    expect(body[0].file).toBe("bg-8e7c640d2f7bf412abcd1234.png");
+    expect(body[0].url).toBe("/background/bg-8e7c640d2f7bf412abcd1234.png");
+    expect(body[0].size).toBe(1234);
+  });
 });
