@@ -47,7 +47,6 @@ class IsolatedAppTestCase(unittest.TestCase):
         main.ICON_DIR = Path("ICON")
         main.FRONTEND_PATH = self.old_cwd / "index.html"
         main.NAV_TOKEN = self.nav_token
-        Path("icons").mkdir(exist_ok=True)
         main.init_storage()
         self.client = TestClient(main.app)
 
@@ -96,8 +95,6 @@ class TokenGuardTest(IsolatedAppTestCase):
         self.assertEqual(response.status_code, 200)
 
         # 静态挂载不经过 /api/ 门禁（404 也证明未被 401 拦截）
-        response = self.client.get("/icons/nonexistent.svg")
-        self.assertNotEqual(response.status_code, 401)
         response = self.client.get("/ICON/nonexistent.png")
         self.assertNotEqual(response.status_code, 401)
 

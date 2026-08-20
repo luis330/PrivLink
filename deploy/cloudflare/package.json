@@ -6,7 +6,7 @@
     "dev": "wrangler dev",
     "deploy": "python ../../scripts/sync-frontend.py && wrangler deploy",
     "sync:assets": "python ../../scripts/sync-frontend.py",
-    "db:migrate": "wrangler d1 execute privlink --file=migrations/001_init.sql",
+    "db:migrate": "wrangler d1 execute privlink --remote --file=migrations/001_init.sql",
     "icons:fetch": "python ../../scripts/fetch-simple-icons.py && python ../../scripts/sync-frontend.py",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -13,17 +13,19 @@ npx wrangler deploy       # 生产部署
 
 ## 首次初始化
 
-> 通过 GitHub Actions 一键部署（仓库 `.github/workflows/deploy-cloudflare.yml`）会自动创建/查找 D1 与 R2 并填充 `wrangler.toml` 中的 `database_id` 占位符，无需手动操作。以下命令适用于本地/命令行部署：
+> GitHub Actions workflow（`.github/workflows/deploy-cloudflare.yml`）**只执行部署**，不会创建 D1/R2 资源、不会执行迁移、也不会填充 `wrangler.toml` 中的 `database_id`。以下步骤在首次部署前必须手动执行一次：
 
 ```bash
 npx wrangler login
-npx wrangler d1 create privlink
+npx wrangler d1 create privlink          # 记下返回的 database_id
 npx wrangler r2 bucket create privlink-icons
 npx wrangler r2 bucket create privlink-backgrounds
 # 编辑 wrangler.toml 把空占位 database_id = "" 替换为上面创建返回的 uuid
-npx wrangler secret put NAV_TOKEN
-npx wrangler d1 execute privlink --file=migrations/001_init.sql
+npx wrangler d1 execute privlink --remote --file=migrations/001_init.sql
+npx wrangler secret put NAV_TOKEN        # 可选，配置门禁
 ```
+
+完成后，push 到 `main` 即可由 Actions 自动部署（`NAV_TOKEN` 也可改由仓库 Secret 提供，见根 README）。
 
 ## 获取完整图标库
 

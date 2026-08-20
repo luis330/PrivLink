@@ -40,7 +40,6 @@ class IsolatedBackgroundTestCase(unittest.TestCase):
         main.BACKGROUND_DIR = Path("background")
         main.FRONTEND_PATH = self.old_cwd / "index.html"
         main.NAV_TOKEN = self.nav_token
-        Path("icons").mkdir(exist_ok=True)
         main.init_storage()
         self.client = TestClient(main.app)
         self.auth_headers = {"X-Nav-Token": self.nav_token}
