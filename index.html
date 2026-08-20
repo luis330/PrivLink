@@ -3066,7 +3066,7 @@
         return 0.299 * r + 0.587 * g + 0.114 * b;
       }
 
-      function setImageScrim(url) {
+      function setImageScrim(url, onReady) {
         const probe = new Image();
         probe.onload = () => {
           try {
@@ -3086,8 +3086,14 @@
           } catch (_) {
             setBgScrim(0.6); // 画布被跨域污染等异常：按中等偏亮处理，宁可多遮
           }
+          // 图已解码完毕，此时才挂到 body，避免大图逐行绘制
+          if (onReady) onReady();
         };
-        probe.onerror = () => setBgScrim(0.6);
+        probe.onerror = () => {
+          setBgScrim(0.6);
+          // 探测失败仍交给 CSS 试一次，否则背景永远不出现
+          if (onReady) onReady();
+        };
         probe.src = url;
       }
 
@@ -3102,12 +3108,16 @@
           const url = getBackgroundImageUrl(backgroundSetting.image);
           clearBodyInlineBackground();
           document.body.style.backgroundColor = "#06122e"; // 图片加载前的底色
-          document.body.style.backgroundImage = 'url("' + url + '")';
           document.body.style.backgroundSize = "cover";
           document.body.style.backgroundPosition = "center";
           document.body.style.backgroundRepeat = "no-repeat";
           document.body.style.backgroundAttachment = "fixed";
-          setImageScrim(url);
+          // 直接赋 background-image 会让大图边下载边逐行绘制；改为等
+          // 探测用的 Image 解码完成（此时字节已在 HTTP 缓存里）再挂上去，
+          // 视觉上是底色 → 整图一次呈现。
+          setImageScrim(url, () => {
+            document.body.style.backgroundImage = 'url("' + url + '")';
+          });
         } else {
           clearBodyInlineBackground();
           bgOverlayEl.hidden = true;
