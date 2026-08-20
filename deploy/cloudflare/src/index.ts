@@ -137,6 +137,18 @@ export function normalizeUrl(parsed: URL): string {
   return `${scheme}://${auth}${host}${port}${path}${parsed.search}`;
 }
 
+/**
+ * 站点图标在 R2 中的 key，同时也是写入 sites.icon_rel_path 的值。
+ *
+ * 两者必须是同一个字符串：`/ICON/*` 路由按 key 取对象，而
+ * `deleteObject(ICON_BUCKET, oldIcon)` 直接拿 icon_rel_path 当 key 用。
+ * 前端 toIconUrl() 会把它拼成 "/ICON/<hash>.<ext>" 请求本 Worker，
+ * 因此前缀不能省——只存裸文件名会拼出 "/<hash>.<ext>"，必然 404。
+ */
+function iconObjectKey(filename: string): string {
+  return `ICON/${filename}`;
+}
+
 function resolveIdentity(c: HonoContext): "owner" | null {
   const t = c.env.NAV_TOKEN ?? "";
   if (!t) return null;
@@ -216,7 +228,8 @@ app.use("/api/*", async (c, next) => {
 // ── R2 静态代理 ────────────────────────────────────────
 
 app.get("/ICON/*", async (c) => {
-  const obj = await getObject(c.env.ICON_BUCKET, c.req.path.slice(6));
+  // path 形如 "/ICON/<hash>.<ext>"，去掉前导斜杠即为 R2 key（与 icon_rel_path 同值）
+  const obj = await getObject(c.env.ICON_BUCKET, c.req.path.slice(1));
   if (!obj) return c.notFound();
   return new Response(obj.body, {
     status: 200,
@@ -225,7 +238,11 @@ app.get("/ICON/*", async (c) => {
 });
 
 app.get("/background/*", async (c) => {
-  const obj = await getObject(c.env.BACKGROUND_BUCKET, c.req.path.slice(11));
+  // path 形如 "/background/<file>"，去掉前导斜杠即为 R2 key，
+  // 与上传端点的 putObject(..., `background/${filename}`) 对应。
+  // 曾误用 slice(11)，得到 "/bg-xxx.png"（多一个前导斜杠、少了前缀），
+  // 与写入 key 完全对不上，背景图上传后一律取不到。
+  const obj = await getObject(c.env.BACKGROUND_BUCKET, c.req.path.slice(1));
   if (!obj) return c.notFound();
   return new Response(obj.body, {
     status: 200,
@@ -456,8 +473,9 @@ app.post("/api/site/parse", async (c) => {
           ? `.${ext}`
           : ".ico";
         const filename = await iconFilenameFromUrl(finalUrlStr, iconExt);
-        await putObject(c.env.ICON_BUCKET, filename, iconResult.body);
-        iconRelPath = filename;
+        const key = iconObjectKey(filename);
+        await putObject(c.env.ICON_BUCKET, key, iconResult.body);
+        iconRelPath = key;
         iconSourceUrl = iconResult.finalUrl;
         break;
       } catch {
@@ -603,8 +621,9 @@ app.post("/api/site/ingest", async (c) => {
       const ext = payload.icon.filename?.split(".").pop()?.toLowerCase() || "ico";
       const iconExt = ALLOWED_ICON_EXT.has(`.${ext}`) ? `.${ext}` : ".ico";
       const filename = await iconUploadFilename(bytes, payload.icon.filename ?? "");
-      await putObject(c.env.ICON_BUCKET, filename, bytes);
-      iconRelPath = filename;
+      const key = iconObjectKey(filename);
+      await putObject(c.env.ICON_BUCKET, key, bytes);
+      iconRelPath = key;
       iconSourceUrl =
         payload.icon.source_url?.trim() || `browser-upload://${filename}`;
     } catch (e: any) {
@@ -827,7 +846,8 @@ app.post("/api/sites/:id/icon", async (c) => {
     return c.json({ error: "图标大小不能超过 1MB" }, 400);
 
   const filename = await iconUploadFilename(new Uint8Array(bytes), file.name);
-  await putObject(c.env.ICON_BUCKET, filename, bytes);
+  const key = iconObjectKey(filename);
+  await putObject(c.env.ICON_BUCKET, key, bytes);
 
   const now = utcNow();
   const row = await (db as any)
@@ -840,10 +860,10 @@ app.post("/api/sites/:id/icon", async (c) => {
     .prepare(
       "UPDATE sites SET icon_rel_path = ?, icon_source_url = ?, updated_at = ? WHERE id = ?"
     )
-    .bind(filename, `upload://${filename}`, now, siteId)
+    .bind(key, `upload://${filename}`, now, siteId)
     .run();
 
-  if (oldIcon && oldIcon !== filename) {
+  if (oldIcon && oldIcon !== key) {
     await deleteObject(c.env.ICON_BUCKET, oldIcon);
   }
 

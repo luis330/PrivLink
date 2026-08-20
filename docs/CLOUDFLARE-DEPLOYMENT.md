@@ -86,11 +86,13 @@ PrivLink/
 
 | 场景 | Python | TS |
 |---|---|---|
-| 服务端抓取 favicon | `ICON/9a5b632f….png` | `/ICON/9a5b632f….png`（R2 key） |
-| 浏览器上传图标 | `ICON/upload-xxx.png` | `/ICON/upload-xxx.png`（R2 key） |
+| 服务端抓取 favicon | `ICON/9a5b632f….png`（本地路径） | `ICON/9a5b632f….png`（R2 key） |
+| 浏览器上传图标 | `ICON/upload-xxx.png` | `ICON/upload-xxx.png`（R2 key） |
 | 从图标库选择 | `https://cdn.simpleicons.org/{slug}` | 同左 |
 
-前端 `toIconUrl()` 对 `http` 开头的值直接返回原值，因此三种形态都无需前端分支。
+两端取值刻意保持一致。TS 端有一条硬约束：**`icon_rel_path` 与 R2 key 必须是同一个字符串**——`/ICON/*` 路由按 `path.slice(1)` 取 key，`deleteObject()` 也直接拿 `icon_rel_path` 当 key 用。写入时若只存裸文件名，前端会拼出 `/9a5b632f….png` 而绕过 `/ICON/*` 路由，图标一律 404。背景图同理：写入 key 为 `background/<file>`，读取路由同样用 `path.slice(1)`。
+
+前端 `toIconUrl()` 对 `http(s)://` 开头的值直接返回原值（图标库 CDN 外链），其余按站内相对路径拼接。
 
 ### 3.2 TS 端不提供的能力
 

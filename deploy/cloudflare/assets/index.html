@@ -1803,6 +1803,9 @@
       function toIconUrl(iconPath) {
         const cleanPath = (iconPath || "").trim();
         if (!cleanPath) return "";
+        // 从图标库选择的图标存的是 Simple Icons CDN 外链，直接返回；
+        // 当作站内相对路径拼接会得到 "/https://..." 而 404。
+        if (/^https?:\/\//i.test(cleanPath)) return cleanPath;
         const base = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
         return base + "/" + cleanPath.replace(/^\/+/, "");
       }
