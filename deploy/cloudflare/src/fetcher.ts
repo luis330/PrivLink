@@ -43,7 +43,32 @@ export async function fetchHtml(
   referer?: string
 ): Promise<FetchHtmlResult> {
   const headers = buildHeaders("text/html,application/xhtml+xml,*/*;q=0.5", referer);
-  return fetchWithRedirects(targetUrl, headers, maxBytes, 0);
+  const raw = await fetchWithRedirects(targetUrl, headers, maxBytes, 0);
+  // fetchWithRedirects 返回二进制（图标路径需要），HTML 在此解码为文本
+  return {
+    finalUrl: raw.finalUrl,
+    body: decodeHtml(raw.body),
+    contentType: raw.contentType,
+  };
+}
+
+/**
+ * 字节流解码为 HTML 文本，与 Python 端 decode_html() 对齐：
+ * 依次尝试 utf-8 → gb18030 → latin-1，全部失败则以 utf-8 宽容模式兜底。
+ * 不依赖 Content-Type 的 charset，与 Python 端保持同一策略。
+ *
+ * fatal: true 使非法字节序列抛错，等价于 Python 的严格 decode；
+ * 若运行时不支持某个编码标签，构造 TextDecoder 时抛错，同样跳到下一个。
+ */
+export function decodeHtml(buf: ArrayBuffer): string {
+  for (const encoding of ["utf-8", "gb18030", "iso-8859-1"]) {
+    try {
+      return new TextDecoder(encoding, { fatal: true }).decode(buf);
+    } catch {
+      continue;
+    }
+  }
+  return new TextDecoder("utf-8").decode(buf);
 }
 
 // ── fetchIcon：抓取图标 ───────────────────────────────
@@ -65,12 +90,19 @@ export async function fetchIcon(
 
 // ── 带重定向跟随的通用抓取 ─────────────────────────────
 
+/** fetchWithRedirects 的原始返回：body 恒为二进制，由调用方决定是否解码 */
+interface RawFetchResult {
+  finalUrl: string;
+  body: ArrayBuffer;
+  contentType: string;
+}
+
 async function fetchWithRedirects(
   url: string,
   headers: Record<string, string>,
   maxBytes: number,
   redirectCount: number
-): Promise<any> {
+): Promise<RawFetchResult> {
   if (redirectCount > MAX_REDIRECTS) {
     throw new Error(`Too many redirects (>${MAX_REDIRECTS})`);
   }
