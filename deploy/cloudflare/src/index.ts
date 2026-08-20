@@ -21,12 +21,13 @@ import {
   getObject,
   listObjects,
   isValidBackgroundFilename,
+  objectExists,
   backgroundImageUrl,
   iconUploadFilename,
   iconFilenameFromUrl,
   contentTypeForKey,
 } from "./storage";
-import { listIcons, iconUrlForSlug } from "./simple-icons";
+import { listIcons, iconUrlForSlug, hasIconSlug } from "./simple-icons";
 import {
   fetchHtml,
   fetchIcon,
@@ -61,6 +62,7 @@ const ALLOWED_BG_EXT = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const ALLOWED_ICON_EXT = new Set([".ico", ".png", ".svg"]);
 const BACKGROUND_UPLOAD_MAX = 5 * 1024 * 1024;
 const ICON_UPLOAD_MAX = 1024 * 1024;
+const TAG_NAME_MAX_LEN = 20;
 
 // ── 类型定义 ───────────────────────────────────────────
 
@@ -148,6 +150,34 @@ export function normalizeUrl(parsed: URL): string {
  */
 function iconObjectKey(filename: string): string {
   return `ICON/${filename}`;
+}
+
+/** 折叠连续空白，对应 Python 端 normalize_tag_name() 的 " ".join(raw.split()) */
+function normalizeTagName(raw: string): string {
+  return String(raw ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * 标签列表规范化，对应 Python 端 normalize_tag_list()：
+ * 折叠空白、丢弃空值、超长报错、按小写去重且保留首次出现的写法。
+ * 缺了这一步，空字符串标签会被写进 tags 表，且长度不受限制。
+ */
+export function normalizeTagList(rawTags: string[] | null | undefined): string[] {
+  if (!rawTags?.length) return [];
+  const seen = new Map<string, string>();
+  for (const item of rawTags) {
+    const name = normalizeTagName(String(item));
+    if (!name) continue;
+    if (name.length > TAG_NAME_MAX_LEN) {
+      throw new Error(`标签长度不能超过 ${TAG_NAME_MAX_LEN} 个字符`);
+    }
+    const key = name.toLowerCase();
+    if (!seen.has(key)) seen.set(key, name);
+  }
+  return [...seen.values()];
 }
 
 function resolveIdentity(c: HonoContext): "owner" | null {
@@ -365,6 +395,10 @@ app.put("/api/appearance/background", async (c) => {
     const image = (p.image ?? "").trim();
     if (!BACKGROUND_FILENAME_RE.test(image))
       return c.json({ error: "背景图文件名不合法" }, 400);
+    // 与 Python 端 normalize_background_setting 一致：文件必须真实存在，
+    // 否则会把一个取不到的背景写进设置，前端只显示空白。
+    if (!(await objectExists(c.env.BACKGROUND_BUCKET, `background/${image}`)))
+      return c.json({ error: "背景图文件不存在" }, 400);
     await setAppSetting(db, BACKGROUND_SETTING_KEY, JSON.stringify({ type: "image", image }));
     return c.json(bgSettingResponse("image", "", image));
   }
@@ -522,6 +556,17 @@ app.post("/api/site/parse", async (c) => {
       : "failed";
   const now = utcNow();
 
+  // 旧图标必须在 upsert 之前查：之后查到的就是刚写入的新值，
+  // 判断条件 oldIcon !== iconRelPath 会恒为 false，旧图标永远残留在 R2。
+  // 对应 Python 端 upsert_site_record() 返回 INSERT 前的 old_icon_path。
+  const oldRow = await (db as any)
+    .prepare("SELECT icon_rel_path FROM sites WHERE url = ?")
+    .bind(finalUrlStr)
+    .first();
+  const oldIcon = oldRow
+    ? String((oldRow as any).icon_rel_path ?? "").trim()
+    : "";
+
   // upsert
   await (db as any)
     .prepare(`
@@ -547,14 +592,7 @@ app.post("/api/site/parse", async (c) => {
     )
     .run();
 
-  // 清理旧图标
-  const oldRow = await (db as any)
-    .prepare("SELECT icon_rel_path FROM sites WHERE url = ?")
-    .bind(finalUrlStr)
-    .first();
-  const oldIcon = oldRow
-    ? String((oldRow as any).icon_rel_path ?? "").trim()
-    : "";
+  // 清理旧图标（CDN 外链不是 R2 对象，跳过）
   if (oldIcon && oldIcon !== iconRelPath && !oldIcon.startsWith("https://")) {
     await deleteObject(c.env.ICON_BUCKET, oldIcon);
   }
@@ -636,6 +674,15 @@ app.post("/api/site/ingest", async (c) => {
     finalUrl = normalizeUrl(finalParsed);
   }
 
+  // 旧图标同样要在 upsert 之前取（见 parse 端点同处说明）
+  const existing = await (db as any)
+    .prepare("SELECT icon_rel_path, icon_source_url FROM sites WHERE url = ?")
+    .bind(finalUrlStr)
+    .first();
+  const oldIcon = existing
+    ? String((existing as any).icon_rel_path ?? "").trim()
+    : "";
+
   // 处理图标
   let iconRelPath = "", iconSourceUrl = "";
   if (payload.icon?.data_base64?.trim()) {
@@ -658,17 +705,10 @@ app.post("/api/site/ingest", async (c) => {
       iconRelPath = "";
       iconSourceUrl = "";
     }
-  } else {
-    const existing = await (db as any)
-      .prepare(
-        "SELECT icon_rel_path, icon_source_url FROM sites WHERE url = ?"
-      )
-      .bind(finalUrlStr)
-      .first();
-    if (existing) {
-      iconRelPath = String((existing as any).icon_rel_path ?? "").trim();
-      iconSourceUrl = String((existing as any).icon_source_url ?? "").trim();
-    }
+  } else if (existing) {
+    // 本次未带图标：沿用已有的
+    iconRelPath = oldIcon;
+    iconSourceUrl = String((existing as any).icon_source_url ?? "").trim();
   }
 
   const hasName = !!siteName;
@@ -695,6 +735,11 @@ app.post("/api/site/ingest", async (c) => {
     `)
     .bind(finalUrlStr, siteName, iconRelPath, iconSourceUrl, now, now, status, null)
     .run();
+
+  // 与 Python 端一致：换了新图标时清理旧的 R2 对象
+  if (iconRelPath && oldIcon && oldIcon !== iconRelPath && !oldIcon.startsWith("https://")) {
+    await deleteObject(c.env.ICON_BUCKET, oldIcon);
+  }
 
   return c.json(
     {
@@ -756,16 +801,31 @@ app.put("/api/sites/:id", async (c) => {
   } catch {
     return c.json({ error: "Invalid URL" }, 400);
   }
-  const newUrl = parsed.toString();
+  if (!isAllowedScheme(parsed))
+    return c.json({ error: "URL scheme must be http or https" }, 400);
+  // 必须与入库时同一套规范化，否则同一网址会因尾斜杠差异
+  // 撞上 sites.url 的 UNIQUE 约束或产生重复记录
+  const newUrl = normalizeUrl(parsed);
 
-  // 图标处理
+  // 图标处理：icon_file 是图标库 slug
   let newIconPath = "";
   let iconSourceUrl = "";
-  if (payload.icon_file) {
-    const slug = payload.icon_file.trim();
-    if (slug) {
-      newIconPath = iconUrlForSlug(slug);
-      iconSourceUrl = newIconPath;
+  const iconFile = (payload.icon_file ?? "").trim();
+  if (iconFile) {
+    if (iconFile.includes("/") || iconFile.includes("\\") || iconFile.includes(".."))
+      return c.json({ error: "无效的图标文件名" }, 400);
+    if (!hasIconSlug(iconFile))
+      return c.json({ error: "图标不存在" }, 400);
+    newIconPath = iconUrlForSlug(iconFile);
+    iconSourceUrl = newIconPath;
+  }
+
+  let normalizedTags: string[] | null = null;
+  if (payload.tags !== undefined) {
+    try {
+      normalizedTags = normalizeTagList(payload.tags);
+    } catch (e: any) {
+      return c.json({ error: e.message }, 400);
     }
   }
 
@@ -777,46 +837,45 @@ app.put("/api/sites/:id", async (c) => {
   if (!row) return c.json({ error: "网站不存在" }, 404);
   const oldIcon = String((row as any).icon_rel_path ?? "").trim();
 
-  await (db as any)
-    .prepare(
-      newIconPath
-        ? `UPDATE sites SET url = ?, site_name = ?, icon_rel_path = ?, icon_source_url = ?, updated_at = ? WHERE id = ?`
-        : `UPDATE sites SET url = ?, site_name = ?, updated_at = ? WHERE id = ?`
-    )
-    .bind(
-      newUrl,
-      name,
-      newIconPath,
-      newIconPath ? iconSourceUrl : null,
-      now,
-      siteId,
-      newUrl,
-      name,
-      now,
-      siteId
-    )
-    .run();
+  // 两个分支的占位符数量不同（6 / 4），必须各自绑定对应的参数；
+  // 曾经无论走哪支都绑定 10 个，D1 直接抛
+  // "Wrong number of parameter bindings"，编辑站点一律 500。
+  if (newIconPath) {
+    await (db as any)
+      .prepare(
+        `UPDATE sites SET url = ?, site_name = ?, icon_rel_path = ?, icon_source_url = ?, updated_at = ? WHERE id = ?`
+      )
+      .bind(newUrl, name, newIconPath, iconSourceUrl, now, siteId)
+      .run();
+  } else {
+    await (db as any)
+      .prepare(
+        `UPDATE sites SET url = ?, site_name = ?, updated_at = ? WHERE id = ?`
+      )
+      .bind(newUrl, name, now, siteId)
+      .run();
+  }
 
   // 标签
-  if (payload.tags !== undefined) {
+  if (normalizedTags !== null) {
     await (db as any)
       .prepare("DELETE FROM site_tags WHERE site_id = ?")
       .bind(siteId)
       .run();
-    if (payload.tags?.length) {
-      for (const tag of payload.tags) {
+    if (normalizedTags.length) {
+      for (const tag of normalizedTags) {
         await (db as any)
           .prepare(
             "INSERT OR IGNORE INTO tags (name, created_at) VALUES (?, ?)"
           )
-          .bind(tag.trim(), now)
+          .bind(tag, now)
           .run();
       }
       const tagRows = await (db as any)
         .prepare(
-          `SELECT id FROM tags WHERE name IN (${payload.tags.map(() => "?").join(",")}) COLLATE NOCASE`
+          `SELECT id FROM tags WHERE name IN (${normalizedTags.map(() => "?").join(",")}) COLLATE NOCASE`
         )
-        .bind(...payload.tags.map((t) => t.trim()))
+        .bind(...normalizedTags)
         .all();
       const tagIds = ((tagRows.results ?? []) as any[]).map(
         (r: any) => r.id

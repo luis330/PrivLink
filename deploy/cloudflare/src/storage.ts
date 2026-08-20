@@ -58,6 +58,16 @@ export async function deleteObject(bucket: unknown, key: string): Promise<void> 
   await (bucket as any).delete(key);
 }
 
+/**
+ * 对象是否存在。用 head() 只取元数据，不下载对象体。
+ * 对应 Python 端 normalize_background_setting() 里的
+ * `(BACKGROUND_DIR / image).is_file()` 检查。
+ */
+export async function objectExists(bucket: unknown, key: string): Promise<boolean> {
+  const head = await (bucket as any).head(key);
+  return head !== null && head !== undefined;
+}
+
 export async function listObjects(
   bucket: unknown,
   prefix?: string
