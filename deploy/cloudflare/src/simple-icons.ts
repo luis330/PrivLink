@@ -43,3 +43,16 @@ export function listIcons(query: string = ""): SimpleIconItem[] {
 export function iconUrlForSlug(slug: string): string {
   return `https://cdn.simpleicons.org/${slug}`;
 }
+
+/**
+ * slug 是否存在于图标库。
+ * 对应 Python 端 `PUT /api/sites/{id}` 里对 `_icons_cache` 的存在性校验，
+ * 避免把任意字符串拼成 CDN URL 存进 icon_rel_path。
+ */
+export function hasIconSlug(slug: string): boolean {
+  const s = slug.trim().toLowerCase();
+  if (!s) return false;
+  return (SIMPLE_ICONS_DATA as SimpleIconEntry[]).some(
+    (e) => e.slug.toLowerCase() === s
+  );
+}
