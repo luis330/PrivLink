@@ -899,8 +899,16 @@ app.put("/api/sites/:id", async (c) => {
       .run();
   }
 
-  // 清理旧图标
-  if (oldIcon && oldIcon !== newIconPath && !oldIcon.startsWith("https://")) {
+  // 仅在确实换了新图标时才清理旧对象。
+  // 未选新图标时上面的 UPDATE 不会写 icon_rel_path，DB 仍指向旧对象，
+  // 此时删除会让站点图标变成 404 破图。
+  // 对应 Python 端 `if new_icon_rel_path: maybe_remove_old_icon(...)`。
+  if (
+    newIconPath &&
+    oldIcon &&
+    oldIcon !== newIconPath &&
+    !oldIcon.startsWith("https://")
+  ) {
     await deleteObject(c.env.ICON_BUCKET, oldIcon);
   }
 

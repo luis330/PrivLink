@@ -158,3 +158,65 @@ describe("normalizeTagList — 与 Python normalize_tag_list 对齐", () => {
     expect(() => normalizeTagList(["x".repeat(21)])).toThrow(/20/);
   });
 });
+
+describe("PUT /api/sites/:id — 旧图标清理时机", () => {
+  /** 记录 delete 调用的 R2 stub */
+  function trackingBucket(deleted: string[]) {
+    return {
+      put: async () => undefined,
+      get: async () => null,
+      head: async () => ({ size: 1 }),
+      delete: async (k: string) => {
+        deleted.push(k);
+      },
+    };
+  }
+
+  const rowWithIcon = { ...siteRow, icon_rel_path: "ICON/abc123.svg" };
+
+  // 回归：未选新图标时 UPDATE 不写 icon_rel_path，DB 仍指向旧对象，
+  // 若此时删除 R2 对象，站点图标会变成 404 破图。
+  it("未选新图标时不得删除现有图标", async () => {
+    const deleted: string[] = [];
+    const res = await app.request(
+      "/api/sites/1",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site_name: "改个名", url: "https://example.com" }),
+      },
+      {
+        DB: strictDb(rowWithIcon),
+        ICON_BUCKET: trackingBucket(deleted),
+        NAV_TOKEN: "",
+        NAV_MODE: "single",
+      } as never
+    );
+    expect(res.status).toBe(200);
+    expect(deleted).toEqual([]);
+  });
+
+  it("选了新图标时才清理旧对象", async () => {
+    const deleted: string[] = [];
+    const res = await app.request(
+      "/api/sites/1",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site_name: "改个名",
+          url: "https://example.com",
+          icon_file: "github",
+        }),
+      },
+      {
+        DB: strictDb(rowWithIcon),
+        ICON_BUCKET: trackingBucket(deleted),
+        NAV_TOKEN: "",
+        NAV_MODE: "single",
+      } as never
+    );
+    expect(res.status).toBe(200);
+    expect(deleted).toEqual(["ICON/abc123.svg"]);
+  });
+});
