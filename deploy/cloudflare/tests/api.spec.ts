@@ -108,8 +108,16 @@ describe("PrivLink Cloudflare - API 结构测试", () => {
     const bucket = {
       get: async (k: string) => {
         requestedKey = k;
-        // R2 对象契约：getObject 会调用 arrayBuffer() 与 size
-        return { arrayBuffer: async () => new ArrayBuffer(0), size: 0 };
+        // R2 对象契约：getObject 读取 body(ReadableStream) / size / httpEtag
+        return {
+          body: new ReadableStream({
+            start(ctrl) {
+              ctrl.close();
+            },
+          }),
+          size: 0,
+          httpEtag: '"stub-etag"',
+        };
       },
     };
     const res = await app.request("/ICON/abc123.svg", undefined, {
@@ -129,8 +137,16 @@ describe("PrivLink Cloudflare - API 结构测试", () => {
     const bucket = {
       get: async (k: string) => {
         requestedKey = k;
-        // R2 对象契约：getObject 会调用 arrayBuffer() 与 size
-        return { arrayBuffer: async () => new ArrayBuffer(0), size: 0 };
+        // R2 对象契约：getObject 读取 body(ReadableStream) / size / httpEtag
+        return {
+          body: new ReadableStream({
+            start(ctrl) {
+              ctrl.close();
+            },
+          }),
+          size: 0,
+          httpEtag: '"stub-etag"',
+        };
       },
     };
     const res = await app.request("/background/bg.png", undefined, {

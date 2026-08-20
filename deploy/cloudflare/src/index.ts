@@ -258,19 +258,34 @@ app.use("/api/*", async (c, next) => {
 
 // ── R2 静态代理 ────────────────────────────────────────
 
+/**
+ * R2 对象回源：流式返回 + 条件请求。
+ *
+ * 把 R2 的 ReadableStream 直接交给 Response，浏览器可以边收边解码；
+ * 若先读成 ArrayBuffer，1MB 的背景图会把 TTFB 拖到秒级。
+ * 同时透传 ETag 并让 R2 处理 If-None-Match，重复访问命中 304。
+ */
+async function serveR2Object(
+  c: HonoContext,
+  bucket: unknown,
+  key: string
+): Promise<Response> {
+  const obj = await getObject(bucket, key, c.req.raw.headers);
+  if (!obj) return c.notFound();
+  const headers: Record<string, string> = {
+    // 缺少 Content-Type 时浏览器不会在 <img> 中渲染该资源
+    "Content-Type": contentTypeForKey(key),
+    "Cache-Control": "public, max-age=86400",
+  };
+  if (obj.etag) headers["ETag"] = obj.etag;
+  // 条件请求命中：R2 返回的对象没有 body
+  if (!obj.body) return new Response(null, { status: 304, headers });
+  return new Response(obj.body as ReadableStream, { status: 200, headers });
+}
+
 app.get("/ICON/*", async (c) => {
   // path 形如 "/ICON/<hash>.<ext>"，去掉前导斜杠即为 R2 key（与 icon_rel_path 同值）
-  const key = c.req.path.slice(1);
-  const obj = await getObject(c.env.ICON_BUCKET, key);
-  if (!obj) return c.notFound();
-  return new Response(obj.body, {
-    status: 200,
-    headers: {
-      // 缺少 Content-Type 时浏览器不会在 <img> 中渲染该资源
-      "Content-Type": contentTypeForKey(key),
-      "Cache-Control": "public, max-age=86400",
-    },
-  });
+  return serveR2Object(c, c.env.ICON_BUCKET, c.req.path.slice(1));
 });
 
 app.get("/background/*", async (c) => {
@@ -278,16 +293,7 @@ app.get("/background/*", async (c) => {
   // 与上传端点的 putObject(..., `background/${filename}`) 对应。
   // 曾误用 slice(11)，得到 "/bg-xxx.png"（多一个前导斜杠、少了前缀），
   // 与写入 key 完全对不上，背景图上传后一律取不到。
-  const key = c.req.path.slice(1);
-  const obj = await getObject(c.env.BACKGROUND_BUCKET, key);
-  if (!obj) return c.notFound();
-  return new Response(obj.body, {
-    status: 200,
-    headers: {
-      "Content-Type": contentTypeForKey(key),
-      "Cache-Control": "public, max-age=86400",
-    },
-  });
+  return serveR2Object(c, c.env.BACKGROUND_BUCKET, c.req.path.slice(1));
 });
 
 // ── /api/auth/status ───────────────────────────────────

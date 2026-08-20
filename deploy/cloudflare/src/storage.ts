@@ -45,13 +45,31 @@ export async function putObject(
   });
 }
 
+/**
+ * 取对象用于回源响应。
+ *
+ * 返回 R2 的 ReadableStream 而非 ArrayBuffer：后者要把整个对象读进
+ * Worker 内存才能开始响应，1MB 的背景图会让 TTFB 涨到秒级，且占用
+ * 128MB 的实例内存。流式则边收边发。
+ *
+ * onlyIf 传入请求头即可让 R2 处理条件请求（If-None-Match 等）；
+ * 条件不满足时返回的对象没有 body，调用方据此回 304。
+ */
 export async function getObject(
   bucket: unknown,
-  key: string
-): Promise<{ body: ArrayBuffer; size: number } | null> {
-  const obj = await (bucket as any).get(key);
+  key: string,
+  onlyIf?: unknown
+): Promise<{ body: unknown; size: number; etag: string } | null> {
+  const obj = await (bucket as any).get(
+    key,
+    onlyIf ? { onlyIf } : undefined
+  );
   if (!obj) return null;
-  return { body: await obj.arrayBuffer(), size: obj.size };
+  return {
+    body: obj.body ?? null,
+    size: obj.size ?? 0,
+    etag: obj.httpEtag ?? "",
+  };
 }
 
 export async function deleteObject(bucket: unknown, key: string): Promise<void> {
