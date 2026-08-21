@@ -648,6 +648,9 @@
         flex: 0 0 auto;
         display: flex;
         align-items: center;
+        /* Cloudflare 部署下显示的是访客 IP，可能是 IPv6（最长 39 字符），
+           不换行会把同排的 Token / 背景按钮挤出面板 */
+        flex-wrap: wrap;
         gap: 12px;
       }
 
@@ -2053,28 +2056,48 @@
       }
 
       /* ===== 公网IP ===== */
+      // 两端语义不同：Python 端返回服务端出口 IP（需 token），Cloudflare 端返回
+      // 访客自己的 IP（公开，取自 CF-Connecting-IP）。由响应体的 kind 字段区分，
+      // 前端不硬编码"自己跑在哪个后端"。
+      function setPublicIpKind(kind) {
+        // 空 kind（失败 / 需 Token）回到 HTML 里的初始提示，避免上次成功的语义残留
+        const hint =
+          kind === "client"
+            ? "本机公网 IP（点击刷新）"
+            : kind === "server"
+              ? "服务端公网 IP（点击刷新）"
+              : "刷新公网 IP";
+        publicIpRefreshBtn.title = hint;
+        publicIpRefreshBtn.setAttribute("aria-label", hint);
+      }
+
       async function loadPublicIp() {
         if (publicIpLoading) return;
         publicIpValueEl.textContent = "获取中…";
         setPublicIpLoading(true);
         try {
-          await authStatusReady; // 首次加载与点击刷新都基于已落定的探测结果
-          if (serverTokenRequired && !authToken) {
+          // 不走 apiFetch：它在 401 时会弹 token 框（openTokenModal），而本端点在
+          // Python 端的门禁模式下对访客就是 401——访客只是路过首页，不该被弹窗打断。
+          // 与 loadAuthStatus() 同款裸 fetch。
+          const response = await fetch(getPublicIpApiUrl(), {
+            method: "GET",
+            cache: "no-store",
+            headers: authHeaders({ Accept: "application/json" }),
+          });
+          if (response.status === 401) {
+            setPublicIpKind("");
             publicIpValueEl.textContent = "需 Token";
             return;
           }
-          const response = await apiFetch(getPublicIpApiUrl(), {
-            method: "GET",
-            cache: "no-store",
-            headers: { Accept: "application/json" },
-          });
           const data = await response.json().catch(() => ({}));
           const publicIp = typeof data.ip === "string" ? data.ip.trim() : "";
           if (!response.ok || !publicIp) {
             throw new Error(data.error || "无法获取公网 IP");
           }
+          setPublicIpKind(typeof data.kind === "string" ? data.kind : "server");
           publicIpValueEl.textContent = publicIp;
         } catch (_) {
+          setPublicIpKind("");
           publicIpValueEl.textContent = "获取失败";
         } finally {
           setPublicIpLoading(false);

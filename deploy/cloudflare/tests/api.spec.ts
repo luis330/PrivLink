@@ -76,6 +76,38 @@ describe("PrivLink Cloudflare - API 结构测试", () => {
     expect(typeof body.authorized).toBe("boolean");
   });
 
+  it("GET /api/network/public-ip 返回访客 IP 与 kind=client", async () => {
+    // Workers 出口是 CF 任播边缘节点，探测服务端出口 IP（Python 端语义）无意义，
+    // 这里返回的是访客自己的 IP。CF-Connecting-IP 由边缘注入。
+    const res = await app.request(
+      "/api/network/public-ip",
+      { headers: { "CF-Connecting-IP": "203.0.113.7" } },
+      env
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(await res.json()).toEqual({ ip: "203.0.113.7", kind: "client" });
+  });
+
+  it("GET /api/network/public-ip 缺 CF-Connecting-IP 时 502", async () => {
+    const res = await app.request("/api/network/public-ip", undefined, env);
+    expect(res.status).toBe(502);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("GET /api/network/public-ip 在门禁模式下仍对访客公开", async () => {
+    // 与 Python 端刻意不同：那侧返回服务端出口 IP（源站敏感信息）故需 token，
+    // 见 tests/test_ingest.py::TokenGuardTest。check-api-alignment.py 只比对
+    // 路由存在性，这条鉴权差异只有本用例能拦住。
+    const gatedEnv = { DB: stubDb, NAV_TOKEN: "secret-token", NAV_MODE: "single" } as never;
+    const res = await app.request(
+      "/api/network/public-ip",
+      { headers: { "CF-Connecting-IP": "203.0.113.7" } },
+      gatedEnv
+    );
+    expect(res.status).toBe(200);
+  });
+
   it("GET /api/sites 返回数组", async () => {
     const res = await app.request("/api/sites", undefined, env);
     expect(res.status).toBe(200);

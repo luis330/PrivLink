@@ -129,7 +129,7 @@ class PublicIpApiTest(unittest.TestCase):
             response = self.client.get("/api/network/public-ip")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"ip": "8.8.8.8"})
+        self.assertEqual(response.json(), {"ip": "8.8.8.8", "kind": "server"})
         self.assertEqual(response.headers["Cache-Control"], "no-store")
 
     def test_returns_bad_gateway_when_all_providers_fail(self) -> None:
@@ -176,6 +176,35 @@ class PublicIpHomepageTest(unittest.TestCase):
         )
         self.assertIn('publicIpValueEl.textContent = "获取失败";', html)
         self.assertIn("loadPublicIp();", html)
+
+    def test_public_ip_request_bypasses_apifetch_and_handles_401_inline(self) -> None:
+        # 该端点在 Python 端属门禁范围，访客拿到 401。若走 apiFetch，401 会触发
+        # openTokenModal——访客只是路过首页就被弹窗打断。必须用裸 fetch 并就地降级。
+        response = self.client.get("/")
+        html = response.text
+
+        start = html.index("async function loadPublicIp()")
+        end = html.index("/* ===== 结果渲染 ===== */", start)
+        body = html[start:end]
+
+        self.assertNotIn("apiFetch(", body)
+        self.assertIn("await fetch(getPublicIpApiUrl()", body)
+        self.assertIn("headers: authHeaders({ Accept: \"application/json\" }),", body)
+        self.assertIn("if (response.status === 401) {", body)
+        self.assertIn('publicIpValueEl.textContent = "需 Token";', body)
+
+    def test_public_ip_label_follows_response_kind(self) -> None:
+        # 两端语义不同（server=服务端出口 IP / client=访客自己的 IP），
+        # 前端据响应体的 kind 给出提示，缺字段时按 server 兜底。
+        response = self.client.get("/")
+        html = response.text
+
+        self.assertIn(
+            'setPublicIpKind(typeof data.kind === "string" ? data.kind : "server");',
+            html,
+        )
+        self.assertIn("本机公网 IP（点击刷新）", html)
+        self.assertIn("服务端公网 IP（点击刷新）", html)
 
     def test_homepage_declares_auth_status_endpoint(self) -> None:
         # 前端须接入门禁状态探测接口（访客静默浏览 + 管理动作前置 token 检查的基础）

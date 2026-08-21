@@ -105,9 +105,12 @@ PrivLink/
 | HTTP / SOCKS5 代理抓取 | Workers 运行在边缘网络，无法配置上游代理 |
 | SSRF 防护（内网网段白名单、`getaddrinfo` 钩子） | Workers 的 `fetch()` 无法访问内网，风险面由平台隔离 |
 | `NAV_HOST_ALIASES` | 仅内网直连场景需要 |
-| `GET /api/network/public-ip` | Workers 出口 IP 由 Cloudflare 管理，探测无意义，端点已从 TS 端移除（Python 端保留）。`check-api-alignment.py` 中以 `EXEMPT` 豁免 |
 
 > 抓不到的站点（需验证码、需登录态）两端都用浏览器采集器兜底，行为一致。
+
+**`GET /api/network/public-ip` 是同名端点、不同语义**，不属于上表。Python 端答的是"服务端出口公网 IPv4"（`DirectPublicIPv4Resolver` 直连查询源、强制忽略代理）；Workers 的出口是 Cloudflare 任播边缘节点，这个问题在 TS 端无解也无意义，故改答另一个问题——**访问者自己的公网 IP**（取自边缘注入的 `CF-Connecting-IP`）。响应体的 `kind` 字段标明是哪一种（`server` / `client`），前端据此给出提示文案，不需要硬编码"自己跑在哪个后端"。
+
+本地部署时这两个答案通常还是同一个值（浏览器与服务器共用同一条宽带出口）。TS 端不做 IPv4 断言——访客可能走 IPv6，原样返回。
 
 ### 3.3 静态路由
 
@@ -126,7 +129,16 @@ TS 端两个 R2 路由共用 `serveR2Object()`，行为要点：
 
 ### 3.4 鉴权
 
-两端一致：`NAV_TOKEN` 为空即开放模式，非空则除 `/api/sites`、`/api/tags`、`/api/auth/status`、`/api/appearance/background` 外的 `/api/*` 均需 `X-Nav-Token`。TS 端从 Workers secret 读取该值。
+两端一致：`NAV_TOKEN` 为空即开放模式，非空则除公开只读清单外的 `/api/*` 均需 `X-Nav-Token`。TS 端从 Workers secret 读取该值。
+
+公开只读清单两端**有一处刻意差异**：
+
+| 端 | 清单 |
+|---|---|
+| Python | `/api/sites`、`/api/tags`、`/api/auth/status`、`/api/appearance/background` |
+| TS | 同上 **+ `/api/network/public-ip`** |
+
+理由见 3.2：Python 端该端点返回的是服务端出口 IP，反代 / 隧道部署下属于源站敏感信息，必须留在门禁内；TS 端返回的是访客自己的 IP，对他本人不构成泄露。`check-api-alignment.py` 只比对路由存在性、查不出鉴权差异，因此两侧各有一条测试钉死它——`tests/test_ingest.py::TokenGuardTest` 与 `deploy/cloudflare/tests/api.spec.ts`。
 
 ### 3.5 已知残留差异
 
@@ -136,7 +148,7 @@ TS 端两个 R2 路由共用 `serveR2Object()`，行为要点：
 | `POST /api/site/ingest` 的 `error` 字段 | 非 `success` 时填字符串 `"partial"`，语义与 Python 端不完全一致。修改会影响采集器的判断逻辑，暂未调整 |
 | `initStorage()` 执行时机 | Python 只在启动时建表一次；Workers 无常驻状态，当前每个请求都执行一遍 5 条 `CREATE TABLE IF NOT EXISTS`。功能正确，但每请求多 5 次 D1 往返 |
 
-> 除上述三项外，两端行为以 `scripts/check-api-alignment.py` 与双端测试为准。凡是 Python 端由标准库隐式完成的事（`urlsplit` 的 scheme、`httpx` 的字节解码、`Path` 的目录拼接、`StaticFiles` 的 MIME 头），在 Workers 侧都必须显式实现——历史缺陷绝大多数出自这一类遗漏。
+> 除上述三项外，两端行为以 `scripts/check-api-alignment.py` 与双端测试为准——但要注意该脚本**只比对路由存在性**，语义与鉴权上的刻意差异（`/api/network/public-ip`，见 3.2 与 3.4）它查不出来，那部分只能靠双端测试与本文档。凡是 Python 端由标准库隐式完成的事（`urlsplit` 的 scheme、`httpx` 的字节解码、`Path` 的目录拼接、`StaticFiles` 的 MIME 头），在 Workers 侧都必须显式实现——历史缺陷绝大多数出自这一类遗漏。
 
 ---
 

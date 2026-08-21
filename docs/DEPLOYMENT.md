@@ -230,7 +230,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 | GET | `/api/sites` | 公开 | 站点列表；匿名只返回公开站点 |
 | GET | `/api/tags` | 公开 | 标签列表；匿名不含私有站点独占标签 |
 | GET | `/api/appearance/background` | 公开 | 当前背景设置 `{type, color, image, image_url}`；匿名访客可见 |
-| GET | `/api/network/public-ip` | 需 token | 服务端直连公网 IPv4 |
+| GET | `/api/network/public-ip` | 需 token | 服务端直连公网 IPv4（`{ip, kind:"server"}`；Cloudflare 端语义不同且对访客公开） |
 | POST | `/api/site/parse` | 需 token | URL 解析入库 |
 | POST | `/api/site/ingest` | 需 token | 浏览器采集上报 |
 | GET | `/api/icons` | 需 token | 内置图标库列表（Simple Icons，返回 `{name, slug, url}`） |
@@ -253,9 +253,14 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 
 ```json
 {
-  "ip": "203.0.113.10"
+  "ip": "203.0.113.10",
+  "kind": "server"
 }
 ```
+
+`kind` 标明返回的是谁的 IP，本端恒为 `server`（服务端出口）。Cloudflare 部署下同名端点
+返回 `client`（访问者自己的 IP）——Workers 的出口是 CF 任播边缘节点，探测出口 IP 无意义。
+前端据该字段给出提示文案，详见 [CLOUDFLARE-DEPLOYMENT.md](CLOUDFLARE-DEPLOYMENT.md) 的 3.2。
 
 所有直连查询源均不可用时返回 `502`：
 

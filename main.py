@@ -1260,6 +1260,9 @@ class SiteUpdateRequest(BaseModel):
 
 class PublicIPv4Response(BaseModel):
     ip: str
+    # 语义标记：Python 端恒为 server（服务端出口 IP）。TS 端同名端点返回 client
+    # （访问者自己的 IP）——Workers 出口是 CF 任播边缘节点，探测出口 IP 无意义。
+    kind: str = "server"
 
 
 class MessageResponse(BaseModel):
@@ -1626,7 +1629,7 @@ def read_public_ipv4() -> JSONResponse:
         )
     return JSONResponse(
         status_code=200,
-        content={"ip": public_ip},
+        content={"ip": public_ip, "kind": "server"},
         headers={"Cache-Control": "no-store"},
     )
 
