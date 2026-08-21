@@ -42,6 +42,7 @@ import type {
   BrowserIngestRequest,
   ParseRequest,
   ParseResponse,
+  PublicIpResponse,
   ReorderRequest,
   SiteItem,
   SiteUpdateRequest,
@@ -55,6 +56,9 @@ const PUBLIC_READONLY_API_PATHS = new Set([
   "/api/tags",
   "/api/auth/status",
   "/api/appearance/background",
+  // 与 Python 端刻意不同：Python 端返回服务端出口 IP（对匿名访客敏感，需 token），
+  // TS 端返回的是访客自己的 IP，对他本人不构成泄露，故放开。
+  "/api/network/public-ip",
 ]);
 const BACKGROUND_SETTING_KEY = "background";
 const BACKGROUND_FILENAME_RE = /^bg-[0-9a-f]{24}\.(?:jpg|jpeg|png|webp)$/;
@@ -304,6 +308,27 @@ app.get("/api/auth/status", (c) => {
     token_required: t.length > 0,
     authorized: t.length === 0 || resolveIdentity(c) !== null,
   };
+  return new Response(JSON.stringify(resp), {
+    status: 200,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+});
+
+// ── /api/network/public-ip ─────────────────────────────
+
+app.get("/api/network/public-ip", (c) => {
+  // Workers 出口是 Cloudflare 的任播边缘节点，探测"服务端出口 IP"（Python 端的语义）
+  // 在这里无解也无意义，故改答另一个问题：访问者自己的公网 IP。
+  // CF-Connecting-IP 由边缘注入，客户端伪造的同名请求头会被覆盖。
+  // 访客可能走 IPv6，原样返回，不做 IPv4 断言。
+  const ip = (c.req.header("CF-Connecting-IP") ?? "").trim();
+  if (!ip) {
+    return new Response(JSON.stringify({ error: "无法获取访问者公网 IP" }), {
+      status: 502,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+  }
+  const resp: PublicIpResponse = { ip, kind: "client" };
   return new Response(JSON.stringify(resp), {
     status: 200,
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },

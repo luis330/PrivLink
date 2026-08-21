@@ -108,6 +108,12 @@ export interface MessageResponse {
   message: string;
 }
 
-export interface PublicIPv4Response {
+export interface PublicIpResponse {
   ip: string;
+  /**
+   * 返回的是谁的 IP：server=服务端出口 IP（Python 端）；
+   * client=访问者自己的 IP（TS 端，取自 CF-Connecting-IP）。
+   * 不叫 PublicIPv4Response 是因为访客可能走 IPv6，TS 端原样返回。
+   */
+  kind: "server" | "client";
 }

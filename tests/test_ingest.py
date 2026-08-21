@@ -82,6 +82,13 @@ class TokenGuardTest(IsolatedAppTestCase):
         )
         self.assertEqual(response.status_code, 401)
 
+        # 公网 IP 端点必须留在门禁内：它返回的是服务端出口 IP，反代 / 隧道部署下
+        # 属于源站敏感信息。TS 端同名端点返回的是访客自己的 IP，对本人不构成泄露，
+        # 故刻意放进公开只读清单——那侧由 deploy/cloudflare/tests/api.spec.ts 钉死。
+        # check-api-alignment.py 只比对路由存在性，查不出这类鉴权差异。
+        response = self.client.get("/api/network/public-ip")
+        self.assertEqual(response.status_code, 401)
+
         response = self.client.get("/api/icons", headers={"X-Nav-Token": "secret-token"})
         self.assertEqual(response.status_code, 200)
 

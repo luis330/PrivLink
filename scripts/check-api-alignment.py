@@ -22,12 +22,14 @@ MAIN_PY = ROOT / "main.py"
 TS_INDEX = ROOT / "deploy/cloudflare" / "src" / "index.ts"
 
 # 两端刻意不一致的端点（方法, 路径）。
-# 1) /api/network/public-ip：仅在 Python 端保留——Cloudflare 边缘无法探测
-#    "服务端直连公网 IP"（出口被 CF 管理，探测总是失败），前端已对失败降级。
-# 2) / 与 /index.html：Python 显式路由返回 HTML；TS 端由 Workers Assets
-#    自动服务 index.html，无需显式路由。
+# / 与 /index.html：Python 显式路由返回 HTML；TS 端由 Workers Assets
+# 自动服务 index.html，无需显式路由。
+#
+# 注意 /api/network/public-ip 两端都有、但语义与鉴权刻意不同（本脚本只比对路由
+# 存在性，查不出这类差异）：Python 端返回服务端出口 IP、需 token；TS 端返回访客
+# 自己的 IP（CF-Connecting-IP）、在公开只读清单中。这条差异由两端测试钉死——
+# 见 tests/test_ingest.py::TokenGuardTest 与 deploy/cloudflare/tests/api.spec.ts。
 EXEMPT = {
-    ("GET", "/api/network/public-ip"),
     ("GET", "/"),
     ("GET", "/index.html"),
 }
@@ -135,7 +137,7 @@ def main() -> int:
         print("✅ 端点对齐：Python 与 TypeScript 路由一致")
     if EXEMPT:
         exempt_desc = ", ".join(f"{m} {p}" for m, p in sorted(EXEMPT))
-        print(f"ℹ️  豁免 {len(EXEMPT)} 个端点（Python 仅限本地部署）：{exempt_desc}")
+        print(f"ℹ️  豁免 {len(EXEMPT)} 个端点（TS 端由 Workers Assets 直接服务）：{exempt_desc}")
     return 0 if ok else 1
 
 
