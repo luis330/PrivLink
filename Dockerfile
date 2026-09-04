@@ -11,7 +11,9 @@ ENV UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev
 
-COPY main.py index.html favicon.svg favicon.ico simple-icons.json ./
+COPY main.py index.html simple-icons.json manifest.json ./
+COPY favicon.ico favicon-16x16.png favicon-32x32.png ./
+COPY apple-touch-icon.png android-chrome-192x192.png android-chrome-512x512.png ./
 RUN mkdir -p /app/data /app/ICON /app/background
 
 EXPOSE 8000

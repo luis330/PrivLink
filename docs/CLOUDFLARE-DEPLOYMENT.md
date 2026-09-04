@@ -22,13 +22,14 @@ Python/FastAPI 是主要实现（Docker / 源码部署），TypeScript/Hono + D1
 PrivLink/
 ├── main.py                          # FastAPI 实现（SQLite + 本地文件系统）
 ├── index.html                       # 前端单文件（两端共用）
-├── favicon.svg / favicon.ico        # 站点默认图标（两端共用；svg 为矢量源，ico 为位图兜底）
+├── favicon.ico / *.png              # 站点品牌图标（两端共用，见 4.2）
+├── manifest.json                    # PWA manifest（两端共用）
 ├── simple-icons.json                # 图标库数据（两端共用数据源）
 ├── tests/                           # pytest
 ├── docker-compose.yml / Dockerfile  # 容器部署
 ├── collectors/ / browser-extension/ # 浏览器采集器
 ├── scripts/
-│   ├── sync-frontend.py             # index.html + favicon.* + simple-icons.json → assets/
+│   ├── sync-frontend.py             # index.html + 图标 + manifest + simple-icons.json → assets/
 │   ├── build-favicon.py             # 一组 PNG → 多尺寸 favicon.ico（纯标准库）
 │   ├── fetch-simple-icons.py        # 从 unpkg 拉取图标库数据
 │   └── check-api-alignment.py       # 双端端点对齐检查
@@ -119,7 +120,7 @@ PrivLink/
 | 路径 | Python | TS |
 |---|---|---|
 | `/`、`/index.html` | FastAPI 动态返回（ETag/304 + gzip） | Workers Assets 托管 |
-| `/favicon.svg`、`/favicon.ico` | FastAPI 动态返回（ETag/304 + 一天缓存） | Workers Assets 托管 |
+| `/favicon.ico`、`/*.png`、`/manifest.json` | FastAPI 逐条显式路由（ETag/304 + 一天缓存） | Workers Assets 托管 |
 | `/ICON/*` | 本地目录（StaticFiles） | R2 流式回源 |
 | `/background/*` | 本地目录（StaticFiles） | R2 流式回源 |
 
@@ -167,26 +168,32 @@ python3 scripts/check-api-alignment.py
 
 ### 4.2 前端同步
 
-根目录 `index.html`、`favicon.svg`、`favicon.ico` 与 `simple-icons.json` 是唯一来源，通过脚本同步到 Workers Assets：
+根目录 `index.html`、品牌图标、`manifest.json` 与 `simple-icons.json` 是唯一来源，通过脚本同步到 Workers Assets：
 
 ```bash
 python3 scripts/sync-frontend.py            # 同步
 python3 scripts/sync-frontend.py --check    # 仅校验是否漂移
 ```
 
-改动图标时两个文件都要换：`favicon.svg` 是矢量源，`favicon.ico` 是位图兜底，供不解析
-`<link rel="icon">` 或不支持 SVG 图标的浏览器与爬虫使用。
+图标为一整套位图，全部放在仓库根目录（生成器约定的路径，不能挪到子目录）：
+
+| 文件 | 用途 |
+|---|---|
+| `favicon.ico` | 多尺寸 ICO（16/32）。覆盖 `/favicon.ico` 隐式请求——浏览器与爬虫不解析 `<link rel="icon">` 就直接拉这个路径 |
+| `favicon-16x16.png`、`favicon-32x32.png` | `<link rel="icon">` 显式声明，现代浏览器优先使用 |
+| `apple-touch-icon.png` | iOS 主屏图标。同样存在隐式请求，Safari 未见声明时直接拉根路径 |
+| `android-chrome-192x192.png`、`android-chrome-512x512.png` | `manifest.json` 引用，PWA 安装与 Android 主屏 |
 
 注意在线 favicon 生成器导出的 `favicon.ico` 常常是裸 PNG 改了扩展名，直接用会与
-`Content-Type: image/x-icon` 名实不符。先确认格式，必要时重新打包成真正的 ICO 容器：
+`Content-Type: image/x-icon` 名实不符。换图标时先确认格式，必要时重新打包成真正的 ICO 容器：
 
 ```bash
 python scripts/build-favicon.py --inspect favicon.ico          # 看清楚是 ICO 还是裸 PNG
-python scripts/build-favicon.py <16x16.png> <32x32.png>        # 打包成 favicon.ico
+python scripts/build-favicon.py favicon-16x16.png favicon-32x32.png   # 打包成 favicon.ico
 python scripts/sync-frontend.py                                # 再同步到 assets/
 ```
 
-`tests/test_favicon.py` 会校验产物确实是 ICO 容器，格式退化会被测试挡住。
+`tests/test_favicon.py` 会校验 ICO 容器格式、各 PNG 的实际像素尺寸与 manifest 图标可达性，格式退化会被测试挡住。
 
 `package.json` 的 `deploy` 与 `icons:fetch` 均已挂载该脚本，CI 部署前也会执行，避免两处漂移。
 
@@ -247,7 +254,7 @@ npx wrangler d1 execute privlink --remote --file=migrations/001_init.sql
 
 触发方式：
 
-- **自动**：push 到 `main` 且改动涉及 `deploy/cloudflare/`、根 `index.html`、`favicon.svg`、`favicon.ico`、`simple-icons.json` 或 workflow 文件。
+- **自动**：push 到 `main` 且改动涉及 `deploy/cloudflare/`、根 `index.html`、`favicon.ico`、任意根目录 `*.png`、`manifest.json`、`simple-icons.json` 或 workflow 文件。
 - **手动**：Actions → Deploy to Cloudflare Workers → Run workflow，可在输入框临时填写 `NAV_TOKEN` 覆盖仓库 Secret。
 
 Workflow 实际执行：

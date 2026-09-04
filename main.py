@@ -57,8 +57,8 @@ DB_PATH = Path("data") / "sites.db"
 ICON_DIR = Path("ICON")
 BACKGROUND_DIR = Path("background")
 FRONTEND_PATH = Path("index.html")
-FAVICON_SVG_PATH = Path("favicon.svg")
-FAVICON_ICO_PATH = Path("favicon.ico")
+# 根路径品牌资源（图标 + PWA manifest）所在目录，与 index.html 同级
+ROOT_ASSET_DIR = Path(".")
 ICON_MAX_BYTES = 2 * 1024 * 1024
 ICON_UPLOAD_MAX_BYTES = 1024 * 1024
 BACKGROUND_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
@@ -1618,32 +1618,55 @@ async def index_page_alias(request: Request):
     return await index_page(request)
 
 
-@app.get("/favicon.svg", include_in_schema=False, response_model=None)
-async def favicon_svg(request: Request):
-    """站点默认图标（矢量）。index.html 通过 <link rel="icon"> 显式引用。"""
+def root_asset_response(request: Request, filename: str, media_type: str):
+    """服务根路径的品牌静态资源（图标与 manifest）。
+
+    这些文件在 TS 端由 Workers Assets 按文件名直接命中，Python 端没有根目录静态
+    挂载（挂 "/" 会截获全部路由），因此逐个显式声明。
+    """
     response = conditional_file_response(
-        request, FAVICON_SVG_PATH, "image/svg+xml", "public, max-age=86400"
+        request, ROOT_ASSET_DIR / filename, media_type, "public, max-age=86400"
     )
     if response is None:
-        return JSONResponse(status_code=404, content=error_payload("Favicon is missing"))
+        return JSONResponse(status_code=404, content=error_payload(f"{filename} is missing"))
     return response
 
 
 @app.get("/favicon.ico", include_in_schema=False, response_model=None)
 async def favicon_ico(request: Request):
-    """兜底位图图标，应对浏览器/爬虫对 /favicon.ico 的隐式请求——它们不解析
-    <link rel="icon">，也未必支持 SVG 图标。"""
-    response = conditional_file_response(
-        request, FAVICON_ICO_PATH, "image/x-icon", "public, max-age=86400"
-    )
-    if response is None:
-        # 位图未生成时退回矢量图标，避免隐式请求 404
-        response = conditional_file_response(
-            request, FAVICON_SVG_PATH, "image/svg+xml", "public, max-age=86400"
-        )
-    if response is None:
-        return JSONResponse(status_code=404, content=error_payload("Favicon is missing"))
-    return response
+    """多尺寸 ICO。覆盖浏览器与爬虫对根路径的隐式请求——它们不解析 <link rel="icon">。"""
+    return root_asset_response(request, "favicon.ico", "image/x-icon")
+
+
+@app.get("/favicon-32x32.png", include_in_schema=False, response_model=None)
+async def favicon_png_32(request: Request):
+    return root_asset_response(request, "favicon-32x32.png", "image/png")
+
+
+@app.get("/favicon-16x16.png", include_in_schema=False, response_model=None)
+async def favicon_png_16(request: Request):
+    return root_asset_response(request, "favicon-16x16.png", "image/png")
+
+
+@app.get("/apple-touch-icon.png", include_in_schema=False, response_model=None)
+async def apple_touch_icon(request: Request):
+    """iOS 主屏图标。同样存在隐式请求：Safari 未见 link 声明时直接拉这个根路径。"""
+    return root_asset_response(request, "apple-touch-icon.png", "image/png")
+
+
+@app.get("/android-chrome-192x192.png", include_in_schema=False, response_model=None)
+async def android_chrome_192(request: Request):
+    return root_asset_response(request, "android-chrome-192x192.png", "image/png")
+
+
+@app.get("/android-chrome-512x512.png", include_in_schema=False, response_model=None)
+async def android_chrome_512(request: Request):
+    return root_asset_response(request, "android-chrome-512x512.png", "image/png")
+
+
+@app.get("/manifest.json", include_in_schema=False, response_model=None)
+async def web_app_manifest(request: Request):
+    return root_asset_response(request, "manifest.json", "application/manifest+json")
 
 
 @app.get("/api/auth/status", response_model=AuthStatusResponse)
