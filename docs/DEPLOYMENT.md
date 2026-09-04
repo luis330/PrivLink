@@ -243,6 +243,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 | POST | `/api/sites/{id}/icon` | 需 token | 上传站点图标（multipart，≤1MB） |
 | DELETE | `/api/sites/{id}` | 需 token | 删除站点 |
 | GET | `/ICON/<file>`、`/background/<file>` | 公开 | 静态图标与背景图（文件名为不可枚举哈希，无目录列表） |
+| GET | `/favicon.svg`、`/favicon.ico` | 公开 | 站点默认图标；`.ico` 覆盖浏览器与爬虫对根路径的隐式请求 |
 
 ### `GET /api/network/public-ip`
 

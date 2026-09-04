@@ -57,6 +57,8 @@ DB_PATH = Path("data") / "sites.db"
 ICON_DIR = Path("ICON")
 BACKGROUND_DIR = Path("background")
 FRONTEND_PATH = Path("index.html")
+FAVICON_SVG_PATH = Path("favicon.svg")
+FAVICON_ICO_PATH = Path("favicon.ico")
 ICON_MAX_BYTES = 2 * 1024 * 1024
 ICON_UPLOAD_MAX_BYTES = 1024 * 1024
 BACKGROUND_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
@@ -1569,41 +1571,79 @@ async def generic_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=500, content=error_payload(f"Internal server error: {exc}"))
 
 
-_index_cache: tuple[float, bytes, str] | None = None
+_static_file_cache: dict[Path, tuple[float, bytes, str]] = {}
 
 
-def load_index_page() -> tuple[bytes, str] | None:
-    # 缓存 index.html 内容与内容 ETag，mtime 变化时自动重新加载
-    global _index_cache
+def load_cached_file(path: Path) -> tuple[bytes, str] | None:
+    # 缓存小体积静态文件的内容与内容 ETag，mtime 变化时自动重新加载
     try:
-        mtime = FRONTEND_PATH.stat().st_mtime
+        mtime = path.stat().st_mtime
     except OSError:
         return None
-    if _index_cache is None or _index_cache[0] != mtime:
-        body = FRONTEND_PATH.read_bytes()
-        etag = f'"{hashlib.md5(body).hexdigest()}"'
-        _index_cache = (mtime, body, etag)
-    return _index_cache[1], _index_cache[2]
+    cached = _static_file_cache.get(path)
+    if cached is None or cached[0] != mtime:
+        body = path.read_bytes()
+        cached = (mtime, body, f'"{hashlib.md5(body).hexdigest()}"')
+        _static_file_cache[path] = cached
+    return cached[1], cached[2]
 
 
-@app.get("/", include_in_schema=False, response_model=None)
-async def index_page(request: Request):
-    cached = load_index_page()
+def conditional_file_response(
+    request: Request, path: Path, media_type: str, cache_control: str
+) -> Response | None:
+    """带 ETag 协商的静态文件响应；文件缺失时返回 None，由调用方决定错误语义。"""
+    cached = load_cached_file(path)
     if cached is None:
-        return JSONResponse(status_code=500, content=error_payload("Frontend file is missing"))
+        return None
     body, etag = cached
-    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    headers = {"ETag": etag, "Cache-Control": cache_control}
     if_none_match = request.headers.get("if-none-match", "")
     if if_none_match:
         received = {tag.strip().removeprefix("W/").strip('"') for tag in if_none_match.split(",")}
         if "*" in received or etag.strip('"') in received:
             return Response(status_code=304, headers=headers)
-    return Response(content=body, media_type="text/html", headers=headers)
+    return Response(content=body, media_type=media_type, headers=headers)
+
+
+@app.get("/", include_in_schema=False, response_model=None)
+async def index_page(request: Request):
+    response = conditional_file_response(request, FRONTEND_PATH, "text/html", "no-cache")
+    if response is None:
+        return JSONResponse(status_code=500, content=error_payload("Frontend file is missing"))
+    return response
 
 
 @app.get("/index.html", include_in_schema=False, response_model=None)
 async def index_page_alias(request: Request):
     return await index_page(request)
+
+
+@app.get("/favicon.svg", include_in_schema=False, response_model=None)
+async def favicon_svg(request: Request):
+    """站点默认图标（矢量）。index.html 通过 <link rel="icon"> 显式引用。"""
+    response = conditional_file_response(
+        request, FAVICON_SVG_PATH, "image/svg+xml", "public, max-age=86400"
+    )
+    if response is None:
+        return JSONResponse(status_code=404, content=error_payload("Favicon is missing"))
+    return response
+
+
+@app.get("/favicon.ico", include_in_schema=False, response_model=None)
+async def favicon_ico(request: Request):
+    """兜底位图图标，应对浏览器/爬虫对 /favicon.ico 的隐式请求——它们不解析
+    <link rel="icon">，也未必支持 SVG 图标。"""
+    response = conditional_file_response(
+        request, FAVICON_ICO_PATH, "image/x-icon", "public, max-age=86400"
+    )
+    if response is None:
+        # 位图未生成时退回矢量图标，避免隐式请求 404
+        response = conditional_file_response(
+            request, FAVICON_SVG_PATH, "image/svg+xml", "public, max-age=86400"
+        )
+    if response is None:
+        return JSONResponse(status_code=404, content=error_payload("Favicon is missing"))
+    return response
 
 
 @app.get("/api/auth/status", response_model=AuthStatusResponse)
