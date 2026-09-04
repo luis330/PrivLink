@@ -24,9 +24,9 @@ TS_INDEX = ROOT / "deploy/cloudflare" / "src" / "index.ts"
 # 两端刻意不一致的端点（方法, 路径）。
 # / 与 /index.html：Python 显式路由返回 HTML；TS 端由 Workers Assets
 # 自动服务 index.html，无需显式路由。
-# /favicon.svg 与 /favicon.ico 同理：两个文件由 scripts/sync-frontend.py 同步进
+# 根路径的品牌资源（图标与 manifest）同理：由 scripts/sync-frontend.py 同步进
 # deploy/cloudflare/assets/，Workers Assets 按文件名直接命中并推断 Content-Type，
-# 请求不会进入 Worker；Python 端没有根目录静态挂载，才需要显式路由。
+# 请求不进入 Worker；Python 端挂 "/" 会截获全部路由，才需要逐个显式声明。
 #
 # 注意 /api/network/public-ip 两端都有、但语义与鉴权刻意不同（本脚本只比对路由
 # 存在性，查不出这类差异）：Python 端返回服务端出口 IP、需 token；TS 端返回访客
@@ -35,8 +35,13 @@ TS_INDEX = ROOT / "deploy/cloudflare" / "src" / "index.ts"
 EXEMPT = {
     ("GET", "/"),
     ("GET", "/index.html"),
-    ("GET", "/favicon.svg"),
     ("GET", "/favicon.ico"),
+    ("GET", "/favicon-16x16.png"),
+    ("GET", "/favicon-32x32.png"),
+    ("GET", "/apple-touch-icon.png"),
+    ("GET", "/android-chrome-192x192.png"),
+    ("GET", "/android-chrome-512x512.png"),
+    ("GET", "/manifest.json"),
 }
 
 
