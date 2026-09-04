@@ -6,6 +6,8 @@ on:
     paths:
       - 'deploy/cloudflare/**'
       - 'index.html'
+      - 'favicon.svg'
+      - 'favicon.ico'
       - 'simple-icons.json'
       - '.github/workflows/deploy-cloudflare.yml'
   workflow_dispatch:

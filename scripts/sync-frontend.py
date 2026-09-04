@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """同步前端与共享数据文件到 Cloudflare assets 目录。
 
-将仓库根目录的 index.html 与 simple-icons.json 复制到
+将仓库根目录的 index.html、favicon.svg、favicon.ico 与 simple-icons.json 复制到
 deploy/cloudflare/assets/（Workers Assets 服务目录），并输出差异说明。
+两个 favicon 由 Workers Assets 直接服务，TS 端无需显式路由。
 
 用法：
   python scripts/sync-frontend.py            # 复制（默认）
@@ -19,6 +20,8 @@ ASSETS = ROOT / "deploy" / "cloudflare" / "assets"
 # 需要同步到 assets 的文件：源路径 -> 目标相对路径
 FILES = {
     ROOT / "index.html": "index.html",
+    ROOT / "favicon.svg": "favicon.svg",
+    ROOT / "favicon.ico": "favicon.ico",
     ROOT / "simple-icons.json": "simple-icons.json",
 }
 
