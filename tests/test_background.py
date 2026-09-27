@@ -10,6 +10,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
+from privlink import config
+from privlink.db import init_storage
 
 
 PNG_BASE64 = (
@@ -27,30 +29,30 @@ class IsolatedBackgroundTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.old_cwd = Path.cwd()
-        self.old_db_path = main.DB_PATH
-        self.old_icon_dir = main.ICON_DIR
-        self.old_background_dir = main.BACKGROUND_DIR
-        self.old_frontend_path = main.FRONTEND_PATH
-        self.old_token = main.NAV_TOKEN
-        self.old_upload_max = main.BACKGROUND_UPLOAD_MAX_BYTES
+        self.old_db_path = config.DB_PATH
+        self.old_icon_dir = config.ICON_DIR
+        self.old_background_dir = config.BACKGROUND_DIR
+        self.old_frontend_path = config.FRONTEND_PATH
+        self.old_token = config.NAV_TOKEN
+        self.old_upload_max = config.BACKGROUND_UPLOAD_MAX_BYTES
 
         os.chdir(self.temp_dir.name)
-        main.DB_PATH = Path("data") / "sites.db"
-        main.ICON_DIR = Path("ICON")
-        main.BACKGROUND_DIR = Path("background")
-        main.FRONTEND_PATH = self.old_cwd / "index.html"
-        main.NAV_TOKEN = self.nav_token
-        main.init_storage()
+        config.DB_PATH = Path("data") / "sites.db"
+        config.ICON_DIR = Path("ICON")
+        config.BACKGROUND_DIR = Path("background")
+        config.FRONTEND_PATH = self.old_cwd / "index.html"
+        config.NAV_TOKEN = self.nav_token
+        init_storage()
         self.client = TestClient(main.app)
         self.auth_headers = {"X-Nav-Token": self.nav_token}
 
     def tearDown(self) -> None:
-        main.DB_PATH = self.old_db_path
-        main.ICON_DIR = self.old_icon_dir
-        main.BACKGROUND_DIR = self.old_background_dir
-        main.FRONTEND_PATH = self.old_frontend_path
-        main.NAV_TOKEN = self.old_token
-        main.BACKGROUND_UPLOAD_MAX_BYTES = self.old_upload_max
+        config.DB_PATH = self.old_db_path
+        config.ICON_DIR = self.old_icon_dir
+        config.BACKGROUND_DIR = self.old_background_dir
+        config.FRONTEND_PATH = self.old_frontend_path
+        config.NAV_TOKEN = self.old_token
+        config.BACKGROUND_UPLOAD_MAX_BYTES = self.old_upload_max
         os.chdir(self.old_cwd)
         self.temp_dir.cleanup()
 
@@ -131,12 +133,19 @@ class BackgroundSettingTest(IsolatedBackgroundTestCase):
             )
             self.assertEqual(response.status_code, 400, payload)
 
-    def test_load_self_heals_when_image_file_missing(self) -> None:
+    def test_get_degrades_without_rewriting_when_image_file_missing(self) -> None:
         setting = self.upload_png()
         stored = setting["image"]
-        (main.BACKGROUND_DIR / stored).unlink()
+        path = config.BACKGROUND_DIR / stored
+        content = path.read_bytes()
+        path.unlink()
         response = self.client.get("/api/appearance/background")
         self.assertEqual(response.json()["type"], "default")
+
+        # 公开 GET 不改写设置：文件恢复后（如存储短暂不可用）原设置依旧生效
+        path.write_bytes(content)
+        response = self.client.get("/api/appearance/background")
+        self.assertEqual(response.json()["image"], stored)
 
 
 class BackgroundUploadTest(IsolatedBackgroundTestCase):
@@ -147,7 +156,7 @@ class BackgroundUploadTest(IsolatedBackgroundTestCase):
         self.assertEqual(setting["type"], "image")
         self.assertEqual(setting["image"], stored)
         self.assertEqual(setting["image_url"], f"/background/{stored}")
-        self.assertTrue((main.BACKGROUND_DIR / stored).is_file())
+        self.assertTrue((config.BACKGROUND_DIR / stored).is_file())
 
         # 上传即生效：匿名回读同值
         response = self.client.get("/api/appearance/background")
@@ -167,7 +176,7 @@ class BackgroundUploadTest(IsolatedBackgroundTestCase):
             self.assertEqual(response.status_code, 400, name)
 
     def test_upload_rejects_oversize(self) -> None:
-        main.BACKGROUND_UPLOAD_MAX_BYTES = 10
+        config.BACKGROUND_UPLOAD_MAX_BYTES = 10
         response = self.client.post(
             "/api/appearance/background/images",
             files={"image": ("bg.png", b"x" * 20, "image/png")},
@@ -205,7 +214,7 @@ class BackgroundLibraryTest(IsolatedBackgroundTestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["type"], "default")
-        self.assertFalse((main.BACKGROUND_DIR / stored).exists())
+        self.assertFalse((config.BACKGROUND_DIR / stored).exists())
 
         # 列表已空
         response = self.client.get(

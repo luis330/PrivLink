@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 import unittest
@@ -12,6 +13,8 @@ import httpx
 from fastapi.testclient import TestClient
 
 import main
+from privlink import fetcher
+from privlink.fetcher import DirectPublicIPv4Resolver
 
 
 @contextmanager
@@ -46,12 +49,12 @@ class DirectPublicIPv4ResolverTest(unittest.TestCase):
         def handle_request(_: httpx.Request) -> httpx.Response:
             return httpx.Response(200, text="8.8.8.8\n")
 
-        resolver = main.DirectPublicIPv4Resolver(
+        resolver = DirectPublicIPv4Resolver(
             providers=("https://public-ip.test",),
             transport=httpx.MockTransport(handle_request),
         )
 
-        self.assertEqual(resolver.resolve(), "8.8.8.8")
+        self.assertEqual(asyncio.run(resolver.resolve()), "8.8.8.8")
 
     def test_uses_backup_provider_when_primary_is_unavailable(self) -> None:
         def handle_request(request: httpx.Request) -> httpx.Response:
@@ -59,12 +62,12 @@ class DirectPublicIPv4ResolverTest(unittest.TestCase):
                 return httpx.Response(503, text="unavailable")
             return httpx.Response(200, text="1.1.1.1\n")
 
-        resolver = main.DirectPublicIPv4Resolver(
+        resolver = DirectPublicIPv4Resolver(
             providers=("https://primary.test", "https://backup.test"),
             transport=httpx.MockTransport(handle_request),
         )
 
-        self.assertEqual(resolver.resolve(), "1.1.1.1")
+        self.assertEqual(asyncio.run(resolver.resolve()), "1.1.1.1")
 
     def test_rejects_non_ipv4_response_and_uses_backup_provider(self) -> None:
         def handle_request(request: httpx.Request) -> httpx.Response:
@@ -72,12 +75,12 @@ class DirectPublicIPv4ResolverTest(unittest.TestCase):
                 return httpx.Response(200, text="2001:db8::1")
             return httpx.Response(200, text="9.9.9.9")
 
-        resolver = main.DirectPublicIPv4Resolver(
+        resolver = DirectPublicIPv4Resolver(
             providers=("https://primary.test", "https://backup.test"),
             transport=httpx.MockTransport(handle_request),
         )
 
-        self.assertEqual(resolver.resolve(), "9.9.9.9")
+        self.assertEqual(asyncio.run(resolver.resolve()), "9.9.9.9")
 
     def test_rejects_non_public_ipv4_response_and_uses_backup_provider(self) -> None:
         def handle_request(request: httpx.Request) -> httpx.Response:
@@ -85,12 +88,12 @@ class DirectPublicIPv4ResolverTest(unittest.TestCase):
                 return httpx.Response(200, text="192.168.1.10")
             return httpx.Response(200, text="8.8.4.4")
 
-        resolver = main.DirectPublicIPv4Resolver(
+        resolver = DirectPublicIPv4Resolver(
             providers=("https://primary.test", "https://backup.test"),
             transport=httpx.MockTransport(handle_request),
         )
 
-        self.assertEqual(resolver.resolve(), "8.8.4.4")
+        self.assertEqual(asyncio.run(resolver.resolve()), "8.8.4.4")
 
     def test_ignores_environment_proxy(self) -> None:
         with serve_text("8.8.4.4") as provider_url:
@@ -106,8 +109,8 @@ class DirectPublicIPv4ResolverTest(unittest.TestCase):
                     "no_proxy": "",
                 }
                 with patch.dict(os.environ, proxy_environment):
-                    resolver = main.DirectPublicIPv4Resolver(providers=(provider_url,))
-                    public_ip = resolver.resolve()
+                    resolver = DirectPublicIPv4Resolver(providers=(provider_url,))
+                    public_ip = asyncio.run(resolver.resolve())
 
         self.assertEqual(public_ip, "8.8.4.4")
 
@@ -120,12 +123,12 @@ class PublicIpApiTest(unittest.TestCase):
         def handle_request(_: httpx.Request) -> httpx.Response:
             return httpx.Response(200, text="8.8.8.8")
 
-        resolver = main.DirectPublicIPv4Resolver(
+        resolver = DirectPublicIPv4Resolver(
             providers=("https://public-ip.test",),
             transport=httpx.MockTransport(handle_request),
         )
 
-        with patch.object(main, "public_ipv4_resolver", resolver, create=True):
+        with patch.object(fetcher, "public_ipv4_resolver", resolver):
             response = self.client.get("/api/network/public-ip")
 
         self.assertEqual(response.status_code, 200)
@@ -136,12 +139,12 @@ class PublicIpApiTest(unittest.TestCase):
         def handle_request(_: httpx.Request) -> httpx.Response:
             return httpx.Response(503, text="unavailable")
 
-        resolver = main.DirectPublicIPv4Resolver(
+        resolver = DirectPublicIPv4Resolver(
             providers=("https://primary.test", "https://backup.test"),
             transport=httpx.MockTransport(handle_request),
         )
 
-        with patch.object(main, "public_ipv4_resolver", resolver):
+        with patch.object(fetcher, "public_ipv4_resolver", resolver):
             response = self.client.get("/api/network/public-ip")
 
         self.assertEqual(response.status_code, 502)

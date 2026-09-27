@@ -5,8 +5,18 @@ __pycache__/
 data/
 ICON/
 background/
+backups/
 
-# Cloudflare TS 分支（Docker 部署不需要）
-deploy/
+# 文档、脚本与 Workers 部署专用文件（Docker 部署不需要）
 docs/
 scripts/
+assets/
+wrangler.jsonc
+pylock.toml
+.dev.vars
+
+# Cloudflare Python Workers 本地构建状态（pywrangler）
+.venv-workers/
+python_modules/
+.wrangler/
+node_modules/

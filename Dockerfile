@@ -9,13 +9,18 @@ ENV PYTHONUNBUFFERED=1
 ENV UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
 
-COPY main.py index.html simple-icons.json manifest.json ./
+COPY main.py ./
+COPY src/privlink/ ./src/privlink/
+COPY index.html simple-icons.json manifest.json ./
 COPY favicon.ico favicon-16x16.png favicon-32x32.png ./
 COPY apple-touch-icon.png android-chrome-192x192.png android-chrome-512x512.png ./
+RUN uv sync --frozen --no-dev
 RUN mkdir -p /app/data /app/ICON /app/background
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# --no-dev：pyproject 的 default-groups 含 dev（pytest、workers-py），不加则 uv run
+# 会在每次容器启动时联网补装开发依赖
+CMD ["uv", "run", "--no-dev", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
