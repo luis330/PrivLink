@@ -9,20 +9,24 @@ wheels/
 # Virtual environments
 .venv
 
-# Runtime data
-data/
+# Runtime data（根限定：privlink/data/ 是打包数据源，须入库）
+/data/
 ICON/
 background/
+# 线上 D1 导出等数据备份（含个人数据，不入库）
+backups/
 
 # Local configuration (contains NAV_TOKEN etc.)
 .env
-
-# Node.js (Cloudflare分支)
-deploy/cloudflare/node_modules/
+.dev.vars
+# Node.js（仅本地/CI 安装 wrangler 时产生）
 scripts/node_modules/
 
-# Cloudflare 本地开发状态（miniflare 数据库等）
-deploy/cloudflare/.wrangler/
+# Cloudflare Python Workers 本地构建状态（pywrangler）
+.venv-workers/
+python_modules/
+.wrangler/
+/node_modules/
 
 # 本地 AI 协作约定（仅本机使用，不随仓库公开）
 AGENTS.md
