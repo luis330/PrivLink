@@ -1,0 +1,42 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "privlink",
+	// Entry lives in src/: wrangler ships every *.py under the entry's directory
+	// (no exclude mechanism), so src/ must contain only worker.py + privlink/.
+	// Vendored deps in python_modules/ (project root) are collected separately.
+	"main": "src/worker.py",
+	"compatibility_date": "2026-08-01",
+	"compatibility_flags": ["python_workers"],
+	// NAV_TOKEN is a secret: `wrangler secret put NAV_TOKEN` in production,
+	// `.dev.vars` (gitignored) for local `pywrangler dev`. Never put it here.
+	"vars": {
+		"NAV_MODE": "single"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "privlink"
+			// No database_id on purpose: `wrangler deploy` inherits the binding
+			// already on the deployed Worker, else connects to the D1 named
+			// "privlink", else creates it. Local dev uses the miniflare D1.
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "ICON_BUCKET",
+			"bucket_name": "privlink-icons"
+		},
+		{
+			"binding": "BACKGROUND_BUCKET",
+			"bucket_name": "privlink-backgrounds"
+		}
+	],
+	// Workers Assets: index.html + brand icons, served before the Worker runs.
+	// Generated from the repo-root originals by scripts/sync-frontend.py.
+	"assets": {
+		"directory": "./assets"
+	},
+	"observability": {
+		"enabled": false
+	}
+}
