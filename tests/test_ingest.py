@@ -4,10 +4,13 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
 import main
+from privlink import config
+from privlink.db import db_connect, init_storage
 
 
 PNG_BASE64 = (
@@ -30,31 +33,31 @@ class CollectorScriptTest(unittest.TestCase):
 
 
 class IsolatedAppTestCase(unittest.TestCase):
-    """在临时目录中运行应用，token 由 main.NAV_TOKEN 直接控制（env 权威语义）。"""
+    """在临时目录中运行应用，token 由 config.NAV_TOKEN 直接控制（env 权威语义）。"""
 
     nav_token = "secret-token"
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.old_cwd = Path.cwd()
-        self.old_db_path = main.DB_PATH
-        self.old_icon_dir = main.ICON_DIR
-        self.old_frontend_path = main.FRONTEND_PATH
-        self.old_token = main.NAV_TOKEN
+        self.old_db_path = config.DB_PATH
+        self.old_icon_dir = config.ICON_DIR
+        self.old_frontend_path = config.FRONTEND_PATH
+        self.old_token = config.NAV_TOKEN
 
         os.chdir(self.temp_dir.name)
-        main.DB_PATH = Path("data") / "sites.db"
-        main.ICON_DIR = Path("ICON")
-        main.FRONTEND_PATH = self.old_cwd / "index.html"
-        main.NAV_TOKEN = self.nav_token
-        main.init_storage()
+        config.DB_PATH = Path("data") / "sites.db"
+        config.ICON_DIR = Path("ICON")
+        config.FRONTEND_PATH = self.old_cwd / "index.html"
+        config.NAV_TOKEN = self.nav_token
+        init_storage()
         self.client = TestClient(main.app)
 
     def tearDown(self) -> None:
-        main.DB_PATH = self.old_db_path
-        main.ICON_DIR = self.old_icon_dir
-        main.FRONTEND_PATH = self.old_frontend_path
-        main.NAV_TOKEN = self.old_token
+        config.DB_PATH = self.old_db_path
+        config.ICON_DIR = self.old_icon_dir
+        config.FRONTEND_PATH = self.old_frontend_path
+        config.NAV_TOKEN = self.old_token
         os.chdir(self.old_cwd)
         self.temp_dir.cleanup()
 
@@ -82,18 +85,28 @@ class TokenGuardTest(IsolatedAppTestCase):
         )
         self.assertEqual(response.status_code, 401)
 
-        # 公网 IP 端点必须留在门禁内：它返回的是服务端出口 IP，反代 / 隧道部署下
-        # 属于源站敏感信息。TS 端同名端点返回的是访客自己的 IP，对本人不构成泄露，
-        # 故刻意放进公开只读清单——那侧由 deploy/cloudflare/tests/api.spec.ts 钉死。
-        # check-api-alignment.py 只比对路由存在性，查不出这类鉴权差异。
+        # 公网 IP 端点在本地部署下必须留在门禁内：它返回的是服务端出口 IP，反代 /
+        # 隧道部署下属于源站敏感信息。Workers 部署返回访客自己的 IP，对本人不构成
+        # 泄露，故仅在 Workers 下放进公开只读清单（见 test_public_ip_is_public_on_workers）。
         response = self.client.get("/api/network/public-ip")
         self.assertEqual(response.status_code, 401)
 
         response = self.client.get("/api/icons", headers={"X-Nav-Token": "secret-token"})
         self.assertEqual(response.status_code, 200)
 
+    def test_public_ip_is_public_on_workers(self) -> None:
+        with mock.patch.object(config, "IS_WORKERS", True):
+            response = self.client.get(
+                "/api/network/public-ip", headers={"CF-Connecting-IP": "203.0.113.9"}
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"ip": "203.0.113.9", "kind": "client"})
+
+            # 放开的只有 public-ip，其余管理接口仍需 token
+            self.assertEqual(self.client.get("/api/icons").status_code, 401)
+
     def test_open_mode_allows_api_without_token(self) -> None:
-        main.NAV_TOKEN = ""
+        config.NAV_TOKEN = ""
         response = self.client.get("/api/sites")
         self.assertEqual(response.status_code, 200)
 
@@ -135,7 +148,7 @@ class AuthStatusTest(IsolatedAppTestCase):
         self.assertEqual(response.json(), {"token_required": True, "authorized": True})
 
     def test_open_mode_reports_not_required(self) -> None:
-        main.NAV_TOKEN = ""
+        config.NAV_TOKEN = ""
         response = self.client.get("/api/auth/status")
         self.assertEqual(response.json(), {"token_required": False, "authorized": True})
 
@@ -205,7 +218,7 @@ class VisibilityTest(IsolatedAppTestCase):
             url=rows[0]["url"],
             is_public=False,
         )
-        main.NAV_TOKEN = ""
+        config.NAV_TOKEN = ""
         rows = self.client.get("/api/sites").json()
         self.assertEqual(len(rows), 1)
         self.assertFalse(rows[0]["is_public"])
@@ -238,7 +251,7 @@ class BrowserIngestTest(IsolatedAppTestCase):
         response = self.post_ingest(self.payload(), token="wrong-token")
         self.assertEqual(response.status_code, 401)
 
-        main.NAV_TOKEN = ""
+        config.NAV_TOKEN = ""
         response = self.post_ingest(self.payload())
         self.assertEqual(response.status_code, 403)
 
@@ -251,7 +264,7 @@ class BrowserIngestTest(IsolatedAppTestCase):
         self.assertTrue(data["icon_rel_path"].startswith("ICON/"))
         self.assertTrue(Path(data["icon_rel_path"]).is_file())
 
-        with main.db_connect() as conn:
+        with db_connect() as conn:
             row = conn.execute(
                 "SELECT site_name, icon_rel_path, icon_source_url FROM sites WHERE url = ?",
                 ("https://example.invalid/app",),

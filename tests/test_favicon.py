@@ -8,6 +8,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 import main
+from privlink import config
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
@@ -98,7 +99,7 @@ class RootAssetRouteTest(unittest.TestCase):
 
     def test_root_assets_are_public_under_token_guard(self) -> None:
         # 门禁 middleware 只拦 /api/，图标不能被挡在 token 后面（否则访客页面无图标）
-        with patch.object(main, "NAV_TOKEN", "secret-token"):
+        with patch.object(config, "NAV_TOKEN", "secret-token"):
             for path in ROOT_ASSETS:
                 with self.subTest(path=path):
                     self.assertEqual(self.client.get(path).status_code, 200)
