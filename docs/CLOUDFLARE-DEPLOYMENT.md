@@ -1,246 +1,212 @@
 # PrivLink Cloudflare 部署架构与运维
 
-PrivLink 在 Docker / 源码部署之外提供第三条部署路径：**Cloudflare Workers**。本文档说明该分支的架构、与 Python 分支的差异，以及部署运维步骤。
+PrivLink 在 Docker / 源码部署之外提供第三条部署路径：**Cloudflare Workers**。三条路径运行的是**同一份 Python 代码**（`src/privlink/`），Cloudflare 上以 Python Workers（Pyodide）运行。本文档说明 Workers 部署的架构、与本地运行的差异、开发调试与部署运维。
 
-产品功能概览见根目录 [README](../README.md)，本地/Docker 部署见 [docs/DEPLOYMENT.md](DEPLOYMENT.md)，快速命令见 [deploy/cloudflare/README.md](../deploy/cloudflare/README.md)。
+产品功能概览见根目录 [README](../README.md)，本地 / Docker 部署见 [docs/DEPLOYMENT.md](DEPLOYMENT.md)。
 
 ## 目录
 
-1. [双栈架构](#1-双栈架构)
+1. [架构](#1-架构)
 2. [Cloudflare 服务映射](#2-cloudflare-服务映射)
-3. [与 Python 分支的差异](#3-与-python-分支的差异)
-4. [双栈一致性保障](#4-双栈一致性保障)
+3. [本地与 Workers 的运行差异](#3-本地与-workers-的运行差异)
+4. [开发与测试](#4-开发与测试)
 5. [部署与运维](#5-部署与运维)
 
 ---
 
-## 1. 双栈架构
+## 1. 架构
 
-Python/FastAPI 是主要实现（Docker / 源码部署），TypeScript/Hono + D1 + R2 作为独立目录 `deploy/cloudflare/` 并存。两者共用同一份前端与同一套 API 契约。
+同一个 FastAPI 应用，两个入口：
+
+| 入口 | 运行方式 | 存储 |
+|---|---|---|
+| `main.py`（垫片，`uvicorn main:app`） | 本地源码 / Docker | SQLite `data/sites.db` + `ICON/`、`background/` 目录 |
+| `src/worker.py`（`asgi.entrypoint(app)`） | Cloudflare Python Workers | D1 + 两个 R2 桶 |
 
 ```
 PrivLink/
-├── main.py                          # FastAPI 实现（SQLite + 本地文件系统）
-├── index.html                       # 前端单文件（两端共用）
-├── favicon.ico / *.png              # 站点品牌图标（两端共用，见 4.2）
-├── manifest.json                    # PWA manifest（两端共用）
-├── simple-icons.json                # 图标库数据（两端共用数据源）
-├── tests/                           # pytest
-├── docker-compose.yml / Dockerfile  # 容器部署
-├── collectors/ / browser-extension/ # 浏览器采集器
-├── scripts/
-│   ├── sync-frontend.py             # index.html + 图标 + manifest + simple-icons.json → assets/
-│   ├── build-favicon.py             # 一组 PNG → 多尺寸 favicon.ico（纯标准库）
-│   ├── fetch-simple-icons.py        # 从 unpkg 拉取图标库数据
-│   └── check-api-alignment.py       # 双端端点对齐检查
-└── deploy/cloudflare/               # TypeScript 分支
-    ├── wrangler.toml                # Workers 配置（D1 / R2 / Assets 绑定）
-    ├── src/
-    │   ├── index.ts                 # Hono 入口，全部路由 + 鉴权中间件
-    │   ├── types.ts                 # 公共类型（对应 Pydantic 模型）
-    │   ├── db.ts                    # D1 数据库层
-    │   ├── storage.ts               # R2 存储抽象
-    │   ├── simple-icons.ts          # 图标数据加载与搜索
-    │   └── fetcher.ts               # 远程抓取 + HTML 解析
-    ├── assets/                      # Workers Assets（由 sync-frontend.py 同步生成）
-    ├── migrations/001_init.sql      # D1 建表
-    └── tests/
-        ├── api.spec.ts              # 端点结构、URL 规范化、R2 路由 key
-        ├── fetcher.spec.ts          # HTML 字节解码与解析
-        └── bindings.spec.ts         # D1 参数绑定与输入校验
+├── main.py                          # 本地入口垫片（uvicorn main:app）
+├── src/
+│   ├── worker.py                    # Workers 入口
+│   └── privlink/                    # 应用本体（两种部署共用）
+│       ├── app.py                   # 路由、TokenGuard、PlatformBindings 中间件
+│       ├── db.py                    # Database 抽象：SqliteDatabase / D1Database
+│       ├── storage.py               # 文件存储抽象：本地目录 / R2
+│       ├── config.py                # 配置与 IS_WORKERS 平台判断
+│       └── data/simple_icons_data.py  # 图标库内嵌模块（Workers 读不到 JSON，见 3.1）
+├── index.html / favicon.ico / *.png / manifest.json   # 前端与品牌图标（唯一来源）
+├── assets/                          # Workers Assets 目录（由 sync-frontend.py 从根目录同步）
+├── wrangler.jsonc                   # Workers 配置（D1 / R2 / Assets 绑定）
+├── pyproject.toml / uv.lock         # 依赖（本地）
+├── pylock.toml                      # Workers 依赖锁（pywrangler 生成，需提交）
+├── tests/                           # pytest（覆盖两种后端的共性行为与 Workers 分支）
+└── scripts/
+    ├── sync-frontend.py             # 根目录前端文件 → assets/
+    ├── build-favicon.py             # 一组 PNG → 多尺寸 favicon.ico（纯标准库）
+    ├── fetch-simple-icons.py        # 拉取图标库数据，生成 json 与内嵌模块
+    ├── migrate-local-to-cloudflare.py  # 本地数据 → D1 / R2
+    └── patch-pywrangler.py          # Windows 本地开发用的 pywrangler 补丁（见 4.2）
 ```
 
-三层职责：
+平台差异被隔离在三处：
 
-- **前端**：两端共用同一份 `index.html`，不感知部署差异。
-- **API 契约**：端点路径、请求/响应结构、状态码为单一事实来源。
-- **基础设施**：存储介质差异（SQLite/D1、本地目录/R2）完全隔离在各实现内部。
+- **`PlatformBindings` 中间件**：Workers 的 bindings 只能从每个请求的 `scope["env"]` 拿到（lifespan 里拿不到），由它逐请求注入 D1 / R2（ContextVar），并把 `NAV_TOKEN` / `NAV_MODE` 回写到 `config`。本地运行时 scope 中没有 `env`，中间件直接透传。
+- **`db.py` / `storage.py`**：业务代码只调用 `get_db()` 与 `storage.*`，不感知后端。
+- **`config.IS_WORKERS`**（`sys.platform == "emscripten"`）：少数必须分叉的行为（见第 3 节）。
+
+> **为什么是 `src/` 布局**：wrangler 会把 Python 入口所在目录下的全部 `*.py` 打进部署包，且没有排除机制。入口放在仓库根目录时，`.venv/`、`tests/` 等会被一并打包（约 43 MB，超出 Workers 限制）。因此 `src/` 下**只能放 Workers 运行需要的文件**。
 
 ---
 
 ## 2. Cloudflare 服务映射
 
-| 能力 | FastAPI（本地/Docker） | Cloudflare（TS 分支） |
+| 能力 | 本地 / Docker | Cloudflare Workers |
 |---|---|---|
-| Web 框架 | FastAPI + uvicorn | Hono |
-| 数据库 | SQLite `data/sites.db` | D1（SQL 语法与 SQLite 兼容） |
-| 站点图标 | `ICON/` 本地目录 | R2 bucket `privlink-icons` |
-| 背景图 | `background/` 本地目录 | R2 bucket `privlink-backgrounds` |
-| 前端页面 | `index.html` 文件 | Workers Assets |
-| 图标库 | `simple-icons.json` + CDN 外链 | 同左（`import` 打包进 bundle） |
-| 远程抓取 | httpx（支持代理） | 原生 `fetch()`（无代理） |
-| gzip 压缩 | FastAPI 中间件 | Cloudflare 边缘自动处理 |
-| ETag / 304 | FastAPI 首页中间件 | 首页由 Workers Assets 提供；`/ICON/*`、`/background/*` 透传 R2 的 ETag |
+| 运行时 | CPython + uvicorn | Pyodide（Python Workers） |
+| 数据库 | SQLite `data/sites.db` | D1 `privlink`（binding `DB`，SQL 与 SQLite 兼容） |
+| 站点图标 | `ICON/` 本地目录 | R2 桶 `privlink-icons`（binding `ICON_BUCKET`） |
+| 背景图 | `background/` 本地目录 | R2 桶 `privlink-backgrounds`（binding `BACKGROUND_BUCKET`） |
+| 首页与品牌图标 | FastAPI 显式路由（ETag/304） | Workers Assets（`assets/` 目录） |
+| 图标库 | `simple-icons.json` | 内嵌模块 `simple_icons_data.py` |
+| 远程抓取 | httpx（支持代理） | httpx over 平台 fetch（无代理） |
+| gzip 压缩 | GZip 中间件 | 关闭中间件，由 Cloudflare 边缘处理 |
+| 建表 | 启动时 `init_storage()` | 每个 isolate 的首个请求执行一次 `CREATE TABLE IF NOT EXISTS` |
 
 ### R2 与 Workers Assets 的职责边界
 
-按"是否运行时写入"划分，两者不可互换：
+按「是否在运行时写入」划分，两者不可互换：
 
 | 内容 | 性质 | 存储位置 |
 |---|---|---|
-| `index.html` | 部署时固定 | Workers Assets |
-| `simple-icons.json` | 构建时固定 | `import` 打包进 bundle |
-| `ICON/<hash>` | 运行时上传/抓取 | R2 |
-| `background/<hash>` | 运行时上传 | R2 |
+| `index.html`、favicon、`manifest.json` | 部署时固定 | Workers Assets |
+| `ICON/<file>` | 运行时上传或抓取 | R2 |
+| `background/<file>` | 运行时上传 | R2 |
 
-> Workers Assets 无法运行时写入，动态内容必须走 R2。
+> Workers Assets 无法在运行时写入，动态内容必须走 R2。Assets 中命中的路径由 Cloudflare 直接响应，**不会进入 Python 代码**；未命中的请求才交给 Worker。
 
 ---
 
-## 3. 与 Python 分支的差异
+## 3. 本地与 Workers 的运行差异
 
-### 3.1 `icon_rel_path` 语义
+### 3.1 存储约定
 
-| 场景 | Python | TS |
+**R2 key 带目录前缀**：图标是 `ICON/<file>`，背景图是 `background/<file>`，即 URL 路径去掉开头的 `/`。前缀只在 `storage.py` 访问桶时拼接或剥离，其余代码一律使用裸文件名。
+
+> ⚠️ 这是线上既有数据的格式（最早由 TS 实现写入），**不可改动**。曾因误用裸文件名 key 导致线上图标全部 404，背景设置也被自愈逻辑改写为默认值。`tests/test_storage_r2.py` 锁定了这条约定。
+
+取值形态对照（迁移数据时勿混）：
+
+| 字段 | 取值 | 示例 |
 |---|---|---|
-| 服务端抓取 favicon | `ICON/9a5b632f….png`（本地路径） | `ICON/9a5b632f….png`（R2 key） |
-| 浏览器上传图标 | `ICON/upload-xxx.png` | `ICON/upload-xxx.png`（R2 key） |
-| 从图标库选择 | `https://cdn.simpleicons.org/{slug}` | 同左 |
+| `sites.icon_rel_path` | 含前缀的完整路径 | `ICON/9a5b632f….png` |
+| `app_settings` 中背景设置的 `image` | 裸文件名 | `bg-8e7c640d….png` |
+| 图标库图标的 `icon_rel_path` | CDN 外链 | `https://cdn.simpleicons.org/{slug}` |
 
-两端取值刻意保持一致。TS 端有一条硬约束：**`icon_rel_path` 与 R2 key 必须是同一个字符串**——`/ICON/*` 路由按 `path.slice(1)` 取 key，`deleteObject()` 也直接拿 `icon_rel_path` 当 key 用。写入时若只存裸文件名，前端会拼出 `/9a5b632f….png` 而绕过 `/ICON/*` 路由，图标一律 404。背景图同理：写入 key 为 `background/<file>`，读取路由同样用 `path.slice(1)`。
+前端 `toIconUrl()` 对 `http(s)://` 开头的值直接使用原值，其余按站内相对路径拼接。
 
-前端 `toIconUrl()` 对 `http(s)://` 开头的值直接返回原值（图标库 CDN 外链），其余按站内相对路径拼接。
+**图标库数据**：Workers 部署包只收录 Python 与文本模块，JSON 文件不会进包，运行时读不到。因此 `fetch-simple-icons.py` 会额外生成 `src/privlink/data/simple_icons_data.py`，`list_simple_icons()` 依次尝试「工作目录下的 `simple-icons.json`（本地 / Docker）→ 内嵌模块 → 内置 60 个兜底」。
 
-### 3.2 TS 端不提供的能力
+### 3.2 `GET /api/network/public-ip`
+
+同一端点，两种语义，由响应中的 `kind` 字段区分：
+
+| 部署 | 返回 | `kind` | 门禁 |
+|---|---|---|---|
+| 本地 / Docker | 服务端出口公网 IPv4（直连查询源、忽略代理） | `server` | 需要 token（反代 / 隧道部署下属于源站敏感信息） |
+| Workers | 访问者自己的 IP（边缘注入的 `CF-Connecting-IP`，可能是 IPv6，原样返回） | `client` | 公开（对访客本人不构成泄露） |
+
+Workers 的出口是 Cloudflare 任播边缘节点，探测服务端出口 IP 没有意义。前端依据 `kind` 给出提示文案。门禁差异由 `auth.is_public_readonly_path()` 实现，`tests/test_ingest.py` 中两种情况都有测试。
+
+### 3.3 Workers 不提供的能力
 
 | 能力 | 原因 |
 |---|---|
 | HTTP / SOCKS5 代理抓取 | Workers 运行在边缘网络，无法配置上游代理 |
-| SSRF 防护（内网网段白名单、`getaddrinfo` 钩子） | Workers 的 `fetch()` 无法访问内网，风险面由平台隔离 |
+| SSRF 的 DNS 解析校验 | Pyodide 没有可用的 `getaddrinfo`；只保留对 IP 字面量的拦截，其余依赖平台 fetch 本身无法访问内网 |
 | `NAV_HOST_ALIASES` | 仅内网直连场景需要 |
 
-> 抓不到的站点（需验证码、需登录态）两端都用浏览器采集器兜底，行为一致。
-
-**`GET /api/network/public-ip` 是同名端点、不同语义**，不属于上表。Python 端答的是"服务端出口公网 IPv4"（`DirectPublicIPv4Resolver` 直连查询源、强制忽略代理）；Workers 的出口是 Cloudflare 任播边缘节点，这个问题在 TS 端无解也无意义，故改答另一个问题——**访问者自己的公网 IP**（取自边缘注入的 `CF-Connecting-IP`）。响应体的 `kind` 字段标明是哪一种（`server` / `client`），前端据此给出提示文案，不需要硬编码"自己跑在哪个后端"。
-
-本地部署时这两个答案通常还是同一个值（浏览器与服务器共用同一条宽带出口）。TS 端不做 IPv4 断言——访客可能走 IPv6，原样返回。
-
-### 3.3 静态路由
-
-| 路径 | Python | TS |
-|---|---|---|
-| `/`、`/index.html` | FastAPI 动态返回（ETag/304 + gzip） | Workers Assets 托管 |
-| `/favicon.ico`、`/*.png`、`/manifest.json` | FastAPI 逐条显式路由（ETag/304 + 一天缓存） | Workers Assets 托管 |
-| `/ICON/*` | 本地目录（StaticFiles） | R2 流式回源 |
-| `/background/*` | 本地目录（StaticFiles） | R2 流式回源 |
-
-TS 端两个 R2 路由共用 `serveR2Object()`，行为要点：
-
-- **流式**：把 R2 的 `ReadableStream` 直接交给 `Response`。若先 `await arrayBuffer()`，整个对象要读进 Worker 内存才开始响应——1MB 的背景图会让 TTFB 涨到秒级，并占用 128MB 的实例内存。
-- **Content-Type 按扩展名推断**（`contentTypeForKey()`）。Python 端由 `StaticFiles` 自动补该头；Workers 侧手写 `Response` 必须自己带上，否则浏览器不会在 `<img>` 中渲染，SVG 尤其严格。
-- **条件请求**：透传 R2 的 `httpEtag`，并把请求头交给 R2 的 `onlyIf` 处理，重复访问命中 304。
-- 两端缓存头一致：`Cache-Control: public, max-age=86400`。
+> 抓不到的站点（需验证码、需登录态）两种部署都用浏览器采集器兜底，行为一致。
 
 ### 3.4 鉴权
 
-两端一致：`NAV_TOKEN` 为空即开放模式，非空则除公开只读清单外的 `/api/*` 均需 `X-Nav-Token`。TS 端从 Workers secret 读取该值。
+两种部署一致：`NAV_TOKEN` 为空即开放模式；非空时，除公开只读清单外的 `/api/*` 都需要 `X-Nav-Token`。Workers 从 secret 读取该值。
 
-公开只读清单两端**有一处刻意差异**：
+`TokenGuard` 是纯 ASGI 中间件，必须**先注册**；`PlatformBindings` **后注册**，这样它在最外层，先把 env 中的 token 写入 `config`，TokenGuard 再做判断。
 
-| 端 | 清单 |
-|---|---|
-| Python | `/api/sites`、`/api/tags`、`/api/auth/status`、`/api/appearance/background` |
-| TS | 同上 **+ `/api/network/public-ip`** |
+### 3.5 冷启动
 
-理由见 3.2：Python 端该端点返回的是服务端出口 IP，反代 / 隧道部署下属于源站敏感信息，必须留在门禁内；TS 端返回的是访客自己的 IP，对他本人不构成泄露。`check-api-alignment.py` 只比对路由存在性、查不出鉴权差异，因此两侧各有一条测试钉死它——`tests/test_ingest.py::TokenGuardTest` 与 `deploy/cloudflare/tests/api.spec.ts`。
-
-### 3.5 已知残留差异
-
-| 差异 | 说明 |
-|---|---|
-| URL 中显式写出的默认端口 | `https://x:443` 被 WHATWG `URL` 归一化掉，Python 的 `urlsplit` 则保留 `:443`。要对齐需回退到字符串级解析，代价大于收益，未处理（见 `normalizeUrl()` 注释） |
-| `POST /api/site/ingest` 的 `error` 字段 | 非 `success` 时填字符串 `"partial"`，语义与 Python 端不完全一致。修改会影响采集器的判断逻辑，暂未调整 |
-| `initStorage()` 执行时机 | Python 只在启动时建表一次；Workers 无常驻状态，当前每个请求都执行一遍 5 条 `CREATE TABLE IF NOT EXISTS`。功能正确，但每请求多 5 次 D1 往返 |
-
-> 除上述三项外，两端行为以 `scripts/check-api-alignment.py` 与双端测试为准——但要注意该脚本**只比对路由存在性**，语义与鉴权上的刻意差异（`/api/network/public-ip`，见 3.2 与 3.4）它查不出来，那部分只能靠双端测试与本文档。凡是 Python 端由标准库隐式完成的事（`urlsplit` 的 scheme、`httpx` 的字节解码、`Path` 的目录拼接、`StaticFiles` 的 MIME 头），在 Workers 侧都必须显式实现——历史缺陷绝大多数出自这一类遗漏。
+Python Workers 首次加载需要初始化 Pyodide 和全部依赖：线上首个请求约需数秒，本地 `pywrangler dev` 热重载后的首个请求可能超过 15 秒。之后的请求是毫秒级。这是平台特性，不是故障。
 
 ---
 
-## 4. 双栈一致性保障
+## 4. 开发与测试
 
-### 4.1 端点对齐检查
-
-```bash
-python3 scripts/check-api-alignment.py
-```
-
-脚本扫描 `main.py` 的 `@app.*` 装饰器与 `index.ts` 的 `app.get/post/put/delete`，比对两端端点集合（自动归一化 `{id}` ↔ `:id`）。有意的单端端点通过脚本内 `EXEMPT` 列表豁免。
-
-### 4.2 前端同步
-
-根目录 `index.html`、品牌图标、`manifest.json` 与 `simple-icons.json` 是唯一来源，通过脚本同步到 Workers Assets：
+### 4.1 测试
 
 ```bash
-python3 scripts/sync-frontend.py            # 同步
-python3 scripts/sync-frontend.py --check    # 仅校验是否漂移
+uv run python -m pytest tests -q
 ```
 
-图标为一整套位图，全部放在仓库根目录（生成器约定的路径，不能挪到子目录）：
+测试在 CPython 下运行。Workers 分支通过 `mock.patch.object(config, "IS_WORKERS", True)` 模拟，R2 行为使用内存假桶（`tests/test_storage_r2.py`）。
+
+### 4.2 本地运行 Workers（`pywrangler dev`）
+
+```bash
+uv sync
+uv run python scripts/patch-pywrangler.py   # 仅 Windows 需要，每次 uv sync 后执行一次
+uv run pywrangler dev                       # http://127.0.0.1:8787，使用本地 miniflare 的 D1/R2
+```
+
+- 本地 dev 的 secret 写在仓库根目录的 `.dev.vars`（已 gitignore），例如 `NAV_TOKEN=dev-secret-token`。这个文件只在启动时读取。
+- **Windows 补丁**：pywrangler 用宿主 `.venv` 的解释器校验 `pylock.toml` 的 `requires-python`（>=3.13.2，即 Pyodide 版本），宿主为 3.12 时会失败。补丁让它改用 Pyodide 虚拟环境的解释器。`uv sync` 重装 workers-py 后补丁会丢失，需要重新执行。非 Windows 平台上脚本直接跳过。
+- **`wrangler.jsonc` 和 `.dev.vars` 不能写中文**：pywrangler 在中文 Windows 上按 GBK 读取它们，遇到中文会报解码错误。
+- 想用接近线上的数据调试：用 `npx wrangler d1 export privlink --remote` 导出后以 `--local` 导入；R2 对象用 `wrangler r2 object get … --remote` 拉取，再 `put … --local`。**不要用自己构造的数据代替线上数据**，线上 key 格式的问题正是这样漏掉的。
+
+### 4.3 前端与品牌图标
+
+仓库根目录的 `index.html`、品牌图标和 `manifest.json` 是唯一来源。本地部署直接读取它们；Workers 部署前需同步到 `assets/`：
+
+```bash
+python scripts/sync-frontend.py            # 同步
+python scripts/sync-frontend.py --check    # 仅校验是否漂移，有差异时退出码 1
+```
+
+CI 部署前会自动执行同步。
+
+图标是一整套位图，全部放在仓库根目录：
 
 | 文件 | 用途 |
 |---|---|
-| `favicon.ico` | 多尺寸 ICO（16/32）。覆盖 `/favicon.ico` 隐式请求——浏览器与爬虫不解析 `<link rel="icon">` 就直接拉这个路径 |
+| `favicon.ico` | 多尺寸 ICO（16/32）。覆盖对 `/favicon.ico` 的隐式请求——浏览器与爬虫不解析 `<link rel="icon">`，会直接请求这个路径 |
 | `favicon-16x16.png`、`favicon-32x32.png` | `<link rel="icon">` 显式声明，现代浏览器优先使用 |
-| `apple-touch-icon.png` | iOS 主屏图标。同样存在隐式请求，Safari 未见声明时直接拉根路径 |
-| `android-chrome-192x192.png`、`android-chrome-512x512.png` | `manifest.json` 引用，PWA 安装与 Android 主屏 |
+| `apple-touch-icon.png` | iOS 主屏图标。同样存在隐式请求：Safari 没看到声明时会直接请求根路径 |
+| `android-chrome-192x192.png`、`android-chrome-512x512.png` | 由 `manifest.json` 引用，用于 PWA 安装与 Android 主屏 |
 
-注意在线 favicon 生成器导出的 `favicon.ico` 常常是裸 PNG 改了扩展名，直接用会与
-`Content-Type: image/x-icon` 名实不符。换图标时先确认格式，必要时重新打包成真正的 ICO 容器：
-
-```bash
-python scripts/build-favicon.py --inspect favicon.ico          # 看清楚是 ICO 还是裸 PNG
-python scripts/build-favicon.py favicon-16x16.png favicon-32x32.png   # 打包成 favicon.ico
-python scripts/sync-frontend.py                                # 再同步到 assets/
-```
-
-`tests/test_favicon.py` 会校验 ICO 容器格式、各 PNG 的实际像素尺寸与 manifest 图标可达性，格式退化会被测试挡住。
-
-`package.json` 的 `deploy` 与 `icons:fetch` 均已挂载该脚本，CI 部署前也会执行，避免两处漂移。
-
-### 4.3 测试
+在线 favicon 生成器导出的 `favicon.ico` 常常是改了扩展名的 PNG，直接使用会与 `Content-Type: image/x-icon` 名实不符。更换图标时先确认格式，必要时重新打包成真正的 ICO：
 
 ```bash
-uv run python -m pytest tests/ -q                       # Python 端
-cd deploy/cloudflare && npm run typecheck && npm test   # TS 端
+python scripts/build-favicon.py --inspect favicon.ico                  # 查看是 ICO 还是裸 PNG
+python scripts/build-favicon.py favicon-16x16.png favicon-32x32.png    # 打包成 favicon.ico
+python scripts/sync-frontend.py                                        # 再同步到 assets/
 ```
 
-TS 端测试的重点不是覆盖率，而是**锁住两端易漂移的约定**：
-
-| 文件 | 覆盖 |
-|---|---|
-| `api.spec.ts` | 端点响应结构；URL 规范化逐字符对齐 Python 输出；`/ICON/*`、`/background/*` 取的 R2 key 与写入形式一致；Content-Type 正确 |
-| `fetcher.spec.ts` | `fetchHtml()` 返回字符串而非字节；utf-8 / gb18030 解码；图标兜底 |
-| `bindings.spec.ts` | 用**按 SQL 占位符数量校验 bind 参数**的严格 D1 stub 拦截参数绑定错误；slug 校验、路径穿越、scheme 校验、标签长度 |
-
-> 涉及 Python 行为的期望值一律取自 Python 端的实际输出，不靠推断。宽松的手写 stub 会放行参数数量错误等缺陷，`bindings.spec.ts` 的严格 stub 正是为此。
-
-### 4.4 新增功能的流程
-
-1. 更新 API 契约（`types.ts` + Pydantic 模型）
-2. Python 实现（`main.py` + `tests/`）
-3. TS 实现（`deploy/cloudflare/src/` + `tests/`）
-4. 端点对齐检查 + 双端测试通过
+`tests/test_favicon.py` 会校验 ICO 容器格式、各 PNG 的实际像素尺寸以及 manifest 中图标的可达性。
 
 ---
 
 ## 5. 部署与运维
 
-### 5.1 首次初始化（必须手动执行一次）
+### 5.1 首次部署
 
-> **CI 不会创建 Cloudflare 资源。** `.github/workflows/deploy-cloudflare.yml` 只执行「同步前端 → `wrangler deploy` → 写入 `NAV_TOKEN` secret」，不含 D1/R2 创建、迁移执行或 `database_id` 填充。首次部署前必须在本地完成下列步骤，否则部署会因绑定缺失而失败。
+**无需预先创建任何资源。** `wrangler.jsonc` 没有写 `database_id`，部署时 wrangler 按以下顺序处理：
 
-```bash
-cd deploy/cloudflare
-npm install
-npx wrangler login
+1. 沿用已部署 Worker 上已有的 binding；
+2. 否则按名称连接账户中已有的 D1 `privlink` 和 R2 桶 `privlink-icons`、`privlink-backgrounds`；
+3. 都没有则自动创建。
 
-npx wrangler d1 create privlink                  # 记下返回的 database_id
-npx wrangler r2 bucket create privlink-icons
-npx wrangler r2 bucket create privlink-backgrounds
+表结构由 Worker 收到首个请求时自动建立。
 
-# 把上一步的 uuid 填入 wrangler.toml 的 database_id 并提交
-npx wrangler d1 execute privlink --remote --file=migrations/001_init.sql
-```
+> Fork 用户注意：以上资源都按**名称**在你自己的账户中查找或创建，不会指向他人的数据库。
 
 ### 5.2 GitHub Actions 自动部署
 
@@ -248,53 +214,73 @@ npx wrangler d1 execute privlink --remote --file=migrations/001_init.sql
 
 | Secret | 必需 | 说明 |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | ✅ | 含 Workers / D1 / R2 读写权限（模板选 "Edit Cloudflare Workers"） |
-| `CLOUDFLARE_ACCOUNT_ID` | 建议 | 账户 ID；不填则由 Token 解析 |
-| `NAV_TOKEN` | 可选 | 门禁 Token；不配置则部署为开放模式 |
+| `CLOUDFLARE_API_TOKEN` | ✅ | 需要 Workers、D1、R2 的读写权限（模板选 "Edit Cloudflare Workers"） |
+| `CLOUDFLARE_ACCOUNT_ID` | 建议 | 账户 ID；不填则由 token 解析 |
+| `NAV_TOKEN` | 可选 | 门禁 token；不配置则部署为开放模式 |
 
 触发方式：
 
-- **自动**：push 到 `main` 且改动涉及 `deploy/cloudflare/`、根 `index.html`、`favicon.ico`、任意根目录 `*.png`、`manifest.json`、`simple-icons.json` 或 workflow 文件。
-- **手动**：Actions → Deploy to Cloudflare Workers → Run workflow，可在输入框临时填写 `NAV_TOKEN` 覆盖仓库 Secret。
+- **自动**：push 到 `main`，且改动涉及 `src/`、`pyproject.toml`、`uv.lock`、`pylock.toml`、`wrangler.jsonc`、`assets/`、根目录前端文件、`scripts/sync-frontend.py` 或 workflow 文件。
+- **手动**：Actions → Deploy to Cloudflare Workers → Run workflow。可在输入框临时填写 `NAV_TOKEN`，覆盖仓库 Secret。
 
-Workflow 实际执行：
+Workflow 实际执行的步骤：
 
-1. `python3 scripts/sync-frontend.py` 同步前端资源到 `assets/`
-2. `wrangler deploy`
-3. 若 `NAV_TOKEN` 非空，`wrangler secret put NAV_TOKEN` 写入（覆盖语义）；为空则跳过，保持开放模式
+1. 安装 uv（Python 3.13）和 Node 22；
+2. `uv sync --frozen`；
+3. 运行 pytest，失败则不部署；
+4. `scripts/sync-frontend.py` 同步前端到 `assets/`；
+5. 安装固定版本的 wrangler（pywrangler 要求 >= 4.127.1）；
+6. `uv run pywrangler deploy`；
+7. 若 `NAV_TOKEN` 非空，执行 `wrangler secret put NAV_TOKEN` 写入（覆盖语义）；为空则跳过。
 
-部署成功后地址形如 `https://privlink.<你的-workers-子域>.workers.dev`。
-
-> **验证 secret 是否真正写入**：部署日志的绑定列表中应出现 `env.NAV_TOKEN  Secret`。只看 job 变绿不足以判断——secret 写入失败或步骤被跳过时 job 仍会成功。
+> **验证 secret 是否真正写入**：执行 `npx wrangler secret list --name privlink`，应能看到 `NAV_TOKEN`。只看 job 变绿不足以判断——secret 写入被跳过时 job 也会成功。
 
 ### 5.3 本地命令行部署
 
 ```bash
-cd deploy/cloudflare
-npm run deploy          # 内含 sync-frontend.py + wrangler deploy
+uv sync
+uv run python scripts/patch-pywrangler.py   # 仅 Windows
+npx wrangler login
+python scripts/sync-frontend.py
+uv run pywrangler deploy
+npx wrangler secret put NAV_TOKEN           # 首次部署或更换 token 时执行
 ```
 
-### 5.4 数据迁移（从本地/Docker 迁入）
+部署后的地址形如 `https://privlink.<你的-workers-子域>.workers.dev`。自定义域名在 Cloudflare Dashboard 的 Worker 设置中绑定。
 
-- **站点 / 标签 / 背景设置**：导出 SQLite 为 SQL，`wrangler d1 execute privlink --remote --file=<dump>.sql` 导入。
-- **图标 / 背景图**：上传到 R2 时 **key 必须带目录前缀**，与 `sites.icon_rel_path`、`app_settings` 中的取值严格对应：
+### 5.4 回滚
 
-  | 本地文件 | R2 key |
-  |---|---|
-  | `ICON/9a5b632f….png` | `ICON/9a5b632f….png` |
-  | `background/bg-8e7c640d….png` | `background/bg-8e7c640d….png` |
+```bash
+npx wrangler versions list --name privlink             # 查看历史版本 ID
+npx wrangler rollback <version-id> --name privlink     # 回滚到指定版本
+```
 
-  ```bash
-  npx wrangler r2 object put privlink-icons/ICON/9a5b632f.png --file=ICON/9a5b632f.png --remote
-  npx wrangler r2 object put privlink-backgrounds/background/bg-8e7c640d.png --file=background/bg-8e7c640d.png --remote
-  ```
+回滚只切换代码版本，**不会回滚 D1 / R2 中的数据**。有风险的变更上线前，先备份数据库：
 
-  > 传成裸文件名（不带 `ICON/` 或 `background/`）会导致 `/ICON/*`、`/background/*` 一律 404——读取路由按 `path.slice(1)` 取 key，前缀是 key 的一部分。
+```bash
+npx wrangler d1 export privlink --remote --output backups/d1-privlink-$(date +%Y%m%d).sql
+```
 
-- **背景设置的取值形态**：`app_settings` 里 `image` 字段存的是**裸文件名**（`bg-….png`），拼接前缀由路由与 `backgroundImageUrl()` 负责；`sites.icon_rel_path` 存的则是**含前缀的完整 key**。两者不同，迁移时勿混。
+`backups/` 已被 gitignore。
 
-### 5.5 注意事项
+### 5.5 数据迁移（从本地 / Docker 迁入）
 
-- Worker 名称固定为 `privlink`（见 `wrangler.toml`）；账户中已存在同名 Worker 会被覆盖部署。
-- `wrangler.toml` 中的 `database_id` 会随仓库提交，**fork 前请替换为自己的 uuid**，否则会指向他人数据库。
-- 更换 `NAV_TOKEN`：改仓库 Secret 或手动触发时填写输入框，重新运行 workflow 即可覆盖。
+使用 `scripts/migrate-local-to-cloudflare.py`，把 `data/sites.db`、`ICON/`、`background/` 导入 D1 与 R2。脚本保留原 id，R2 key 自动加上正确前缀：
+
+```bash
+uv run python scripts/migrate-local-to-cloudflare.py --local             # 演练：只生成 SQL 并打印计划
+uv run python scripts/migrate-local-to-cloudflare.py --local --apply     # 导入本地 miniflare 验证
+uv run python scripts/migrate-local-to-cloudflare.py --remote --apply    # 导入线上
+```
+
+- 默认只演练，加 `--apply` 才会写入。
+- 目标库已有站点时，脚本会拒绝导入；加 `--replace` 会先清空四张业务表再导入（R2 同名对象覆盖）。**覆盖前务必先按 5.4 导出备份。**
+- 线上 D1 尚不存在时，先部署一次（会自动建库），再执行导入。
+- 在中文 Windows 控制台运行时，设置 `PYTHONIOENCODING=utf-8` 可避免输出乱码（数据本身不受影响）。
+
+### 5.6 注意事项
+
+- Worker 名称固定为 `privlink`（见 `wrangler.jsonc`）；账户中已有同名 Worker 时会被覆盖部署。
+- binding 名（`DB`、`ICON_BUCKET`、`BACKGROUND_BUCKET`）与资源名需与线上保持一致，改名会让部署连接到新的空资源。
+- 更换 `NAV_TOKEN`：修改仓库 Secret 或在手动触发时填写输入框，然后重新运行 workflow；也可以在本地执行 `npx wrangler secret put NAV_TOKEN`。
+- 自定义域名返回 `403 Your request was blocked.` 时，是 zone 的安全规则（WAF、IP / 地区限制、Bot 规则等）在 Worker 之前拦截了请求，需在 Dashboard → Security → Events 中按 Ray ID 排查，与应用代码无关。

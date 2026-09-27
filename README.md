@@ -33,27 +33,12 @@ docker compose up -d --build
 
 ## Cloudflare 一键部署
 
-免费上云：TypeScript/Hono 实现部署到 Cloudflare Workers（D1 数据库 + R2 存储 + Workers Assets 静态资源），免费层覆盖个人使用，无需服务器。
+免费上云：同一份 Python 代码以 Cloudflare Python Workers 运行（D1 数据库 + R2 存储 + Workers Assets 静态资源），免费层覆盖个人使用，无需服务器。**无需预先创建任何资源**——D1 数据库与 R2 桶在首次部署时按名称自动创建，表结构由首个请求自动建立。
 
 ### 方式一：GitHub Actions（推荐，日常自动部署）
 
 [![Deploy via GitHub Actions](https://img.shields.io/badge/Deploy%20via%20GitHub%20Actions-black?logo=githubactions&logoColor=white)](https://github.com/luis330/PrivLink/actions/workflows/deploy-cloudflare.yml)
 
-> **一次性准备（首次部署前必做）**：workflow 只负责部署，**不会自动创建 Cloudflare 资源**。请先在本地执行一次：
->
-> ```bash
-> cd deploy/cloudflare
-> npm install
-> npx wrangler login
-> npx wrangler d1 create privlink                    # 记下返回的 database_id
-> npx wrangler r2 bucket create privlink-icons
-> npx wrangler r2 bucket create privlink-backgrounds
-> npx wrangler d1 execute privlink --remote --file=migrations/001_init.sql
-> ```
->
-> 然后把上一步返回的 uuid 填入 `deploy/cloudflare/wrangler.toml` 的 `database_id = ""` 并提交。这三项资源与迁移只需建一次。
->
-> **之后的自动部署配置**：
 > 1. Fork 本仓库到 GitHub 个人账号
 > 2. 在 Fork 后的仓库页面点击顶部 **Actions** 标签，找到 **Deploy to Cloudflare Workers**，点击 **"I understand my workflows, go ahead and enable them"** 启用 Actions
 > 3. 在仓库 **Settings → Secrets and variables → Actions** 添加：
@@ -61,40 +46,24 @@ docker compose up -d --build
 >    - `CLOUDFLARE_ACCOUNT_ID`（建议）：Cloudflare 账户 ID；不填则由 Token 自动解析
 >    - `NAV_TOKEN`（可选）：门禁 Token；不配置则为开放模式
 > 4. 在 **Actions** 标签页 → **Deploy to Cloudflare Workers** → **Run workflow** 手动触发首次部署
-> 5. 部署成功后访问 `https://privlink.<你的-workers-子域>.workers.dev`；之后每次 push 到 `main` 分支且涉及 `deploy/cloudflare/`、`index.html`、`simple-icons.json` 或 workflow 文件时自动重新部署
+> 5. 部署成功后访问 `https://privlink.<你的-workers-子域>.workers.dev`；之后每次 push 到 `main` 分支且涉及 `src/`、依赖文件、`wrangler.jsonc`、前端文件或 workflow 时自动测试并重新部署
 
-### 方式二：命令行本地部署（仅推荐高级用户）
+### 方式二：命令行本地部署
 
-> **注意**：由于 TS Worker 代码位于 `deploy/cloudflare/` 子目录而非仓库根目录，Cloudflare 官方一键部署按钮无法直接使用。
-> 如果你熟悉 Cloudflare Workers 和 Wrangler CLI，可以按以下步骤在本地完成部署：
+> 需要 [uv](https://docs.astral.sh/uv/) 与 Node.js（提供 `npx wrangler`）：
 >
 > ```bash
-> # 1. 安装依赖
-> cd deploy/cloudflare
-> npm install
->
-> # 2. 登录 Cloudflare
+> uv sync
+> uv run python scripts/patch-pywrangler.py   # 仅 Windows 需要（每次 uv sync 后执行）
 > npx wrangler login
->
-> # 3. 创建资源（幂等，重复运行安全）
-> npx wrangler d1 create privlink
-> npx wrangler r2 bucket create privlink-icons
-> npx wrangler r2 bucket create privlink-backgrounds
->
-> # 4. 编辑 wrangler.toml，把 database_id 占位符替换为上一步返回的 uuid
-> # 5. 同步前端文件
-> python ../../scripts/sync-frontend.py
-> # 6. 执行数据库迁移（--remote 作用于线上 D1，缺省会写到本地 miniflare 库）
-> npx wrangler d1 execute privlink --remote --file=migrations/001_init.sql
-> # 7. 可选：设置门禁 Token
-> npx wrangler secret put NAV_TOKEN
-> # 8. 部署
-> npx wrangler deploy
+> python scripts/sync-frontend.py             # 同步前端到 assets/
+> uv run pywrangler deploy
+> npx wrangler secret put NAV_TOKEN           # 可选：设置门禁 Token
 > ```
 >
-> 详见 [deploy/cloudflare/README.md](deploy/cloudflare/README.md)。
+> 本地调试 Workers 版本可用 `uv run pywrangler dev`（secret 写在 `.dev.vars`）；已有本地 / Docker 数据可用 `scripts/migrate-local-to-cloudflare.py` 迁入。
 
-> Cloudflare 分支完整部署与维护文档见 [docs/CLOUDFLARE-DEPLOYMENT.md](docs/CLOUDFLARE-DEPLOYMENT.md) 与 [deploy/cloudflare/README.md](deploy/cloudflare/README.md)。
+> Cloudflare 部署的架构、与本地运行的差异、回滚与数据迁移见 [docs/CLOUDFLARE-DEPLOYMENT.md](docs/CLOUDFLARE-DEPLOYMENT.md)。
 
 ## 部署概览
 
@@ -103,7 +72,7 @@ docker compose up -d --build
 | 运行环境 | Python 3.11+（uv 管理依赖）或任意 Docker 主机 |
 | 资源占用 | 单实例（SQLite 单写入者），小型 VPS / NAS / 家用主机均可 |
 | 网络 | 需能访问目标网站（可配 HTTP/SOCKS5 代理）；默认端口 8000 |
-| 数据持久化 | `data/`（SQLite 数据库）与 `ICON/`（站点图标），备份迁移只拷这两个目录 |
+| 数据持久化 | `data/`（SQLite 数据库）、`ICON/`（站点图标）与 `background/`（背景图），备份迁移只拷这三个目录 |
 | 公网部署 | 建议反向代理 + HTTPS（Caddy 一行 `reverse_proxy 127.0.0.1:8000` 即可） |
 
 > **Docker 完整步骤（含 Debian 安装、维护与升级命令）、源码部署（systemd 托管）、全部环境变量、代理与内网抓取配置、API 细节，见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。**
