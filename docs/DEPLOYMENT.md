@@ -1,6 +1,6 @@
 # PrivLink 部署与技术说明
 
-面向部署者的完整文档：环境要求、Docker / 源码部署、全部配置项、代理与内网抓取、运行与缓存策略、API 细节。产品功能概览见根目录 [README](../README.md)。
+面向部署者的完整文档：环境要求、Docker / 源码部署、全部配置项、代理与内网抓取、运行与缓存策略、API 细节。产品功能概览见根目录 [README](../README.md)，Cloudflare Workers 部署见 [CLOUDFLARE-DEPLOYMENT.md](CLOUDFLARE-DEPLOYMENT.md)。
 
 ## 目录
 
@@ -40,8 +40,7 @@ sudo systemctl enable --now docker
 1. 获取项目并进入目录：
 
 ```bash
-git clone <your-repo-url>
-cd PrivLink
+git clone <仓库地址> privlink && cd privlink
 ```
 
 2. 配置参数（可选但公网部署强烈建议）：
@@ -60,7 +59,7 @@ docker compose up -d --build
 4. 验证访问：
 
 - 页面：`http://<服务器IP>:8000/`
-- 接口：`POST http://<服务器IP>:8000/api/site/parse`
+- 接口：`GET http://<服务器IP>:8000/api/auth/status`（公开接口，返回门禁状态；门禁模式下 `POST /api/site/parse` 等管理接口需携带 `X-Nav-Token`）
 
 ### 基础镜像说明
 
@@ -79,7 +78,7 @@ docker compose down        # 停止并删除容器
 ### 升级代码与镜像
 
 ```bash
-cd PrivLink
+cd privlink
 git pull
 docker compose up -d --build
 docker compose logs -f --tail=100
