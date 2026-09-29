@@ -1,7 +1,8 @@
 .git
 .venv
-__pycache__/
-*.pyc
+.venv-workers/
+**/__pycache__/
+**/*.pyc
 data/
 ICON/
 background/
@@ -16,7 +17,23 @@ pylock.toml
 .dev.vars
 
 # Cloudflare Python Workers 本地构建状态（pywrangler）
-.venv-workers/
 python_modules/
 .wrangler/
 node_modules/
+
+# 本机构建缓存与工具目录（.uv_cache 实测 27MB，纯上下文垃圾）
+.uv_cache
+.pytest_cache
+.claude
+
+# 本机私有文件（.gitignore 已声明不入库，防 NAV_TOKEN 等随上下文发给 daemon）
+AGENTS.md
+.env
+
+# 构建配置本身无需参与上下文（builder 会单独读取 Dockerfile）
+Dockerfile
+docker-compose.yml
+.dockerignore
+.gitignore
+.env.example
+.python-version

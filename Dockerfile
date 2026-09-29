@@ -9,18 +9,16 @@ ENV PYTHONUNBUFFERED=1
 ENV UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
+# cache clean 必须与 sync 同层：Docker 层是增量的，单独 RUN 清不掉前一层已固化的缓存（实测 ~27MB/层）
+RUN uv sync --frozen --no-dev --no-install-project && uv cache clean
 
 COPY main.py ./
 COPY src/privlink/ ./src/privlink/
-COPY index.html simple-icons.json manifest.json ./
-COPY favicon.ico favicon-16x16.png favicon-32x32.png ./
-COPY apple-touch-icon.png android-chrome-192x192.png android-chrome-512x512.png ./
-RUN uv sync --frozen --no-dev
-RUN mkdir -p /app/data /app/ICON /app/background
+COPY index.html simple-icons.json manifest.json LICENSE favicon.ico favicon-16x16.png favicon-32x32.png apple-touch-icon.png android-chrome-192x192.png android-chrome-512x512.png ./
+RUN uv sync --frozen --no-dev && uv cache clean && mkdir -p /app/data /app/ICON /app/background
 
 EXPOSE 8000
 
 # --no-dev：pyproject 的 default-groups 含 dev（pytest、workers-py），不加则 uv run
-# 会在每次容器启动时联网补装开发依赖
-CMD ["uv", "run", "--no-dev", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# 会在每次容器启动时联网补装开发依赖；--frozen：锁文件已烘焙进镜像，禁止运行时重新解析
+CMD ["uv", "run", "--no-dev", "--frozen", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

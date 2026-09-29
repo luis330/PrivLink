@@ -1,5 +1,8 @@
 services:
   privlink:
+    # 双模式：docker compose pull && up -d 拉取预构建镜像；up -d --build 本地构建（覆盖同名 tag）。
+    # DOCKER_IMAGE 在 .env 中设置可锁定/回滚版本（如 <用户名>/privlink:0.1.0）或改用自建镜像源
+    image: ${DOCKER_IMAGE:-luis330/privlink:latest}
     build:
       context: .
       args:
