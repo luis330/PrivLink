@@ -12,6 +12,7 @@
 6. [运行策略说明](#6-运行策略说明)
 7. [性能与缓存策略](#7-性能与缓存策略)
 8. [API 说明](#8-api-说明)
+9. [维护者：发布镜像到 Docker Hub](#9-维护者发布镜像到-docker-hub)
 
 ---
 
@@ -37,26 +38,41 @@ sudo systemctl enable --now docker
 
 ### 部署步骤
 
-1. 获取项目并进入目录：
+1. 获取项目并配置参数（compose 编排文件与 `.env` 模板在仓库内，两种启动方式都需要）：
 
 ```bash
 git clone <仓库地址> privlink && cd privlink
-```
-
-2. 配置参数（可选但公网部署强烈建议）：
-
-```bash
 cp .env.example .env
 # 编辑 .env：至少设置 NAV_TOKEN；代理/内网白名单等按需
 ```
 
-3. 启动服务：
+2. 启动服务，二选一：
+
+**方式 A：拉取预构建镜像（推荐）**——无需本地构建，升级只拉新镜像：
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+不想克隆仓库时，可用最小 `docker run` 先行验证（正式使用仍建议 compose 统一管理环境变量与 volume）：
+
+```bash
+mkdir privlink && cd privlink
+docker run -d --name privlink -p 8000:8000 \
+  -e NAV_TOKEN=<你的token> \
+  -v "$PWD/data":/app/data -v "$PWD/ICON":/app/ICON -v "$PWD/background":/app/background \
+  <用户名>/privlink:latest
+```
+
+**方式 B：本地构建（开发者）**——修改过代码、或镜像仓库不可用时：
 
 ```bash
 docker compose up -d --build
 ```
 
-4. 验证访问：
+> 本地构建会以 compose 中 `image:` 的名字打 tag，覆盖已拉取的同名镜像；重新 `docker compose pull` 即恢复为发布镜像。
+
+3. 验证访问：
 
 - 页面：`http://<服务器IP>:8000/`
 - 接口：`GET http://<服务器IP>:8000/api/auth/status`（公开接口，返回门禁状态；门禁模式下 `POST /api/site/parse` 等管理接口需携带 `X-Nav-Token`）
@@ -64,6 +80,13 @@ docker compose up -d --build
 ### 基础镜像说明
 
 `Dockerfile` 基础镜像默认为官方 `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`。拉取官方镜像困难时，在 `.env` 中配置 `DOCKER_BASE_IMAGE=<你的代理镜像地址>` 即可（`docker compose build` 自动生效）；不经 compose 直接构建时用 `docker build --build-arg BASE_IMAGE=<地址> .` 覆盖。
+
+### 镜像内容说明
+
+- 镜像只包含运行所需内容（依赖以 `uv sync --frozen` 固化，约 200MB）；`.dockerignore` 已把测试、文档、Workers 构建状态、本地缓存与数据目录全部挡在构建上下文外。
+- 镜像内的数据目录（`/app/data` 等）仅为首次运行占位，真实数据一律来自 volume 挂载，换镜像不丢数据。
+- 国内拉取 Docker Hub 缓慢时，可配置 registry mirror（`/etc/docker/daemon.json` 的 `registry-mirrors`），或在 `.env` 中把 `DOCKER_IMAGE` 指向自建镜像源地址。
+- Docker Hub 匿名拉取有限额（同一 IP 10 次/6 小时，`docker login` 后提升），自部署场景一般无感。
 
 ### 常用维护命令
 
@@ -75,13 +98,30 @@ docker compose restart     # 重启（代码与镜像未变时）
 docker compose down        # 停止并删除容器
 ```
 
-### 升级代码与镜像
+### 升级与版本锁定
+
+拉镜像方式（推荐）：
+
+```bash
+cd privlink
+git pull                  # 仅当 compose 编排 / .env 模板有更新
+docker compose pull && docker compose up -d
+docker compose logs -f --tail=100
+```
+
+本地构建方式：
 
 ```bash
 cd privlink
 git pull
 docker compose up -d --build
 docker compose logs -f --tail=100
+```
+
+版本锁定与回滚：`latest` 跟随 main 分支最新构建，可能与最新发布 tag 有偏差，生产环境建议锁定版本——在 `.env` 中设置后 `docker compose pull && docker compose up -d` 生效，回滚改为旧版本号即可（可用版本见 Docker Hub 仓库 Tags 页）：
+
+```bash
+DOCKER_IMAGE=<用户名>/privlink:0.1.0
 ```
 
 ## 3. 源码部署（无 Docker）
@@ -152,11 +192,12 @@ systemctl daemon-reload && systemctl enable --now privlink
 | `NAV_USER_AGENT` | 内置浏览器式 UA | 抓取目标网站时使用的 `User-Agent` |
 | `NAV_ACCEPT_LANGUAGE` | `zh-CN,zh;q=0.9,en;q=0.8` | 抓取时的 `Accept-Language`（影响目标站返回的标题语言） |
 
-### 可选：Docker 构建
+### 可选：Docker 构建与镜像名
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `DOCKER_BASE_IMAGE` | 官方 `ghcr.io` 源 | 构建基础镜像地址，拉取困难时指向自己的代理/镜像仓库（仅 `docker compose build` 时生效） |
+| `DOCKER_IMAGE` | compose 内置默认 | 预构建镜像名（`docker compose pull` / `up` 使用）。锁定/回滚版本（如 `<用户名>/privlink:0.1.0`）或改从自建镜像源拉取时设置 |
 
 ## 5. 代理支持（HTTP / SOCKS5）
 
@@ -320,3 +361,24 @@ X-Nav-Token: your-secret-token
 - `icon` 可为空；为空时如果该 URL 已存在，会保留旧 icon。
 - icon 大小限制为 1MB。
 - 支持常见图片类型：`ico/png/jpg/jpeg/svg/webp/gif/bmp/avif`。
+
+## 9. 维护者：发布镜像到 Docker Hub
+
+首次发布前的一次性配置：
+
+1. 在 Docker Hub 创建仓库 `<用户名>/privlink`，并在 Account Settings → Security 生成 Access Token（Read & Write 权限）。
+2. GitHub 仓库 Settings → Secrets and variables → Actions：
+   - **Secrets**：`DOCKERHUB_USERNAME`（Docker Hub 用户名）、`DOCKERHUB_TOKEN`（上一步的 Access Token）
+   - **Variables**：`DOCKERHUB_REPO`（形如 `yourname/privlink`，未设置时 workflow 会显式报错而不是推错地方）
+3. 将 `docker-compose.yml` 中 `image:` 的占位符 `<dockerhub用户名>/privlink:latest` 替换为真实仓库地址（文档中的 `<用户名>/privlink` 为示例写法，无需替换）。占位符含 `<`、`>` 非法字符，替换前 `docker compose pull` / `build` 会报 `invalid reference format`——这是刻意的防呆设计。
+
+日常发布（两条流水线各自独立，避免 GitHub paths 过滤对 tag 推送不生效的缺陷）：
+
+- **latest 随 main**：push 到 `main` 且涉及镜像内容文件（`src/`、依赖清单、前端资产、Dockerfile 等）时，`.github/workflows/docker-publish.yml` 自动跑 pytest 后构建 `linux/amd64` + `linux/arm64` 并发布 `latest`；文档类改动不触发。
+- **版本随 tag**：确认 `pyproject.toml` 的 `version` 已更新并提交后：
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+`.github/workflows/docker-release.yml` 自动构建并发布 `0.1.0` / `0.1` / `0` 三个版本号 tag。tag 命名与 `pyproject.toml` 的 `version` 对齐（去掉 `v` 前缀）。

@@ -14,19 +14,21 @@
 
 ## 快速开始
 
+Docker 部署（推荐）：
+
+```bash
+git clone <仓库地址> privlink && cd privlink
+cp .env.example .env    # 公网部署务必设置 NAV_TOKEN
+docker compose pull && docker compose up -d
+```
+
+本地构建（开发者，改过代码时）：`docker compose up -d --build`。
 本地体验（需 [uv](https://docs.astral.sh/uv/)）：
 
 ```bash
 uv sync
 cp .env.example .env    # 可选；公网部署务必设置 NAV_TOKEN
 uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
-```
-
-或 Docker 一条命令：
-
-```bash
-cp .env.example .env
-docker compose up -d --build
 ```
 
 打开 `http://127.0.0.1:8000/` 即可使用；交互式 API 文档见 `/docs`。
