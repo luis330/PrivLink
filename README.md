@@ -1,6 +1,6 @@
 # PrivLink
 
-自部署的个人网站导航站。输入网址，自动解析站名与图标，卡片式展示、标签筛选、拖拽排序；支持公开/私有站点与访客只读浏览。基于 FastAPI + SQLite，无前端构建步骤、无外部数据库依赖，克隆即可运行。
+自部署的个人网站导航站。输入网址，自动解析站名与图标，卡片式展示、标签筛选、拖拽排序；支持公开/私有站点与访客只读浏览。基于 FastAPI + SQLite，无前端构建步骤、无外部数据库依赖，提供 Docker 镜像、Cloudflare Workers、源码三种部署方式，运行同一份 Python 代码。
 
 ## 功能特性
 
@@ -9,12 +9,20 @@
 - **公开 / 私有站点**：每个站点可勾选「公开站点」属性（默认公开）。私有站点带 🔒 标识，仅自己可见——连它的标签名都不会向访客泄露。
 - **Token 门禁**：不设 Token 为开放模式（内网自用零门槛）；设置后，未持 Token 的访客打开页面即可静默浏览全部公开站点（只读、可点击跳转、零弹窗），触发添加/修改/删除/排序等管理动作时才引导保存 Token。
 - **浏览器采集兜底**：目标站点有 Cloudflare、登录态等验证导致服务端抓不到时，用 Tampermonkey 脚本或 Chrome/Edge 扩展把浏览器里已通过验证的页面一键上报入库（不绕过验证码、不导出 cookie）。
-- **轻量自部署**：单实例 uvicorn + SQLite + 本地图标目录；全部数据只有 `data/`、`ICON/` 与 `background/` 三个目录，备份即拷贝，Docker 与源码两种部署方式共用同一份 `.env` 配置。
+- **轻量自部署**：单实例 uvicorn + SQLite + 本地图标目录；全部数据只有 `data/`、`ICON/` 与 `background/` 三个目录，备份即拷贝。Docker 与源码部署共用同一份 `.env` 配置；Cloudflare 部署由 Secrets / 变量承载同款配置。
 - **顺手的细节**：首页 ETag/304 协商缓存 + gzip，二次打开秒级渲染（localStorage 本地缓存）；面板顶栏显示公网 IP 并可点击刷新（自部署显示服务端出口 IP，Cloudflare 部署显示访问者自己的 IP）；Linux 下自动启用 uvloop/httptools，Windows 开发环境自动兼容。
 
 ## 快速开始
 
-Docker 部署（推荐）：
+三种部署方式运行同一份 Python 代码（`src/privlink/`），按基础设施选择：
+
+| 方式 | 适合场景 | 说明 |
+|---|---|---|
+| **Docker**（推荐） | 服务器 / NAS 自部署 | 拉取预构建镜像 `luis330/privlink`（amd64 / arm64），数据挂三个目录 |
+| **Cloudflare Workers** | 免服务器上云 | D1 + R2 存储，免费层覆盖个人使用，支持 GitHub Actions 一键部署，见[下文专节](#cloudflare-一键部署) |
+| **源码运行** | 开发者 / 无 Docker 环境 | [uv](https://docs.astral.sh/uv/) 管理依赖，克隆即跑 |
+
+### Docker（拉取预构建镜像）
 
 ```bash
 git clone <仓库地址> privlink && cd privlink
@@ -22,8 +30,13 @@ cp .env.example .env    # 公网部署务必设置 NAV_TOKEN
 docker compose pull && docker compose up -d
 ```
 
-本地构建（开发者，改过代码时）：`docker compose up -d --build`。
-本地体验（需 [uv](https://docs.astral.sh/uv/)）：
+打开 `http://127.0.0.1:8000/` 即可使用；交互式 API 文档见 `/docs`。
+
+- 升级：编排有更新时 `git pull`，再 `docker compose pull && docker compose up -d`。
+- 版本锁定 / 回滚：在 `.env` 中设置 `DOCKER_IMAGE=luis330/privlink:0.1.0`；走自建镜像源同理（如 `DOCKER_IMAGE=docker.freeba.org/luis330/privlink:0.1.0`）。
+- 开发者本地构建：`docker compose up -d --build`。
+
+### 源码运行（需 [uv](https://docs.astral.sh/uv/)）
 
 ```bash
 uv sync
@@ -31,7 +44,7 @@ cp .env.example .env    # 可选；公网部署务必设置 NAV_TOKEN
 uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-打开 `http://127.0.0.1:8000/` 即可使用；交互式 API 文档见 `/docs`。
+打开 `http://127.0.0.1:8000/` 即可使用（同上）。
 
 ## Cloudflare 一键部署
 
@@ -72,12 +85,13 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 | 项目 | 要求 |
 |---|---|
 | 运行环境 | Python 3.11+（uv 管理依赖）或任意 Docker 主机 |
+| 预构建镜像 | Docker Hub `luis330/privlink`（amd64 / arm64 多架构；`latest` 随 main，`v*` tag 出版本号） |
 | 资源占用 | 单实例（SQLite 单写入者），小型 VPS / NAS / 家用主机均可 |
 | 网络 | 需能访问目标网站（可配 HTTP/SOCKS5 代理）；默认端口 8000 |
 | 数据持久化 | `data/`（SQLite 数据库）、`ICON/`（站点图标）与 `background/`（背景图），备份迁移只拷这三个目录 |
 | 公网部署 | 建议反向代理 + HTTPS（Caddy 一行 `reverse_proxy 127.0.0.1:8000` 即可） |
 
-> **Docker 完整步骤（含 Debian 安装、维护与升级命令）、源码部署（systemd 托管）、全部环境变量、代理与内网抓取配置、API 细节，见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。**
+> **Docker 完整步骤（含 Debian 安装、维护升级、版本锁定与回滚）、源码部署（systemd 托管）、维护者发布镜像指南、全部环境变量、代理与内网抓取配置、API 细节，见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。**
 
 ## 访问控制
 
