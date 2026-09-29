@@ -55,6 +55,10 @@ jobs:
           images: ${{ vars.DOCKERHUB_REPO }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.title=privlink
+            org.opencontainers.image.description=轻量自部署书签导航站（FastAPI + SQLite；Docker / Cloudflare Workers / 源码三种部署）
+            org.opencontainers.image.licenses=AGPL-3.0
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
