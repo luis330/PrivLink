@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -27,8 +27,10 @@ from privlink.background import (
     save_background_setting,
     stored_background_image,
 )
+from privlink.bookmarks import parse_bookmarks_html, render_bookmarks_html
 from privlink.db import (
     SITE_ITEM_COLUMNS,
+    TAG_NAME_MAX_LEN,
     D1Database,
     IntegrityConflictError,
     bind_db,
@@ -39,6 +41,7 @@ from privlink.db import (
     get_db,
     init_storage,
     normalize_tag_list,
+    normalize_tag_name,
     site_tags_statements,
     unbind_db,
     utc_now,
@@ -632,3 +635,150 @@ async def delete_site(site_id: int) -> JSONResponse:
     await maybe_remove_old_icon(icon_rel_path, "")
     config.logger.info("删除网站: id=%d", site_id)
     return JSONResponse(status_code=200, content={"message": "ok"})
+
+
+# ===== 书签导入/导出 =====
+
+BOOKMARKS_IMPORT_MAX_BYTES = 5 * 1024 * 1024
+IMPORT_BATCH_SITES = 50  # 每批提交的站点数，规避 D1 单请求语句数上限
+
+
+def _normalize_import_tags(folders: list[str]) -> list[str]:
+    """书签文件夹名转标签：压缩空白、截断到标签长度上限、大小写不敏感去重。"""
+    tags: list[str] = []
+    seen: set[str] = set()
+    for folder in folders:
+        name = normalize_tag_name(folder)
+        if len(name) > TAG_NAME_MAX_LEN:
+            name = name[:TAG_NAME_MAX_LEN].rstrip()
+        key = name.lower()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        tags.append(name)
+    return tags
+
+
+def _import_site_statements(
+    url: str,
+    site_name: str,
+    tags: list[str],
+    now: str,
+    sort_order: int,
+    is_public: bool,
+) -> list[tuple[str, tuple[Any, ...]]]:
+    """单个导入站点的写入语句组；site_id 用 URL 子查询取，不依赖插入返回值。"""
+    statements: list[tuple[str, tuple[Any, ...]]] = [
+        (
+            "INSERT INTO sites ("
+            "url, site_name, icon_rel_path, icon_source_url, "
+            "created_at, updated_at, last_status, sort_order, is_public"
+            ") VALUES (?, ?, '', '', ?, ?, 'imported', ?, ?)",
+            (url, site_name, now, now, sort_order, 1 if is_public else 0),
+        )
+    ]
+    for name in tags:
+        statements.append(
+            ("INSERT OR IGNORE INTO tags (name, created_at) VALUES (?, ?)", (name, now))
+        )
+        statements.append(
+            (
+                "INSERT OR IGNORE INTO site_tags (site_id, tag_id) "
+                "SELECT (SELECT id FROM sites WHERE url = ?), id "
+                "FROM tags WHERE name = ? COLLATE NOCASE",
+                (url, name),
+            )
+        )
+    return statements
+
+
+@app.get("/api/sites/export", response_model=None)
+async def export_sites() -> Response:
+    """导出全部站点（含私有）为可回灌浏览器的书签 HTML。"""
+    rows = await get_db().fetch_all(
+        f"SELECT {SITE_ITEM_COLUMNS} FROM sites ORDER BY sort_order ASC, id ASC;"
+    )
+    tags_by_site = await fetch_all_site_tags()
+    filename = "nav-bookmarks-" + utc_now()[:10].replace("-", "") + ".html"
+    return Response(
+        content=render_bookmarks_html(rows, tags_by_site),
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/sites/import", response_model=None)
+async def import_sites(
+    file: UploadFile = File(...),
+    is_public: bool = Form(False),
+) -> JSONResponse:
+    """导入浏览器导出的书签 HTML；重复 URL 跳过，文件夹转为标签。"""
+    content = await file.read()
+    if not content:
+        return JSONResponse(status_code=400, content={"error": "请上传书签 HTML 文件"})
+    if len(content) > BOOKMARKS_IMPORT_MAX_BYTES:
+        return JSONResponse(status_code=400, content={"error": "书签文件大小不能超过 5MB"})
+    entries = parse_bookmarks_html(content)
+    total = len(entries)
+    if not entries:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "未在文件中找到可导入的网站，请确认是浏览器导出的书签 HTML 文件"},
+        )
+
+    db = get_db()
+    existing_rows = await db.fetch_all("SELECT url FROM sites")
+    # 同一集合同时覆盖库内重复与文件内重复
+    existing_urls = {(row["url"] or "").strip() for row in existing_rows}
+    max_row = await db.fetch_one("SELECT COALESCE(MAX(sort_order), 0) AS max_sort FROM sites")
+    next_sort = int((max_row or {}).get("max_sort") or 0) + 1
+    now = utc_now()
+
+    batch: list[tuple[str, tuple[Any, ...]]] = []
+    staged = 0  # 本批已暂存、待提交确认的站点数
+    imported = 0
+    skipped = 0
+
+    async def flush() -> None:
+        nonlocal batch, staged, imported
+        if not batch:
+            return
+        await db.batch(batch)
+        imported += staged
+        batch = []
+        staged = 0
+
+    try:
+        for entry in entries:
+            url = (entry["url"] or "").strip()
+            if not url or url in existing_urls:
+                skipped += 1
+                continue
+            existing_urls.add(url)
+            batch.extend(
+                _import_site_statements(
+                    url,
+                    entry["title"],
+                    _normalize_import_tags(entry["folders"]),
+                    now,
+                    next_sort,
+                    is_public,
+                )
+            )
+            next_sort += 1
+            staged += 1
+            if staged >= IMPORT_BATCH_SITES:
+                await flush()
+        await flush()
+    except Exception as exc:
+        config.logger.error("书签导入失败: %s", exc, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": f"导入中断：已写入 {imported} 个网站，其余未完成",
+                "total": total,
+                "imported": imported,
+                "skipped": skipped,
+            },
+        )
+    return JSONResponse(content={"total": total, "imported": imported, "skipped": skipped})
