@@ -273,6 +273,8 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 | GET | `/api/network/public-ip` | 需 token | 服务端直连公网 IPv4（`{ip, kind:"server"}`；Cloudflare 部署下返回访客 IP 且对访客公开） |
 | POST | `/api/site/parse` | 需 token | URL 解析入库 |
 | POST | `/api/site/ingest` | 需 token | 浏览器采集上报 |
+| GET | `/api/sites/export` | 需 token | 导出全部站点（含私有）为书签 HTML（attachment 下载，可回灌浏览器） |
+| POST | `/api/sites/import` | 需 token | 导入书签 HTML（multipart 字段 `file` ≤5MB；重复 URL 跳过，文件夹转为标签） |
 | GET | `/api/icons` | 需 token | 内置图标库列表（Simple Icons，返回 `{name, slug, url}`） |
 | PUT | `/api/appearance/background` | 需 token | 设置背景（`type=default/color/image`） |
 | GET | `/api/appearance/background/images` | 需 token | 背景图片列表 |
@@ -361,6 +363,19 @@ X-Nav-Token: your-secret-token
 - `icon` 可为空；为空时如果该 URL 已存在，会保留旧 icon。
 - icon 大小限制为 1MB。
 - 支持常见图片类型：`ico/png/jpg/jpeg/svg/webp/gif/bmp/avif`。
+
+### `POST /api/sites/import` 与 `GET /api/sites/export`
+
+书签批量导入导出，兼容 Edge / Chrome / Firefox「导出收藏夹」生成的 Netscape 书签 HTML 格式。
+
+**导入**：multipart 上传，文件字段 `file`（≤5MB），表单字段 `is_public`（`true`/`false`，默认 `false`=私有）。行为约定：
+
+- 解析所有 `<A HREF>` 条目，非 http/https 链接（`javascript:`、`place:` 等）自动丢弃，空标题回退为 URL。
+- 网址已存在（含文件内部重复）则跳过，不改动已有站点的名称/标签/图标；响应中返回 `{total, imported, skipped}`。
+- 书签文件夹逐级映射为标签（如「书签栏/开发工具」产生「书签栏」「开发工具」两个标签），超 20 字符截断；新站点 `sort_order` 追加在现有最大值之后。
+- 大文件分批写入（每批 50 个站点）；中途失败返回 500 与已写入计数，已写入部分不回滚。
+
+**导出**：无需请求参数，返回 `Content-Disposition: attachment` 的书签 HTML（文件名 `nav-bookmarks-YYYYMMDD.html`）。每个标签渲染为一个文件夹（按名称排序），无标签站点在顶层；持 token 导出包含私有站点。前端因需携带 `X-Nav-Token` 请求头，走 fetch + blob 下载而非直接链接。
 
 ## 9. 维护者：发布镜像到 Docker Hub
 

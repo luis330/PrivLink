@@ -880,6 +880,31 @@
         width: min(520px, 100%);
       }
 
+      .transfer-modal-card {
+        width: min(520px, 100%);
+      }
+
+      .transfer-hint {
+        margin: 0;
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: var(--ink);
+        opacity: 0.75;
+      }
+
+      .transfer-file-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .transfer-file-name {
+        font-size: 13px;
+        color: var(--ink);
+        word-break: break-all;
+      }
+
       .token-input {
         font-family: "IBM Plex Mono", Consolas, monospace;
       }
@@ -1202,6 +1227,12 @@
         font-size: 14px;
       }
 
+      .primary-btn:disabled,
+      .ghost-btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
       .danger-btn {
         border-radius: 999px;
         border: none;
@@ -1393,6 +1424,7 @@
             </div>
             <button id="token-settings-btn" class="token-settings-btn" type="button">访问 Token</button>
             <button id="background-settings-btn" class="token-settings-btn" type="button">背景</button>
+            <button id="transfer-btn" class="token-settings-btn" type="button">导入/导出</button>
           </div>
         </div>
 
@@ -1588,6 +1620,38 @@
       </section>
     </div>
 
+    <div id="transfer-modal" class="modal-overlay" hidden>
+      <section class="modal-card transfer-modal-card" role="dialog" aria-modal="true" aria-labelledby="transfer-title">
+        <div class="modal-head">
+          <h2 id="transfer-title" class="modal-title">导入 / 导出书签</h2>
+          <button id="transfer-close-btn" class="close-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <form id="transfer-import-form" class="modal-form">
+          <label class="modal-label">导入书签</label>
+          <p class="transfer-hint">选择从 Edge / Chrome / Firefox 导出的收藏夹 HTML 文件；文件夹会转为标签，已存在的网址自动跳过。</p>
+          <div class="transfer-file-row">
+            <button id="transfer-file-btn" class="ghost-btn" type="button">选择文件</button>
+            <span id="transfer-file-name" class="transfer-file-name">未选择文件</span>
+            <input id="transfer-file-input" type="file" accept=".html,.htm" hidden />
+          </div>
+          <label class="public-toggle" for="transfer-public-checkbox">
+            <input id="transfer-public-checkbox" type="checkbox" />导入后设为公开站点
+          </label>
+          <div id="transfer-error" class="modal-error"></div>
+          <div class="modal-actions">
+            <button id="transfer-import-btn" class="primary-btn" type="submit" disabled>开始导入</button>
+          </div>
+        </form>
+        <div class="modal-form">
+          <label class="modal-label">导出书签</label>
+          <p class="transfer-hint">将全部站点（含私有）导出为书签 HTML 文件，可重新导入浏览器。</p>
+          <div class="modal-actions">
+            <button id="transfer-export-btn" class="ghost-btn" type="button">导出 HTML 文件</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <div id="bg-overlay" class="bg-overlay" hidden></div>
 
     <script>
@@ -1710,6 +1774,17 @@
       const bgApplyImageBtn = document.getElementById("bg-apply-image-btn");
       const bgDeleteImageBtn = document.getElementById("bg-delete-image-btn");
       const bgImageGridEl = document.getElementById("bg-image-grid");
+      const transferBtn = document.getElementById("transfer-btn");
+      const transferModalEl = document.getElementById("transfer-modal");
+      const transferCloseBtn = document.getElementById("transfer-close-btn");
+      const transferImportForm = document.getElementById("transfer-import-form");
+      const transferFileBtn = document.getElementById("transfer-file-btn");
+      const transferFileInput = document.getElementById("transfer-file-input");
+      const transferFileNameEl = document.getElementById("transfer-file-name");
+      const transferPublicCheckbox = document.getElementById("transfer-public-checkbox");
+      const transferImportBtn = document.getElementById("transfer-import-btn");
+      const transferExportBtn = document.getElementById("transfer-export-btn");
+      const transferErrorEl = document.getElementById("transfer-error");
       const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
 
       /* ===== 常量 ===== */
@@ -1722,6 +1797,7 @@
       const BACKGROUND_STORAGE_KEY = "nav_background_v1";
       const BACKGROUND_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
       const BACKGROUND_IMAGE_RE = /\.(jpe?g|png|webp)$/i;
+      const TRANSFER_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
 
       /* ===== API 地址 ===== */
       function getParseApiUrl() {
@@ -1773,6 +1849,20 @@
           return "http://127.0.0.1:8000/api/tags";
         }
         return "/api/tags";
+      }
+
+      function getTransferImportUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/sites/import";
+        }
+        return "/api/sites/import";
+      }
+
+      function getTransferExportUrl() {
+        if (window.location.protocol === "file:") {
+          return "http://127.0.0.1:8000/api/sites/export";
+        }
+        return "/api/sites/export";
       }
 
       function getPublicIpApiUrl() {
@@ -1835,6 +1925,9 @@
       let tagSuggestActiveIdx = -1;
       let publicIpLoading = false;
       let tokenSaving = false;
+      let transferImporting = false;
+      let transferExporting = false;
+      let transferSelectedFile = null;
       let resultSiteId = 0;
       let resultOriginalSite = null;
       let resultDraftTags = [];
@@ -3063,6 +3156,115 @@
         }
       }
 
+      /* ===== 导入/导出 ===== */
+      function openTransferModal() {
+        resetTransferPanel();
+        transferModalEl.hidden = false;
+      }
+
+      function closeTransferModal() {
+        transferModalEl.hidden = true;
+      }
+
+      function resetTransferPanel() {
+        transferSelectedFile = null;
+        transferFileInput.value = "";
+        transferFileNameEl.textContent = "未选择文件";
+        transferImportBtn.disabled = true;
+        transferPublicCheckbox.checked = false;
+        setTransferMessage("", false);
+      }
+
+      function setTransferMessage(message, isError) {
+        transferErrorEl.textContent = message;
+        transferErrorEl.classList.toggle("ok", !isError && Boolean(message));
+      }
+
+      async function submitTransferImport(event) {
+        event.preventDefault();
+        const file = transferSelectedFile;
+        if (!file || transferImporting) return;
+        if (file.size > TRANSFER_IMPORT_MAX_BYTES) {
+          setTransferMessage("书签文件大小不能超过 5MB", true);
+          return;
+        }
+        transferImporting = true;
+        transferImportBtn.disabled = true;
+        setTransferMessage("正在导入...", false);
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("is_public", transferPublicCheckbox.checked ? "true" : "false");
+        try {
+          const response = await apiFetch(getTransferImportUrl(), {
+            method: "POST",
+            body: formData,
+          });
+          const data = await response.json().catch(() => null);
+          if (!data || typeof data.imported !== "number") {
+            setTransferMessage((data && data.error) || "导入失败，请重试", true);
+            return;
+          }
+          if (data.error) {
+            // 分块写入中途失败：部分数据已落库
+            setTransferMessage(data.error + "（本次新增 " + data.imported + " 个）", true);
+            loadSites();
+            loadTags();
+            return;
+          }
+          setTransferMessage(
+            "导入完成：新增 " + data.imported + " 个，跳过 " + data.skipped + " 个",
+            false
+          );
+          transferSelectedFile = null;
+          transferFileInput.value = "";
+          transferFileNameEl.textContent = "未选择文件";
+          transferImportBtn.disabled = true;
+          loadSites();
+          loadTags();
+        } catch (_) {
+          setTransferMessage("导入失败，网络异常", true);
+        } finally {
+          transferImporting = false;
+          transferImportBtn.disabled = !transferSelectedFile;
+        }
+      }
+
+      async function submitTransferExport() {
+        if (transferExporting) return;
+        transferExporting = true;
+        transferExportBtn.disabled = true;
+        setTransferMessage("正在导出...", false);
+        try {
+          // 导出接口要求 X-Nav-Token 头，须经 fetch 取回 blob 再触发下载
+          const response = await apiFetch(getTransferExportUrl(), { method: "GET" });
+          if (!response.ok) {
+            throw new Error("状态码: " + response.status);
+          }
+          const blob = await response.blob();
+          const objectUrl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          const now = new Date();
+          const pad2 = (value) => String(value).padStart(2, "0");
+          link.href = objectUrl;
+          link.download =
+            "nav-bookmarks-" +
+            now.getFullYear() +
+            pad2(now.getMonth() + 1) +
+            pad2(now.getDate()) +
+            ".html";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(objectUrl);
+          setTransferMessage("导出完成", false);
+        } catch (_) {
+          setTransferMessage("导出失败，请重试", true);
+        } finally {
+          transferExporting = false;
+          transferExportBtn.disabled = false;
+        }
+      }
+
       /* ===== 背景设置 ===== */
       function clearBodyInlineBackground() {
         document.body.style.backgroundColor = "";
@@ -3906,6 +4108,24 @@
       tokenModalEl.addEventListener("click", (event) => {
         if (event.target === tokenModalEl) closeTokenModal();
       });
+      transferBtn.addEventListener("click", () => {
+        if (!requireManageToken()) return;
+        openTransferModal();
+      });
+      transferCloseBtn.addEventListener("click", closeTransferModal);
+      transferModalEl.addEventListener("click", (event) => {
+        if (event.target === transferModalEl) closeTransferModal();
+      });
+      transferFileBtn.addEventListener("click", () => transferFileInput.click());
+      transferFileInput.addEventListener("change", () => {
+        const file = transferFileInput.files && transferFileInput.files[0];
+        transferSelectedFile = file || null;
+        transferFileNameEl.textContent = file ? file.name : "未选择文件";
+        transferImportBtn.disabled = !file;
+        setTransferMessage("", false);
+      });
+      transferImportForm.addEventListener("submit", submitTransferImport);
+      transferExportBtn.addEventListener("click", submitTransferExport);
 
       document.addEventListener("click", (event) => {
         if (!contextMenuEl.hidden && !contextMenuEl.contains(event.target)) {
@@ -3915,7 +4135,7 @@
       document.addEventListener("click", (event) => {
         if (addPanelEl.classList.contains("collapsed")) return;
         if (addPanelEl.contains(event.target)) return;
-        if (!editModalEl.hidden || !deleteModalEl.hidden || !tokenModalEl.hidden || !backgroundModalEl.hidden) return;
+        if (!editModalEl.hidden || !deleteModalEl.hidden || !tokenModalEl.hidden || !backgroundModalEl.hidden || !transferModalEl.hidden) return;
         if (contextMenuEl.contains(event.target)) return;
         setAddCollapsed(true);
       });
@@ -3928,6 +4148,7 @@
         if (!deleteModalEl.hidden) closeDeleteModal();
         if (!tokenModalEl.hidden) closeTokenModal();
         if (!backgroundModalEl.hidden) closeBackgroundModal();
+        if (!transferModalEl.hidden) closeTransferModal();
       });
 
       form.addEventListener("submit", submitUrl);
