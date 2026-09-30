@@ -31,3 +31,4 @@ python_modules/
 # 本地 AI 协作约定（仅本机使用，不随仓库公开）
 AGENTS.md
 docs/agents/
+.zcode/

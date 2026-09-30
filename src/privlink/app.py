@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response as StarletteResponse, StreamingResponse
 
@@ -47,7 +48,12 @@ from privlink.db import (
     utc_now,
 )
 from privlink.fetcher import PublicIPv4LookupError
-from privlink.icons import icon_url_for_slug, icon_upload_filename, list_simple_icons
+from privlink.icons import (
+    contains_active_svg_content,
+    icon_url_for_slug,
+    icon_upload_filename,
+    list_simple_icons,
+)
 from privlink.jsinterop import js_field
 from privlink.models import (
     AuthStatusResponse,
@@ -93,6 +99,11 @@ async def app_lifespan(_: FastAPI):
         config.logger.warning("NAV_MODE=%s 暂未实现，按 single 模式运行", config.NAV_MODE)
     if not config.NAV_TOKEN:
         config.logger.warning("未设置 NAV_TOKEN，API 处于开放模式；公网部署请配置访问 token")
+    elif len(config.NAV_TOKEN) < 32:
+        config.logger.warning(
+            "NAV_TOKEN 长度不足 32 位（当前 %d 位），静态 token 是唯一管理凭证，建议加长",
+            len(config.NAV_TOKEN),
+        )
     if config.IS_WORKERS:
         # Workers 无持久本地磁盘：DDL 由 PlatformBindings 在首个请求执行
         config.logger.info("Workers 模式：跳过本地目录/SQLite 初始化")
@@ -103,21 +114,31 @@ async def app_lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="PrivLink", version="1.0.0", lifespan=app_lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+_docs_kwargs = (
+    {}
+    if config.NAV_ENABLE_DOCS
+    else {"docs_url": None, "redoc_url": None, "openapi_url": None}
 )
+app = FastAPI(title="PrivLink", version="1.0.0", lifespan=app_lifespan, **_docs_kwargs)
 if not config.IS_WORKERS:
     # Workers 内建压缩，重复 GZip 中间件会破坏 Pyodide 响应流
     app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
 class TokenGuard:
-    """纯 ASGI 令牌守卫（不走 BaseHTTPMiddleware，避免流式响应问题）。"""
+    """纯 ASGI 令牌守卫（不走 BaseHTTPMiddleware，避免流式响应问题）。
+
+    内置按来源 IP 的 401 失败滑动窗口限速：仅统计 token 无效的失败请求，
+    持有效 token 的请求不受影响并清零该 IP 计数；窗口内失败超过阈值后，
+    锁定期内该 IP 的无效请求直接 429。Workers isolate 内存计数是尽力而为，
+    公网部署的权威限速应配置在 Cloudflare WAF Rate Limiting（见 docs/security-ops.md）。
+    """
+
+    _failures: dict[str, deque[float]] = {}
+    _locked_until: dict[str, float] = {}
+    _MAX_TRACKED_IPS = 4096
+    # 锁定被关闭时的单 IP 窗口条目上限（防高频攻击下的内存膨胀）
+    _MAX_WINDOW_ENTRIES = 1000
 
     def __init__(self, app: Any) -> None:
         self.app = app
@@ -136,26 +157,195 @@ class TokenGuard:
                     key.decode("latin-1").lower(): value.decode("latin-1")
                     for key, value in scope["headers"]
                 }
-                if not token_header_matches(headers.get("x-nav-token")):
-                    body = json.dumps(
-                        {"error": "需要访问 token"},
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    ).encode("utf-8")
-                    await send(
-                        {
-                            "type": "http.response.start",
-                            "status": 401,
-                            "headers": [
-                                (b"content-type", b"application/json"),
-                                (b"content-length", str(len(body)).encode("latin-1")),
-                                (b"access-control-allow-origin", b"*"),
-                            ],
-                        }
-                    )
-                    await send({"type": "http.response.body", "body": body})
+                if token_header_matches(headers.get("x-nav-token")):
+                    self._clear_client(headers, scope)
+                else:
+                    retry_after = self._reject_or_count(headers, scope)
+                    if retry_after is not None:
+                        await self._send_json(
+                            send,
+                            429,
+                            {"error": "请求过于频繁，请稍后重试"},
+                            extra_headers=[(b"retry-after", str(retry_after).encode("latin-1"))],
+                        )
+                        return
+                    await self._send_json(send, 401, {"error": "需要访问 token"})
                     return
         await self.app(scope, receive, send)
+
+    @staticmethod
+    def _client_ip(headers: dict[str, str], scope: dict[str, Any]) -> str:
+        # 只信 Workers 边缘注入的 cf-connecting-ip 与 socket 对端地址；
+        # X-Forwarded-For 可被客户端伪造，不采信（否则限速可被绕过）
+        ip = (headers.get("cf-connecting-ip") or "").strip()
+        if ip:
+            return ip
+        client = scope.get("client")
+        return str(client[0]) if client else "unknown"
+
+    @classmethod
+    def _clear_client(cls, headers: dict[str, str], scope: dict[str, Any]) -> None:
+        ip = cls._client_ip(headers, scope)
+        cls._failures.pop(ip, None)
+        cls._locked_until.pop(ip, None)
+
+    @classmethod
+    def _reject_or_count(cls, headers: dict[str, str], scope: dict[str, Any]) -> int | None:
+        """失败请求的限速判定：命中锁定返回 Retry-After 秒数，否则记一次失败并放行为 401。"""
+        now = time.monotonic()
+        ip = cls._client_ip(headers, scope)
+        lock_until = cls._locked_until.get(ip, 0.0)
+        if lock_until > now:
+            return max(1, int(lock_until - now))
+
+        window = float(config.NAV_AUTH_FAIL_WINDOW)
+        cutoff = now - window
+        stamps = cls._failures.setdefault(ip, deque())
+        while stamps and stamps[0] < cutoff:
+            stamps.popleft()
+        stamps.append(now)
+        if len(stamps) > int(config.NAV_AUTH_FAIL_MAX) and config.NAV_AUTH_LOCKOUT_SECONDS > 0:
+            cls._failures.pop(ip, None)
+            cls._locked_until[ip] = now + float(config.NAV_AUTH_LOCKOUT_SECONDS)
+            return int(config.NAV_AUTH_LOCKOUT_SECONDS)
+        if len(stamps) > cls._MAX_WINDOW_ENTRIES:
+            # 锁定关闭（LOCKOUT=0）时的兜底：只 401 不锁定，但窗口条目不无界增长
+            stamps.clear()
+
+        # 计数表防膨胀：超限时清理已过期条目
+        if len(cls._failures) > cls._MAX_TRACKED_IPS:
+            for key in [k for k, v in cls._failures.items() if not v or v[-1] < cutoff]:
+                cls._failures.pop(key, None)
+            for key in [k for k, v in cls._locked_until.items() if v <= now]:
+                cls._locked_until.pop(key, None)
+        return None
+
+    @staticmethod
+    async def _send_json(
+        send: Any,
+        status: int,
+        payload: dict[str, str],
+        extra_headers: list[tuple[bytes, bytes]] | None = None,
+    ) -> None:
+        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        response_headers = [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode("latin-1")),
+        ]
+        if extra_headers:
+            response_headers.extend(extra_headers)
+        await send({"type": "http.response.start", "status": status, "headers": response_headers})
+        await send({"type": "http.response.body", "body": body})
+
+
+_SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+    (b"permissions-policy", b"camera=(), microphone=(), geolocation=()"),
+    (b"x-frame-options", b"SAMEORIGIN"),
+)
+
+
+class SecurityHeadersMiddleware:
+    """为全部响应补基础安全头（含 401/429 等短路响应）。
+
+    响应已带同名头时不覆盖——媒体路由会为 SVG 发更严格的沙箱 CSP。
+    HSTS 有意不在应用层下发：Cloudflare 区域设置统一下发，避免重复响应头。
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: dict[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers") or [])
+                present = {key.decode("latin-1").lower() for key, _ in headers}
+                if "content-security-policy" not in present:
+                    headers.append(
+                        (b"content-security-policy", config.CSP_PAGE.encode("latin-1"))
+                    )
+                for key, value in _SECURITY_HEADERS:
+                    if key.decode("latin-1") not in present:
+                        headers.append((key, value))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+class CorsGuard:
+    """纯 ASGI CORS 守卫：仅当请求 Origin 命中 config.CORS_ALLOWED_ORIGINS 时放行跨域。
+
+    白名单默认为空 → 不产生任何 CORS 头（同源部署零跨域面；浏览器同源请求本就
+    不需要 CORS）。预检在本层直接应答，其余请求透传并在响应上补 ACAO。
+    白名单来自 env（NAV_CORS_ORIGINS），Workers 下由 PlatformBindings 逐请求注入。
+    """
+
+    _ALLOW_METHODS = "GET, HEAD, POST, PUT, DELETE, OPTIONS"
+    _ALLOW_HEADERS = "X-Nav-Token, Content-Type"
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        origin = self._origin(scope)
+        if not origin or not self._allowed(origin):
+            await self.app(scope, receive, send)
+            return
+        if scope["method"] == "OPTIONS" and self._is_preflight(scope):
+            await self._send_preflight(send, origin)
+            return
+
+        async def send_with_cors(message: dict[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers") or [])
+                headers.append((b"access-control-allow-origin", origin.encode("latin-1")))
+                headers.append((b"vary", b"origin"))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_cors)
+
+    @staticmethod
+    def _origin(scope: dict[str, Any]) -> str:
+        for key, value in scope["headers"]:
+            if key == b"origin":
+                return value.decode("latin-1").strip()
+        return ""
+
+    @staticmethod
+    def _allowed(origin: str) -> bool:
+        clean = origin.rstrip("/")
+        return bool(clean) and clean in config.CORS_ALLOWED_ORIGINS
+
+    @staticmethod
+    def _is_preflight(scope: dict[str, Any]) -> bool:
+        return any(key == b"access-control-request-method" for key, _ in scope["headers"])
+
+    async def _send_preflight(self, send: Any, origin: str) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-length", b"0"),
+                    (b"access-control-allow-origin", origin.encode("latin-1")),
+                    (b"access-control-allow-methods", self._ALLOW_METHODS.encode("latin-1")),
+                    (b"access-control-allow-headers", self._ALLOW_HEADERS.encode("latin-1")),
+                    (b"access-control-max-age", b"600"),
+                    (b"vary", b"origin"),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": b""})
 
 
 class PlatformBindings:
@@ -175,11 +365,16 @@ class PlatformBindings:
         env = scope.get("env")
         if env is not None:
             # wrangler vars/secrets 不进 os.environ：逐请求从 env 回写 config（缺省即重置，
-            # 不沿用上一请求的值），供 TokenGuard/auth 属性访问读取。本中间件须注册在 TokenGuard 外层。
+            # 不沿用上一请求的值），供 TokenGuard/CorsGuard/auth 属性访问读取。
+            # 本中间件须注册在最外层。
             token = js_field(env, "NAV_TOKEN") or js_field(env, "NAV_INGEST_TOKEN")
             config.NAV_TOKEN = token.strip() if isinstance(token, str) else ""
             mode = js_field(env, "NAV_MODE")
             config.NAV_MODE = (mode.strip().lower() if isinstance(mode, str) else "") or "single"
+            origins = js_field(env, "NAV_CORS_ORIGINS")
+            config.CORS_ALLOWED_ORIGINS = config.parse_cors_origins(
+                origins if isinstance(origins, str) else ""
+            )
         cleanup: list[tuple[Any, Any]] = []
         try:
             d1 = js_field(env, "DB")
@@ -198,7 +393,9 @@ class PlatformBindings:
 
 
 app.add_middleware(TokenGuard)
-# 后注册 = 最外层：必须先于 TokenGuard 注入 vars/config
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(CorsGuard)
+# 后注册 = 最外层：必须先于 TokenGuard/CorsGuard 注入 vars/config
 app.add_middleware(PlatformBindings)
 
 
@@ -218,15 +415,28 @@ async def _media_response(request: Request, file_path: str, area: StorageArea):
     if not _safe_media_name(file_path):
         return _media_not_found()
     cache_control = "public, max-age=86400"
+    # SVG 以独立文档直接打开时会执行内嵌脚本：沙箱 CSP 收口。<img> 引用不受影响
+    # （图像上下文本就不执行脚本），存量 SVG 图标无需迁移；nosniff 由安全头中间件统一补。
+    extra_headers = (
+        {"Content-Security-Policy": config.CSP_SVG}
+        if file_path.lower().endswith(".svg")
+        else None
+    )
     if area.bucket() is None:
         response = conditional_file_response(
-            request, area.local_dir() / file_path, media_type_for(file_path), cache_control
+            request,
+            area.local_dir() / file_path,
+            media_type_for(file_path),
+            cache_control,
+            extra_headers,
         )
         return response if response is not None else _media_not_found()
     entry = await storage.get(area, file_path, request.headers.get("if-none-match", ""))
     if entry is None:
         return _media_not_found()
     headers = {"Cache-Control": cache_control}
+    if extra_headers:
+        headers.update(extra_headers)
     if entry.etag:
         headers["ETag"] = entry.etag
     if entry.body is None:
@@ -252,7 +462,8 @@ async def validation_exception_handler(_: Request, exc: RequestValidationError) 
 @app.exception_handler(Exception)
 async def generic_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     config.logger.error("未捕获异常: %s", exc, exc_info=True)
-    return JSONResponse(status_code=500, content=error_payload(f"Internal server error: {exc}"))
+    # 原始异常文本可能携带内部路径/SQL/配置细节，不回显给客户端
+    return JSONResponse(status_code=500, content=error_payload("Internal server error"))
 
 
 @app.get("/", include_in_schema=False, response_model=None)
@@ -595,6 +806,11 @@ async def upload_site_icon(site_id: int, icon: UploadFile = File(...)) -> JSONRe
         return JSONResponse(status_code=400, content={"error": "图标内容为空"})
     if len(content) > config.ICON_UPLOAD_MAX_BYTES:
         return JSONResponse(status_code=400, content={"error": "图标大小不能超过 1MB"})
+    if Path(filename).suffix.lower() == ".svg" and contains_active_svg_content(content):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "SVG 图标包含活动内容（script/事件属性），已拒绝"},
+        )
 
     relative_path = Path("ICON") / icon_upload_filename(content, filename)
 
@@ -694,7 +910,16 @@ def _import_site_statements(
 
 @app.get("/api/sites/export", response_model=None)
 async def export_sites() -> Response:
-    """导出全部站点（含私有）为可回灌浏览器的书签 HTML。"""
+    """导出全部站点（含私有）为可回灌浏览器的书签 HTML。
+
+    导出的是全量数据（SQL 不做 is_public 过滤），开放模式（无 token）下一律 403，
+    与浏览器采集接口同模式——它是唯一能静默读走全部私有数据的接口。
+    """
+    if not config.NAV_TOKEN:
+        return JSONResponse(
+            status_code=403,
+            content={"error": "导出功能仅在门禁模式下可用，请先配置 NAV_TOKEN"},
+        )
     rows = await get_db().fetch_all(
         f"SELECT {SITE_ITEM_COLUMNS} FROM sites ORDER BY sort_order ASC, id ASC;"
     )

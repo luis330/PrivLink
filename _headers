@@ -1,0 +1,11 @@
+# Workers Assets 静态路径（首页 index.html 与品牌图标）的安全响应头。
+# 本地部署与 /api/*、/ICON/*、/background/* 路径由 src/privlink/app.py 的
+# SecurityHeadersMiddleware 下发，两处策略需保持一致。
+# 注意：HSTS 由 Cloudflare 区域设置统一下发（避免重复响应头），此处不要添加；
+# 调整 CSP 时同步修改 config.py 的 CSP_PAGE 常量。
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'

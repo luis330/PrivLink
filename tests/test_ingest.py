@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import main
 from privlink import config
+from privlink.app import TokenGuard
 from privlink.db import db_connect, init_storage
 
 
@@ -50,6 +51,9 @@ class IsolatedAppTestCase(unittest.TestCase):
         config.ICON_DIR = Path("ICON")
         config.FRONTEND_PATH = self.old_cwd / "index.html"
         config.NAV_TOKEN = self.nav_token
+        # 限速是 TokenGuard 类级内存状态，逐用例清零避免跨测试文件累积
+        TokenGuard._failures.clear()
+        TokenGuard._locked_until.clear()
         init_storage()
         self.client = TestClient(main.app)
 

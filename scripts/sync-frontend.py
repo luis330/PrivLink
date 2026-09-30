@@ -22,6 +22,7 @@ ASSETS = ROOT / "assets"
 # 需要同步到 assets 的文件：源路径 -> 目标相对路径
 FILES = {
     ROOT / "index.html": "index.html",
+    ROOT / "_headers": "_headers",
     ROOT / "favicon.ico": "favicon.ico",
     ROOT / "favicon-16x16.png": "favicon-16x16.png",
     ROOT / "favicon-32x32.png": "favicon-32x32.png",

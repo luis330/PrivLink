@@ -10,7 +10,11 @@
 	// NAV_TOKEN is a secret: `wrangler secret put NAV_TOKEN` in production,
 	// `.dev.vars` (gitignored) for local `pywrangler dev`. Never put it here.
 	"vars": {
-		"NAV_MODE": "single"
+		"NAV_MODE": "single",
+		// CORS allowlist, comma-separated (e.g. "https://a.example.com,https://b.example.com").
+		// Empty = same-origin only (no CORS headers). The Tampermonkey collector
+		// (GM_xmlhttpRequest) and the MV3 extension (host_permissions) do NOT need this.
+		"NAV_CORS_ORIGINS": ""
 	},
 	"d1_databases": [
 		{

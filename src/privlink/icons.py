@@ -4,11 +4,27 @@ import base64
 import binascii
 import hashlib
 import json
+import re
 from pathlib import Path
 from urllib import parse
 
 from privlink import config, fetcher, network, storage
 from privlink.htmlparse import IconCandidate
+
+# SVG 主动内容黑名单：<script>、javascript: 协议、foreignObject、内联事件属性。
+# 事件属性要求前置空白/引号（属性上下文），避免误伤 "data-one=" "done=" 等良性内容。
+# 黑名单不可能穷尽绕过，真正的执行收口是 /ICON 响应上的沙箱 CSP（见 app.py）；
+# 本检测用于在上传/抓取入库前就拒绝明显恶意内容，属纵深防御。
+_SVG_ACTIVE_CONTENT_RE = re.compile(
+    r"""<script|javascript:|<foreignobject|[\s"']on[a-z]+\s*=""",
+    re.IGNORECASE,
+)
+
+
+def contains_active_svg_content(content: bytes) -> bool:
+    """SVG 内容是否命中主动内容黑名单（仅对 .svg 扩展名的字节调用）。"""
+    text = content.decode("utf-8", errors="ignore")
+    return bool(_SVG_ACTIVE_CONTENT_RE.search(text))
 
 
 def choose_extension(icon_url: str, content_type: str) -> str:
@@ -87,6 +103,8 @@ async def write_browser_icon(
 ) -> tuple[str, str]:
     content = decode_base64_icon(data_base64)
     extension = icon_extension_from_payload(source_url, filename, content_type)
+    if extension == ".svg" and contains_active_svg_content(content):
+        raise ValueError("SVG icon contains active content")
     filename_to_store = icon_filename(normalized_url, extension)
     relative_path = Path("ICON") / filename_to_store
     await storage.put(storage.ICONS, filename_to_store, content)
@@ -232,6 +250,8 @@ async def download_icon(
                 raise ValueError("Empty icon content")
 
             extension = choose_extension(final_icon_url, content_type)
+            if extension == ".svg" and contains_active_svg_content(body):
+                raise ValueError("SVG icon contains active content")
             filename = icon_filename(normalized_url, extension)
             relative_path = Path("ICON") / filename
             await storage.put(storage.ICONS, filename, body)
