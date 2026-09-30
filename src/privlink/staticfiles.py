@@ -47,7 +47,11 @@ def etag_matches(if_none_match: str, etag: str) -> bool:
 
 
 def conditional_file_response(
-    request: Request, path: Path, media_type: str, cache_control: str
+    request: Request,
+    path: Path,
+    media_type: str,
+    cache_control: str,
+    extra_headers: dict[str, str] | None = None,
 ) -> Response | None:
     """带 ETag 协商的静态文件响应；文件缺失时返回 None，由调用方决定错误语义。"""
     cached = load_cached_file(path)
@@ -55,6 +59,8 @@ def conditional_file_response(
         return None
     body, etag = cached
     headers = {"ETag": etag, "Cache-Control": cache_control}
+    if extra_headers:
+        headers.update(extra_headers)
     if etag_matches(request.headers.get("if-none-match", ""), etag):
         return Response(status_code=304, headers=headers)
     return Response(content=body, media_type=media_type, headers=headers)

@@ -175,8 +175,13 @@ systemctl daemon-reload && systemctl enable --now privlink
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `NAV_TOKEN` | 空 | 访问 token。**空 = 开放模式**：所有 API 无需鉴权（适合内网/本机自用），浏览器采集接口禁用。**非空 = 门禁模式**：除公开只读接口外，全部 `/api/*` 需请求头 `X-Nav-Token` 与之一致，未携带或不一致返回 401。建议 32 位以上随机串（`openssl rand -hex 24`） |
+| `NAV_TOKEN` | 空 | 访问 token。**空 = 开放模式**：所有 API 无需鉴权（适合内网/本机自用），浏览器采集接口与书签导出接口禁用（导出含全部私有数据）。**非空 = 门禁模式**：除公开只读接口外，全部 `/api/*` 需请求头 `X-Nav-Token` 与之一致，未携带或不一致返回 401。建议 32 位以上随机串（`openssl rand -hex 24`）；同 IP 连续鉴权失败会触发限速锁定（见 `NAV_AUTH_*`） |
 | `NAV_MODE` | `single` | 体系模式。`multi`（多用户）为未来预留值，当前设置后按 single 运行并输出警告 |
+| `NAV_ENABLE_DOCS` | 关闭 | 打开 `/docs` / `/redoc` / `/openapi.json` 交互式 API 文档。默认关闭（生产不暴露 API 结构），本地开发需要时设 `NAV_ENABLE_DOCS=1`；Workers 部署恒关闭 |
+| `NAV_CORS_ORIGINS` | 空（仅同源） | CORS 白名单，逗号分隔，如 `https://a.example.com,https://b.example.com`。默认不返回任何 CORS 头；油猴采集器（GM_xmlhttpRequest）与浏览器扩展（host_permissions）均不依赖服务端 CORS，无需配置 |
+| `NAV_AUTH_FAIL_WINDOW` | `60` | Token 鉴权失败限速滑动窗口（秒） |
+| `NAV_AUTH_FAIL_MAX` | `10` | 窗口内允许的鉴权失败次数，超过后锁定。持有效 token 的请求不受影响并清零计数 |
+| `NAV_AUTH_LOCKOUT_SECONDS` | `900` | 触发限速后的锁定时长（秒），设为 `0` 关闭锁定（仅保留 401） |
 
 安全提示：修改 token 需更新环境变量并重启服务，浏览器与采集器端同步更新；公网部署务必经反向代理启用 HTTPS。
 
@@ -259,7 +264,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 
 ## 8. API 说明
 
-运行时访问 `http://<host>:8000/docs` 可查看交互式 OpenAPI 文档。门禁模式下，除下表标注「公开」的接口外，均需请求头 `X-Nav-Token`。
+API 文档三件套（`/docs`、`/redoc`、`/openapi.json`）**默认关闭**——生产环境不对外暴露 API 结构，匿名访问一律 404；本地开发需要时在 `.env` 设 `NAV_ENABLE_DOCS=1` 重启后打开 `http://<host>:8000/docs`。门禁模式下，除下表标注「公开」的接口外，均需请求头 `X-Nav-Token`。
 
 ### 接口总览
 
@@ -273,7 +278,7 @@ NAV_ALLOWED_PRIVATE_NETWORKS=192.168.1.0/24
 | GET | `/api/network/public-ip` | 需 token | 服务端直连公网 IPv4（`{ip, kind:"server"}`；Cloudflare 部署下返回访客 IP 且对访客公开） |
 | POST | `/api/site/parse` | 需 token | URL 解析入库 |
 | POST | `/api/site/ingest` | 需 token | 浏览器采集上报 |
-| GET | `/api/sites/export` | 需 token | 导出全部站点（含私有）为书签 HTML（attachment 下载，可回灌浏览器） |
+| GET | `/api/sites/export` | 需 token | 导出全部站点（含私有）为书签 HTML（attachment 下载，可回灌浏览器）。开放模式（未配置 `NAV_TOKEN`）下返回 403 |
 | POST | `/api/sites/import` | 需 token | 导入书签 HTML（multipart 字段 `file` ≤5MB；重复 URL 跳过，文件夹转为标签） |
 | GET | `/api/icons` | 需 token | 内置图标库列表（Simple Icons，返回 `{name, slug, url}`） |
 | PUT | `/api/appearance/background` | 需 token | 设置背景（`type=default/color/image`） |
@@ -375,7 +380,7 @@ X-Nav-Token: your-secret-token
 - 书签文件夹逐级映射为标签（如「书签栏/开发工具」产生「书签栏」「开发工具」两个标签），超 20 字符截断；新站点 `sort_order` 追加在现有最大值之后。
 - 大文件分批写入（每批 50 个站点）；中途失败返回 500 与已写入计数，已写入部分不回滚。
 
-**导出**：无需请求参数，返回 `Content-Disposition: attachment` 的书签 HTML（文件名 `nav-bookmarks-YYYYMMDD.html`）。每个标签渲染为一个文件夹（按名称排序），无标签站点在顶层；持 token 导出包含私有站点。前端因需携带 `X-Nav-Token` 请求头，走 fetch + blob 下载而非直接链接。
+**导出**：无需请求参数，返回 `Content-Disposition: attachment` 的书签 HTML（文件名 `nav-bookmarks-YYYYMMDD.html`）。每个标签渲染为一个文件夹（按名称排序），无标签站点在顶层；持 token 导出包含私有站点。前端因需携带 `X-Nav-Token` 请求头，走 fetch + blob 下载而非直接链接。导出内容含全部私有数据，**开放模式（未配置 `NAV_TOKEN`）下一律 403 禁用**。
 
 ## 9. 维护者：发布镜像到 Docker Hub
 

@@ -61,6 +61,32 @@ NAV_MODE = (os.environ.get("NAV_MODE") or "single").strip().lower() or "single"
 # 管理 token：部署时预配置，NAV_TOKEN 优先，兼容旧变量名 NAV_INGEST_TOKEN。
 # 为空 = 开放模式（API 无门禁，浏览器采集接口禁用）；非空 = 全部 /api/ 需 X-Nav-Token。
 NAV_TOKEN = (os.environ.get("NAV_TOKEN") or os.environ.get("NAV_INGEST_TOKEN") or "").strip()
+# 开发开关：默认关闭 /docs /redoc /openapi.json（生产不暴露 API 结构）。
+# 本地开发需要时设 NAV_ENABLE_DOCS=1；Workers 部署恒关闭（路由在构建时注册）。
+NAV_ENABLE_DOCS = (os.environ.get("NAV_ENABLE_DOCS") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def parse_cors_origins(raw: str) -> tuple[str, ...]:
+    """解析逗号分隔的 CORS 白名单；去空白与结尾斜杠。"""
+    origins: list[str] = []
+    for part in (raw or "").split(","):
+        origin = part.strip().rstrip("/")
+        if origin:
+            origins.append(origin)
+    return tuple(origins)
+
+
+# CORS 白名单：默认空 = 仅同源（不返回任何 CORS 头）。已知跨域调用方均不依赖服务端
+# CORS：油猴采集器走 GM_xmlhttpRequest（特权 API），浏览器扩展持 host_permissions
+# （MV3 豁免 CORS）；确有其他跨域消费方时再显式加白。
+CORS_ALLOWED_ORIGINS = parse_cors_origins(os.environ.get("NAV_CORS_ORIGINS") or "")
+
+# Token 防爆破限速（TokenGuard 内滑动窗口，仅统计 token 无效的失败请求；
+# Workers isolate 内存计数为尽力而为，公网部署的权威限速配置在 Cloudflare WAF，
+# 见 docs/security-ops.md）
+NAV_AUTH_FAIL_WINDOW = max(1, int(os.environ.get("NAV_AUTH_FAIL_WINDOW") or "60"))
+NAV_AUTH_FAIL_MAX = max(1, int(os.environ.get("NAV_AUTH_FAIL_MAX") or "10"))
+NAV_AUTH_LOCKOUT_SECONDS = max(0, int(os.environ.get("NAV_AUTH_LOCKOUT_SECONDS") or "900"))
 # 运行平台：Pyodide（Cloudflare Python Workers）下 sys.platform 为 emscripten；
 # 本地（uvicorn）为 win32 / linux 等。用于 DNS 跳过、GZip 关闭、CF-Connecting-IP 分支。
 IS_WORKERS = sys.platform == "emscripten"
@@ -96,6 +122,20 @@ ALLOWED_BACKGROUND_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 BACKGROUND_SETTING_KEY = "background"
 # 背景图文件名只承认本服务生成的内容寻址名（bg-<sha256[:24]><ext>），杜绝路径穿越与任意文件删除
 BACKGROUND_FILENAME_RE = re.compile(r"^bg-[0-9a-f]{24}\.(?:jpg|jpeg|png|webp)$")
+
+# 页面 CSP：与仓库根 _headers 保持一致（Workers Assets 静态路径由 _headers 覆盖，
+# 其余响应由 SecurityHeadersMiddleware 下发）。script-src 的 unsafe-inline 是务实选择：
+# 前端为单文件内联脚本，Workers 上首页由静态 Assets 直接服务、nonce 无法注入；
+# DOM 注入向量已由前端 textContent/createElement 卫生关闭。
+# 前端事实依据：img 需要 blob:（上传预览）与 https:（cdn.simpleicons.org 及存量外链图标）。
+CSP_PAGE = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' blob: https:; connect-src 'self'; object-src 'none'; "
+    "base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+)
+# SVG 以独立文档直接打开时执行内嵌脚本的收口：<img> 引用不受影响（图像上下文本就不执行
+# 脚本），直接导航时 sandbox 使脚本失效。
+CSP_SVG = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
 logging.basicConfig(
     level=logging.INFO,

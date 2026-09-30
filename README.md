@@ -7,7 +7,7 @@
 - **一键收录**：粘贴网址，服务端自动抓取网站名称（`og:site_name > title > 域名`）与 favicon 入库；同一网址重复提交自动更新，也支持从内置图标库（Simple Icons，3400+ 品牌图标）挑选或上传自定义图标。
 - **可视化管理**：玻璃拟态卡片网格、多标签筛选（多选胶囊面板）、拖拽排序、右键编辑/删除。
 - **书签导入 / 导出**：导入从 Edge / Chrome / Firefox 导出的收藏夹 HTML 文件（文件夹自动转为标签、重复网址跳过），也可把全部站点导出为浏览器可识别的书签 HTML，用于备份或迁移到其他浏览器。
-- **公开 / 私有站点**：每个站点可勾选「公开站点」属性（默认公开）。私有站点带 🔒 标识，仅自己可见——连它的标签名都不会向访客泄露。
+- **公开 / 私有站点**：每个站点可勾选「公开站点」属性（默认公开）。私有站点带 🔒 标识，仅自己可见——连它的标签名都不会向访客泄露。默认公开是本项目的产品取向（导航页以分享为主）；公网部署时请留意含邀请码 / 推广参数的链接会随页面公开，对不希望公开的条目取消勾选即可。
 - **Token 门禁**：不设 Token 为开放模式（内网自用零门槛）；设置后，未持 Token 的访客打开页面即可静默浏览全部公开站点（只读、可点击跳转、零弹窗），触发添加/修改/删除/排序等管理动作时才引导保存 Token。
 - **浏览器采集兜底**：目标站点有 Cloudflare、登录态等验证导致服务端抓不到时，用 Tampermonkey 脚本或 Chrome/Edge 扩展把浏览器里已通过验证的页面一键上报入库（不绕过验证码、不导出 cookie）。
 - **轻量自部署**：单实例 uvicorn + SQLite + 本地图标目录；全部数据只有 `data/`、`ICON/` 与 `background/` 三个目录，备份即拷贝。Docker 与源码部署共用同一份 `.env` 配置；Cloudflare 部署由 Secrets / 变量承载同款配置。
@@ -31,7 +31,7 @@ cp .env.example .env    # 公网部署务必设置 NAV_TOKEN
 docker compose pull && docker compose up -d
 ```
 
-打开 `http://127.0.0.1:8000/` 即可使用；交互式 API 文档见 `/docs`。
+打开 `http://127.0.0.1:8000/` 即可使用；交互式 API 文档默认关闭，本地开发时在 `.env` 设 `NAV_ENABLE_DOCS=1` 后访问 `/docs`。
 
 - 升级：编排有更新时 `git pull`，再 `docker compose pull && docker compose up -d`。
 - 版本锁定 / 回滚：在 `.env` 中设置 `DOCKER_IMAGE=luis330/privlink:0.1.0`；走自建镜像源同理（如 `DOCKER_IMAGE=docker.freeba.org/luis330/privlink:0.1.0`）。
@@ -98,7 +98,7 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 
 通过部署环境变量 `NAV_TOKEN` 控制：
 
-- **不设置 = 开放模式**：所有 API 无需鉴权（适合内网/本机自用），浏览器采集接口保持禁用。
+- **不设置 = 开放模式**：所有 API 无需鉴权（适合内网/本机自用），浏览器采集接口与书签导出接口保持禁用（导出含全部私有数据）。
 - **设置后 = 门禁模式**：除公开只读接口（`/api/sites`、`/api/tags`、`/api/auth/status`、`/api/appearance/background` 的 GET 请求；Cloudflare 部署下另含 `/api/network/public-ip`，返回的是访问者自己的 IP）外，全部 `/api/*` 要求请求头 `X-Nav-Token` 与之一致；首页、静态图标与背景图仍公开（文件名为不可枚举哈希，无目录列表）。
 
 门禁模式下的站点可见性：**未持 token 的访客可浏览公开站点并点击跳转，但没有任何修改能力；取消勾选「公开站点」的私有站点仅持 token 的浏览器可见**（图标壳右上角有小锁标识），私有站点独有的标签名也不会出现在访客的标签栏里。
@@ -106,6 +106,8 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 门禁模式下的使用流程：访客打开首页直接看到全部公开站点（只读，不会自动弹出 Token 输入窗，公网 IP 一栏显示「需 Token」）；访客触发管理动作时，才弹窗提示先保存访问 Token，关闭或取消即中止。您自己在浏览器点右上角「访问 Token」输入一次（保存前会先向服务器验证，验证通过才写入本机），即可解锁私有站点与全部管理能力；换浏览器或清除站点数据后重新输入；输入框留空保存可清除本机 Token、回到访客视图。
 
 安全建议：token 使用 32 位以上随机字符串（如 `openssl rand -hex 24` 生成）；修改 token 需更新环境变量并重启服务，浏览器与采集器端同步更新。
+
+内置纵深防御：全部响应默认携带 CSP / X-Frame-Options / Referrer-Policy / Permissions-Policy 等安全头；API 文档三件套默认关闭（`NAV_ENABLE_DOCS` 可开）；同 IP 鉴权连续失败自动限速锁定（`NAV_AUTH_FAIL_*`）；CORS 默认仅同源（跨域白名单用 `NAV_CORS_ORIGINS`）；SVG 图标上传与抓取均做主动内容检测、服务时加沙箱 CSP；开放模式下书签导出禁用。公网部署的边界加固清单（Cloudflare WAF / Rate Limiting / HSTS / DMARC / 依赖审计）见 [docs/security-ops.md](docs/security-ops.md)。
 
 ## 浏览器采集模式
 
