@@ -1,0 +1,15 @@
+{
+  "bridgeVersion": 1,
+  "plugins": [
+    {
+      "id": "sticky-notes",
+      "name": "便签",
+      "version": "1.1.0",
+      "description": "在导航页添加纯文字便签，可浮动、拖拽移动与缩放；数据经宿主桥保存在本服务。",
+      "author": "luis",
+      "slot": "float",
+      "entry": "index.html",
+      "permissions": ["storage"]
+    }
+  ]
+}

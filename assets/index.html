@@ -1243,6 +1243,154 @@
         font-size: 14px;
       }
 
+      /* ===== 插件库 / 插件槽位 ===== */
+      .plugins-panel {
+        padding: 12px 16px;
+      }
+
+      .plugins-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .plugins-panel.collapsed .plugins-list {
+        display: none;
+      }
+
+      .plugins-panel.collapsed .plugins-title::after {
+        transform: rotate(-90deg);
+      }
+
+      /* 浮动便签窗口：fixed 定位、视口坐标；位置/尺寸由宿主拖拽逻辑以 transform 更新。
+         必须挂在 body 下（.panel 的 backdrop-filter 会成为 fixed 后代的包含块）。
+         玻璃底在宿主侧渲染（沙箱 iframe 的 backdrop-filter 看不到主页面），
+         插件内部为透明分层。 */
+      .plugin-window {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 240px;
+        height: 220px;
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--panel-bg);
+        -webkit-backdrop-filter: blur(10px);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--panel-border);
+        box-shadow: 0 12px 28px rgba(0, 0, 40, 0.32);
+        will-change: transform;
+      }
+
+      .plugin-window .plugin-frame {
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: transparent; /* 玻璃底在宿主容器上，iframe 自身必须透明 */
+      }
+
+      .plugins-list {
+        margin-top: 10px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .plugin-slot-head {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+
+      .plugin-slot-name {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .plugin-slot-ver {
+        font-size: 11px;
+        color: var(--text-subtle);
+      }
+
+      .plugin-frame {
+        display: block;
+        width: 100%;
+        height: 120px;
+        min-height: 40px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #fff;
+      }
+
+      .market-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 4px;
+      }
+
+      .market-card {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.55);
+      }
+
+      .market-card-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .market-card-head strong {
+        font-size: 15px;
+      }
+
+      .market-meta {
+        font-size: 11.5px;
+        color: var(--text-subtle);
+      }
+
+      .market-desc {
+        margin: 6px 0 0;
+        font-size: 13px;
+        color: var(--ink-muted);
+      }
+
+      .market-perms {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: var(--text-subtle);
+      }
+
+      .market-card-actions {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .market-card-actions .ghost-btn,
+      .market-card-actions .primary-btn {
+        padding: 5px 14px;
+        font-size: 12.5px;
+      }
+
+      .market-status {
+        margin-right: auto;
+        font-size: 12px;
+        color: var(--text-subtle);
+      }
+
+      .market-status.ok {
+        color: #156f3d;
+        font-weight: 700;
+      }
+
       .confirm-text {
         margin: 0;
         color: var(--ink-muted);
@@ -1406,6 +1554,13 @@
         <section id="nav-grid" class="nav-grid" aria-label="网站导航列表"></section>
       </section>
 
+      <section id="plugins-panel" class="panel plugins-panel" hidden>
+        <div class="plugins-head">
+          <h2 id="plugins-title" class="add-title plugins-title" role="button" tabindex="0" aria-expanded="true" aria-label="展开或收起插件区">插件</h2>
+        </div>
+        <div id="plugins-inline-list" class="plugins-list"></div>
+      </section>
+
       <section class="panel add-panel" id="add-panel">
         <div class="add-head">
           <div>
@@ -1425,6 +1580,7 @@
             <button id="token-settings-btn" class="token-settings-btn" type="button">访问 Token</button>
             <button id="background-settings-btn" class="token-settings-btn" type="button">背景</button>
             <button id="transfer-btn" class="token-settings-btn" type="button">导入/导出</button>
+            <button id="plugins-market-btn" class="token-settings-btn" type="button">插件</button>
           </div>
         </div>
 
@@ -1652,6 +1808,18 @@
       </section>
     </div>
 
+    <div id="market-modal" class="modal-overlay" hidden>
+      <section class="modal-card market-modal-card" role="dialog" aria-modal="true" aria-labelledby="market-title">
+        <div class="modal-head">
+          <h2 id="market-title" class="modal-title">插件库</h2>
+          <button id="market-close-btn" class="close-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="transfer-hint">内置精选插件，安装后即可在导航页使用。插件运行在隔离沙箱中，仅能使用其声明的能力。</p>
+        <div id="market-list" class="market-list"></div>
+        <div id="market-error" class="modal-error"></div>
+      </section>
+    </div>
+
     <div id="bg-overlay" class="bg-overlay" hidden></div>
 
     <script>
@@ -1785,6 +1953,15 @@
       const transferImportBtn = document.getElementById("transfer-import-btn");
       const transferExportBtn = document.getElementById("transfer-export-btn");
       const transferErrorEl = document.getElementById("transfer-error");
+      const pluginsMarketBtn = document.getElementById("plugins-market-btn");
+      const pluginsPanelEl = document.getElementById("plugins-panel");
+      const pluginsTitleEl = document.getElementById("plugins-title");
+      const pluginsInlineListEl = document.getElementById("plugins-inline-list");
+      const marketModalEl = document.getElementById("market-modal");
+      const marketCloseBtn = document.getElementById("market-close-btn");
+      const marketListEl = document.getElementById("market-list");
+      const marketErrorEl = document.getElementById("market-error");
+      const PLUGINS_COLLAPSED_KEY = "nav_plugins_collapsed";
       const fields = ["url", "final_url", "site_name", "icon_rel_path", "icon_source_url"];
 
       /* ===== 常量 ===== */
@@ -1798,6 +1975,16 @@
       const BACKGROUND_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
       const BACKGROUND_IMAGE_RE = /\.(jpe?g|png|webp)$/i;
       const TRANSFER_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+      const PLUGIN_BRIDGE_VERSION = 1;
+      const PLUGIN_PERMISSION_LABELS = { storage: "本地数据存储（经宿主代理）" };
+      const PLUGIN_SLOT_LABELS = { inline: "页面内嵌", float: "浮动窗口" };
+      const PLUGIN_WINDOW_DEFAULT_W = 240;
+      const PLUGIN_WINDOW_DEFAULT_H = 220;
+      const PLUGIN_WINDOW_MIN_W = 160;
+      const PLUGIN_WINDOW_MIN_H = 120;
+      const PLUGIN_WINDOW_MAX_W = 640;
+      const PLUGIN_WINDOW_MAX_H = 640;
+      const PLUGIN_WINDOW_Z_BASE = 40;
 
       /* ===== API 地址 ===== */
       function getParseApiUrl() {
@@ -1898,6 +2085,18 @@
         return base + "/background/" + encodeURIComponent(filename);
       }
 
+      function getPluginsApiBase() {
+        return window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+      }
+
+      function getPluginsApiUrl(path) {
+        return getPluginsApiBase() + "/api/plugins/" + path;
+      }
+
+      function getPluginAssetUrl(path) {
+        return getPluginsApiBase() + "/" + String(path || "").replace(/^\/+/, "");
+      }
+
       function toIconUrl(iconPath) {
         const cleanPath = (iconPath || "").trim();
         if (!cleanPath) return "";
@@ -1928,6 +2127,17 @@
       let transferImporting = false;
       let transferExporting = false;
       let transferSelectedFile = null;
+      let pluginRegistry = null;
+      let pluginRegistryError = "";
+      let pluginInstalled = {};
+      let pluginSeq = 0;
+      const pluginBridges = new Map(); // contentWindow -> { id, instId, frame }；宿主靠它校验消息来源
+      const pluginActionBusy = new Set();
+      let pluginWindows = {}; // pluginId -> [ {id,x,y,w,h} ]；null=后端无键(从未有过实例)，undefined=加载失败未知
+      let pluginZCounter = PLUGIN_WINDOW_Z_BASE;
+      const pluginDragSessions = new Map(); // contentWindow -> 拖拽/缩放会话
+      const mountedFloatSignatures = new Map(); // pluginId -> 已挂载窗口布局签名（增量重挂，避免摧毁编辑中的便签）
+      let slotFrames = []; // inline/panel 槽位的 iframe；重渲染前逐个解绑桥
       let resultSiteId = 0;
       let resultOriginalSite = null;
       let resultDraftTags = [];
@@ -3265,6 +3475,730 @@
         }
       }
 
+      /* ===== 插件库（内置精选） ===== */
+      // 信任模型：插件 iframe 使用 sandbox="allow-scripts"（无 allow-same-origin），
+      // 运行在不透明源里，接触不到 token / 书签 / 主页面 DOM；只能经 postMessage 桥
+      // 使用其清单声明的能力（storage 由宿主代持 token 调用后端）。协议见 docs/plugins.md。
+
+      function setPluginsCollapsed(collapsed) {
+        pluginsPanelEl.classList.toggle("collapsed", collapsed);
+        pluginsTitleEl.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        try {
+          localStorage.setItem(PLUGINS_COLLAPSED_KEY, collapsed ? "1" : "0");
+        } catch (_) {}
+      }
+
+      function togglePluginsPanel() {
+        setPluginsCollapsed(!pluginsPanelEl.classList.contains("collapsed"));
+      }
+
+      function registryEntryFor(pluginId) {
+        return (pluginRegistry || []).find((entry) => entry && entry.id === pluginId) || null;
+      }
+
+      function hasPluginPermission(entry, permission) {
+        return Boolean(entry) && Array.isArray(entry.permissions) && entry.permissions.includes(permission);
+      }
+
+      function pluginFrameSrc(pluginId) {
+        const entry = registryEntryFor(pluginId);
+        const entryFile = entry && entry.entry ? String(entry.entry) : "index.html";
+        return getPluginAssetUrl("plugins/" + encodeURIComponent(pluginId) + "/" + entryFile);
+      }
+
+      function buildPluginSlot(pluginId) {
+        const entry = registryEntryFor(pluginId);
+        const label = entry ? String(entry.name || pluginId) : pluginId;
+        const slot = document.createElement("section");
+        slot.className = "plugin-slot";
+        const head = document.createElement("div");
+        head.className = "plugin-slot-head";
+        const name = document.createElement("span");
+        name.className = "plugin-slot-name";
+        name.textContent = label;
+        const ver = document.createElement("span");
+        ver.className = "plugin-slot-ver";
+        ver.textContent = entry && entry.version ? "v" + entry.version : "";
+        head.appendChild(name);
+        head.appendChild(ver);
+        const frame = document.createElement("iframe");
+        frame.className = "plugin-frame";
+        frame.setAttribute("sandbox", "allow-scripts");
+        frame.setAttribute("data-plugin", pluginId);
+        frame.loading = "lazy";
+        frame.title = label;
+        frame.src = pluginFrameSrc(pluginId);
+        slot.appendChild(head);
+        slot.appendChild(frame);
+        return slot;
+      }
+
+      function bindPluginBridge(frame, pluginId, instId) {
+        // WindowProxy 在 iframe 后续导航间保持稳定，可作为桥的消息来源凭据
+        if (frame && frame.contentWindow) {
+          pluginBridges.set(frame.contentWindow, { id: pluginId, instId: instId || null, frame });
+        }
+      }
+
+      function unbindPluginBridgeByFrame(frame) {
+        for (const [win, info] of pluginBridges) {
+          if (info.frame === frame) {
+            pluginBridges.delete(win);
+            return;
+          }
+        }
+      }
+
+      function mountSlotFrame(listEl, pluginId) {
+        const slot = buildPluginSlot(pluginId);
+        listEl.appendChild(slot);
+        const frame = slot.querySelector("iframe");
+        slotFrames.push(frame);
+        bindPluginBridge(frame, pluginId, null);
+      }
+
+      function renderPluginSlots() {
+        // inline 全量重建；float 窗口按签名增量挂载（避免摧毁正在编辑的便签），
+        // 且遍历含"已挂载但已停用/卸载"的插件——否则停用后窗口残留
+        slotFrames.forEach((frame) => unbindPluginBridgeByFrame(frame));
+        slotFrames = [];
+        const enabledIds = Object.keys(pluginInstalled).filter(
+          (id) => pluginInstalled[id] && pluginInstalled[id].enabled
+        );
+        const inlineIds = enabledIds.filter((id) => {
+          const entry = registryEntryFor(id);
+          return entry && entry.slot === "inline";
+        });
+        pluginsInlineListEl.textContent = "";
+        inlineIds.forEach((id) => mountSlotFrame(pluginsInlineListEl, id));
+        pluginsPanelEl.hidden = inlineIds.length === 0;
+        const floatCandidates = new Set(
+          enabledIds.filter((id) => {
+            const entry = registryEntryFor(id);
+            return entry && entry.slot === "float";
+          })
+        );
+        mountedFloatSignatures.forEach((_, id) => floatCandidates.add(id));
+        floatCandidates.forEach((id) => mountFloatWindows(id));
+      }
+
+      async function refreshPluginUI() {
+        await loadFloatWindowLayouts();
+        renderPluginSlots();
+      }
+
+      /* ===== 浮动窗口（slot=float）：每实例一窗，宿主管位置/尺寸/层级 ===== */
+
+      function clampNumber(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      function clampWindowState(state) {
+        // 后台/被遮挡标签页的 innerWidth/innerHeight 可能为 0：此时不钳制（保持保存值，
+        // 待真实视口下交互时经 DOM 解析自然校正），否则任何布局都会被压成最小尺寸
+        if (!window.innerWidth || !window.innerHeight) {
+          return { x: state.x, y: state.y, w: state.w, h: state.h };
+        }
+        const maxW = Math.max(PLUGIN_WINDOW_MIN_W, Math.min(PLUGIN_WINDOW_MAX_W, window.innerWidth));
+        const maxH = Math.max(PLUGIN_WINDOW_MIN_H, Math.min(PLUGIN_WINDOW_MAX_H, window.innerHeight));
+        return {
+          x: clampNumber(state.x, 0, Math.max(0, window.innerWidth - state.w)),
+          y: clampNumber(state.y, 0, Math.max(0, window.innerHeight - state.h)),
+          w: clampNumber(state.w, PLUGIN_WINDOW_MIN_W, maxW),
+          h: clampNumber(state.h, PLUGIN_WINDOW_MIN_H, maxH),
+        };
+      }
+
+      function defaultFloatWindow(existing) {
+        // 级联偏移：新窗口相对上一张 +24px，钳制回视口
+        const margin = 24;
+        const last = existing && existing.length > 0 ? existing[existing.length - 1] : null;
+        const maxX = Math.max(0, window.innerWidth - PLUGIN_WINDOW_DEFAULT_W - margin);
+        const maxY = Math.max(0, window.innerHeight - PLUGIN_WINDOW_DEFAULT_H - margin);
+        return {
+          id: "w" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          x: clampNumber((last ? last.x : 60) + 24, 0, maxX),
+          y: clampNumber((last ? last.y : 60) + 24, 0, maxY),
+          w: PLUGIN_WINDOW_DEFAULT_W,
+          h: PLUGIN_WINDOW_DEFAULT_H,
+        };
+      }
+
+      function pluginWindowTitle(entry, pluginId) {
+        return entry ? String(entry.name || pluginId) : pluginId;
+      }
+
+      function buildFloatWindow(pluginId, inst) {
+        const entry = registryEntryFor(pluginId);
+        const win = document.createElement("section");
+        win.className = "plugin-window";
+        win.dataset.plugin = pluginId;
+        win.dataset.inst = inst.id;
+        const state = clampWindowState(inst); // 挂载钳制：视口变小后旧坐标仍可见
+        win.style.transform =
+          "translate(" + Math.round(state.x) + "px, " + Math.round(state.y) + "px)";
+        win.style.width = Math.round(state.w) + "px";
+        win.style.height = Math.round(state.h) + "px";
+        win.style.zIndex = String(++pluginZCounter);
+        const frame = document.createElement("iframe");
+        frame.className = "plugin-frame";
+        frame.setAttribute("sandbox", "allow-scripts");
+        frame.setAttribute("data-plugin", pluginId);
+        frame.setAttribute("data-inst", inst.id);
+        frame.title = pluginWindowTitle(entry, pluginId);
+        frame.src = pluginFrameSrc(pluginId);
+        win.appendChild(frame);
+        return win;
+      }
+
+      function mountFloatWindows(pluginId) {
+        const enabled = Boolean(pluginInstalled[pluginId] && pluginInstalled[pluginId].enabled);
+        const entry = registryEntryFor(pluginId);
+        let windows = pluginWindows[pluginId];
+        if (enabled && entry && windows === null) {
+          // 键不存在 = 从未有过实例（含 inline→float 升级）：自动浮出首张空白便签；
+          // [] = 用户刻意全部关闭，不自动重建（走抽屉"新建便签"兜底）
+          windows = [defaultFloatWindow(null)];
+          pluginWindows[pluginId] = windows;
+          putPluginWindows(pluginId).catch(() => {});
+        }
+        if (!enabled || !entry || !Array.isArray(windows)) windows = [];
+        const signature = JSON.stringify(windows);
+        if (mountedFloatSignatures.get(pluginId) === signature) return;
+        document
+          .querySelectorAll('.plugin-window[data-plugin="' + pluginId + '"]')
+          .forEach((el) => {
+            const frame = el.querySelector("iframe");
+            if (frame) unbindPluginBridgeByFrame(frame);
+            el.remove();
+          });
+        mountedFloatSignatures.set(pluginId, signature);
+        windows.forEach((inst) => {
+          const win = buildFloatWindow(pluginId, inst);
+          document.body.appendChild(win); // fixed 定位必须挂 body：.panel 的 backdrop-filter 会成为包含块
+          bindPluginBridge(win.querySelector("iframe"), pluginId, inst.id);
+        });
+      }
+
+      async function loadFloatWindowLayouts() {
+        const floatIds = Object.keys(pluginInstalled).filter((id) => {
+          const entry = registryEntryFor(id);
+          return pluginInstalled[id] && pluginInstalled[id].enabled && entry && entry.slot === "float";
+        });
+        await Promise.all(
+          floatIds.map(async (id) => {
+            try {
+              const response = await apiFetch(
+                getPluginsApiUrl(encodeURIComponent(id) + "/windows"),
+                { cache: "no-store" }
+              );
+              if (response.status === 404) {
+                pluginWindows[id] = null; // 从未有过实例（挂载时据此自动建首签）
+                return;
+              }
+              if (response.ok) {
+                const data = await response.json().catch(() => null);
+                pluginWindows[id] =
+                  data && Array.isArray(data.windows) ? data.windows : [];
+                return;
+              }
+              if (!(id in pluginWindows)) pluginWindows[id] = undefined; // 其他错误：未知态，不自动建窗
+            } catch (_) {
+              if (!(id in pluginWindows)) pluginWindows[id] = undefined;
+            }
+          })
+        );
+      }
+
+      async function putPluginWindows(pluginId) {
+        const windows = Array.isArray(pluginWindows[pluginId]) ? pluginWindows[pluginId] : [];
+        const response = await apiFetch(
+          getPluginsApiUrl(encodeURIComponent(pluginId) + "/windows"),
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ windows }),
+          }
+        );
+        if (!response.ok) throw new Error("状态码 " + response.status);
+      }
+
+      async function createFloatWindow(pluginId) {
+        const current = Array.isArray(pluginWindows[pluginId]) ? pluginWindows[pluginId] : [];
+        const inst = defaultFloatWindow(current);
+        const windows = current.concat([inst]);
+        pluginWindows[pluginId] = windows;
+        mountedFloatSignatures.set(pluginId, JSON.stringify(windows));
+        const win = buildFloatWindow(pluginId, inst);
+        document.body.appendChild(win);
+        bindPluginBridge(win.querySelector("iframe"), pluginId, inst.id);
+        try {
+          await putPluginWindows(pluginId);
+        } catch (_) {}
+        return inst.id;
+      }
+
+      async function closeFloatWindow(pluginId, instId, frame) {
+        // 审计 F4 顺序：先解绑桥（此后该窗口的在途 storage.set 按"未知来源"丢弃），
+        // 再移除窗口元素（插件的防抖定时器随之消亡），最后清数据与注册表
+        unbindPluginBridgeByFrame(frame);
+        if (frame && frame.contentWindow) pluginDragSessions.delete(frame.contentWindow);
+        const winEl = frame ? frame.closest(".plugin-window") : null;
+        if (winEl) winEl.remove();
+        if (Array.isArray(pluginWindows[pluginId])) {
+          pluginWindows[pluginId] = pluginWindows[pluginId].filter((w) => w.id !== instId);
+          mountedFloatSignatures.set(pluginId, JSON.stringify(pluginWindows[pluginId]));
+          try {
+            await putPluginWindows(pluginId);
+          } catch (_) {}
+        }
+        try {
+          await apiFetch(
+            getPluginsApiUrl(encodeURIComponent(pluginId) + "/data?prefix=" +
+              encodeURIComponent(instId + ":")),
+            { method: "DELETE" }
+          );
+        } catch (_) {}
+      }
+
+      function parseWindowOrigin(el) {
+        // 拖拽会话以 DOM 实际状态为基准（挂载钳制可能偏离注册表值，防漂移）
+        const match = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(el.style.transform || "");
+        return {
+          x: match ? parseFloat(match[1]) : 0,
+          y: match ? parseFloat(match[2]) : 0,
+          w: parseFloat(el.style.width) || PLUGIN_WINDOW_DEFAULT_W,
+          h: parseFloat(el.style.height) || PLUGIN_WINDOW_DEFAULT_H,
+        };
+      }
+
+      function handleWindowDrag(bridge, payload) {
+        const instId = bridge.instId;
+        if (!instId) return null;
+        const sourceWin = bridge.frame ? bridge.frame.contentWindow : null;
+        if (payload.phase === "start") {
+          if (!sourceWin) return null;
+          const el = bridge.frame.closest(".plugin-window");
+          if (!el) return null;
+          const start = parseWindowOrigin(el);
+          pluginDragSessions.set(sourceWin, {
+            pluginId: bridge.id,
+            instId,
+            mode: payload.mode === "resize" ? "resize" : "move",
+            start,
+            // 抓取点：dragStart 时指针的 iframe 局部坐标（=页面坐标 − 起始窗口原点）
+            grab: { x: Number(payload.x) || 0, y: Number(payload.y) || 0 },
+            el,
+            cur: { ...start },
+          });
+          // 应答回带起始原点：插件后续中继坐标以此为参照系
+          return { origin: { x: start.x, y: start.y } };
+        }
+        const session = sourceWin ? pluginDragSessions.get(sourceWin) : null;
+        if (!session) return null; // 无会话的 move/end（含其他插件伪造）一律忽略
+        // 指针的页面坐标 = 插件快照的局部坐标 + 它测量瞬间所参照的窗口原点（rx/ry，
+        // 即宿主上一次应答的 origin）——与宿主当前应用到哪一帧无关，无竞态无反馈回路；
+        // 缺省回退当前原点，兼容不带参照系的消息
+        const refX = Number.isFinite(Number(payload.rx)) ? Number(payload.rx) : session.cur.x;
+        const refY = Number.isFinite(Number(payload.ry)) ? Number(payload.ry) : session.cur.y;
+        const pointerPageX = (Number(payload.x) || 0) + refX;
+        const pointerPageY = (Number(payload.y) || 0) + refY;
+        if (!session.el) {
+          // 窗口已在拖拽中被移除（如禁用插件）：仅结束会话
+          pluginDragSessions.delete(sourceWin);
+          return { origin: { x: session.cur.x, y: session.cur.y } };
+        }
+        if (payload.phase === "move" || payload.phase === "end") {
+          if (session.mode === "move") {
+            session.cur.x = clampNumber(
+              pointerPageX - session.grab.x, 0, Math.max(0, window.innerWidth - session.cur.w)
+            );
+            session.cur.y = clampNumber(
+              pointerPageY - session.grab.y, 0, Math.max(0, window.innerHeight - session.cur.h)
+            );
+            session.el.style.transform =
+              "translate(" + Math.round(session.cur.x) + "px, " + Math.round(session.cur.y) + "px)";
+          } else {
+            // 缩放期间窗口原点不动：尺寸增量 = 指针页面位移
+            session.cur.w = clampNumber(
+              session.start.w + (pointerPageX - (session.grab.x + session.start.x)),
+              PLUGIN_WINDOW_MIN_W,
+              Math.max(PLUGIN_WINDOW_MIN_W, Math.min(PLUGIN_WINDOW_MAX_W, window.innerWidth - session.cur.x))
+            );
+            session.cur.h = clampNumber(
+              session.start.h + (pointerPageY - (session.grab.y + session.start.y)),
+              PLUGIN_WINDOW_MIN_H,
+              Math.max(PLUGIN_WINDOW_MIN_H, Math.min(PLUGIN_WINDOW_MAX_H, window.innerHeight - session.cur.y))
+            );
+            session.el.style.width = Math.round(session.cur.w) + "px";
+            session.el.style.height = Math.round(session.cur.h) + "px";
+          }
+        }
+        if (payload.phase === "end") {
+          pluginDragSessions.delete(sourceWin);
+          const windows = Array.isArray(pluginWindows[session.pluginId])
+            ? pluginWindows[session.pluginId]
+            : [];
+          const inst = windows.find((w) => w.id === session.instId);
+          if (inst) {
+            inst.x = session.cur.x;
+            inst.y = session.cur.y;
+            inst.w = session.cur.w;
+            inst.h = session.cur.h;
+            mountedFloatSignatures.set(session.pluginId, JSON.stringify(windows));
+            putPluginWindows(session.pluginId).catch(() => {});
+          }
+        }
+        return { origin: { x: session.cur.x, y: session.cur.y } };
+      }
+
+      function replyToPlugin(source, id, ok, data, error) {
+        if (!source) return;
+        source.postMessage(
+          { v: PLUGIN_BRIDGE_VERSION, id, ok, data: data || null, error: error || "" },
+          "*"
+        );
+      }
+
+      function pluginStorageRequest(pluginId, bridge, msgId, type, payload) {
+        const key = String(payload.key || "").trim();
+        if (!key || key.length > 128) {
+          replyToPlugin(bridge.frame.contentWindow, msgId, false, null, "无效的数据键");
+          return;
+        }
+        // float 实例的键由宿主透明加实例前缀（<instId>:key），插件代码无感；
+        // 实例关闭时按前缀清理（见 closeFloatWindow）
+        const storageKey = bridge.instId ? bridge.instId + ":" + key : key;
+        const dataUrl = getPluginsApiUrl(encodeURIComponent(pluginId) + "/data");
+        if (type === "storage.get") {
+          apiFetch(dataUrl + "?key=" + encodeURIComponent(storageKey), { cache: "no-store" })
+            .then((response) => {
+              if (response.status === 404) {
+                replyToPlugin(bridge.frame.contentWindow, msgId, true, { value: null });
+                return null;
+              }
+              if (!response.ok) throw new Error("状态码 " + response.status);
+              return response.json().catch(() => null);
+            })
+            .then((data) => {
+              if (data) replyToPlugin(bridge.frame.contentWindow, msgId, true, { value: data.value });
+            })
+            .catch(() =>
+              replyToPlugin(bridge.frame.contentWindow, msgId, false, null, "存储读取失败")
+            );
+          return;
+        }
+        if (type === "storage.set") {
+          const value = typeof payload.value === "string" ? payload.value : "";
+          apiFetch(dataUrl, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key: storageKey, value }),
+          })
+            .then(async (response) => {
+              if (!response.ok) {
+                const data = await response.json().catch(() => null);
+                throw new Error((data && data.error) || "存储写入失败");
+              }
+              replyToPlugin(bridge.frame.contentWindow, msgId, true);
+            })
+            .catch((error) =>
+              replyToPlugin(
+                bridge.frame.contentWindow,
+                msgId,
+                false,
+                null,
+                error && error.message ? error.message : "存储写入失败"
+              )
+            );
+          return;
+        }
+        // storage.del
+        apiFetch(dataUrl + "?key=" + encodeURIComponent(storageKey), { method: "DELETE" })
+          .then((response) => {
+            if (!response.ok) throw new Error("状态码 " + response.status);
+            replyToPlugin(bridge.frame.contentWindow, msgId, true);
+          })
+          .catch(() =>
+            replyToPlugin(bridge.frame.contentWindow, msgId, false, null, "存储删除失败")
+          );
+      }
+
+      function handlePluginMessage(event) {
+        const bridge = pluginBridges.get(event.source);
+        if (!bridge) return;
+        const msg = event.data;
+        if (!msg || typeof msg !== "object" || msg.v !== PLUGIN_BRIDGE_VERSION) return;
+        if (typeof msg.id !== "string" || typeof msg.type !== "string") return;
+        const payload = msg.payload && typeof msg.payload === "object" ? msg.payload : {};
+        const entry = registryEntryFor(bridge.id);
+        const source = bridge.frame ? bridge.frame.contentWindow : event.source;
+        if (msg.type === "hello") {
+          replyToPlugin(source, msg.id, true, {
+            bridgeVersion: PLUGIN_BRIDGE_VERSION,
+            permissions: entry && Array.isArray(entry.permissions) ? entry.permissions : [],
+          });
+          return;
+        }
+        if (msg.type === "resize") {
+          if (bridge.instId) {
+            // float 窗口尺寸归宿主管，忽略插件的高度上报
+            replyToPlugin(source, msg.id, true);
+            return;
+          }
+          const height = Number(payload.height);
+          if (bridge.frame && Number.isFinite(height) && height > 0) {
+            const maxHeight = Math.max(120, Math.round(window.innerHeight * 0.5));
+            bridge.frame.style.height = Math.min(Math.ceil(height), maxHeight) + "px";
+          }
+          replyToPlugin(source, msg.id, true);
+          return;
+        }
+        if (
+          msg.type === "window.drag" ||
+          msg.type === "window.create" ||
+          msg.type === "window.close" ||
+          msg.type === "window.focus"
+        ) {
+          // 仅 float 实例放行（inline/panel 插件发来一律静默忽略）
+          if (!entry || entry.slot !== "float" || !bridge.instId) return;
+          if (msg.type === "window.focus") {
+            const winEl = bridge.frame ? bridge.frame.closest(".plugin-window") : null;
+            if (winEl) winEl.style.zIndex = String(++pluginZCounter);
+            replyToPlugin(source, msg.id, true);
+            return;
+          }
+          if (msg.type === "window.drag") {
+            const originAck = handleWindowDrag(bridge, payload);
+            replyToPlugin(source, msg.id, true, originAck || { origin: null });
+            return;
+          }
+          if (msg.type === "window.create") {
+            createFloatWindow(bridge.id)
+              .then((id) => replyToPlugin(source, msg.id, true, { id }))
+              .catch(() => replyToPlugin(source, msg.id, false, null, "新建便签失败"));
+            return;
+          }
+          // window.close：先应答，宿主随后按 F4 顺序销毁
+          replyToPlugin(source, msg.id, true);
+          closeFloatWindow(bridge.id, bridge.instId, bridge.frame);
+          return;
+        }
+        if (msg.type === "storage.get" || msg.type === "storage.set" || msg.type === "storage.del") {
+          if (!hasPluginPermission(entry, "storage")) {
+            replyToPlugin(source, msg.id, false, null, "未声明 storage 权限");
+            return;
+          }
+          pluginStorageRequest(bridge.id, bridge, msg.id, msg.type, payload);
+          return;
+        }
+        replyToPlugin(source, msg.id, false, null, "不支持的消息类型");
+      }
+      window.addEventListener("message", handlePluginMessage);
+
+      async function loadPluginState() {
+        const response = await apiFetch(getPluginsApiUrl("installed"), { cache: "no-store" });
+        if (response.ok) {
+          const data = await response.json().catch(() => ({}));
+          pluginInstalled = data && typeof data === "object" ? data : {};
+        } else {
+          pluginInstalled = {};
+        }
+      }
+
+      async function ensurePluginData() {
+        const tasks = [];
+        if (!pluginRegistry) {
+          // registry.json 是公开静态清单；安装状态走鉴权 API。
+          // 槽位渲染前必先有 registry，否则任何插件都不会被挂载。
+          tasks.push(
+            fetch(getPluginAssetUrl("plugins/registry.json"), { cache: "no-store" })
+              .then((response) => (response.ok ? response.json() : null))
+              .then((data) => {
+                pluginRegistry = data && Array.isArray(data.plugins) ? data.plugins : [];
+                pluginRegistryError = pluginRegistry.length === 0 ? "插件清单不可用" : "";
+              })
+              .catch(() => {
+                pluginRegistry = [];
+                pluginRegistryError = "插件清单加载失败";
+              })
+          );
+        }
+        tasks.push(
+          loadPluginState().catch(() => {
+            pluginInstalled = {};
+          })
+        );
+        await Promise.all(tasks);
+      }
+
+      function setMarketMessage(message, isError) {
+        marketErrorEl.textContent = message;
+        marketErrorEl.classList.toggle("ok", !isError && Boolean(message));
+      }
+
+      function buildMarketCard(entry) {
+        const pluginId = String(entry.id || "");
+        const state = pluginInstalled[pluginId];
+        const enabled = Boolean(state && state.enabled);
+        const card = document.createElement("div");
+        card.className = "market-card";
+
+        const head = document.createElement("div");
+        head.className = "market-card-head";
+        const name = document.createElement("strong");
+        name.textContent = String(entry.name || pluginId);
+        const meta = document.createElement("span");
+        meta.className = "market-meta";
+        const slotLabel = PLUGIN_SLOT_LABELS[entry.slot] || entry.slot || "未知";
+        meta.textContent =
+          "v" + (entry.version || "?") + " · " + slotLabel + (entry.author ? " · " + entry.author : "");
+        head.appendChild(name);
+        head.appendChild(meta);
+
+        const desc = document.createElement("p");
+        desc.className = "market-desc";
+        desc.textContent = String(entry.description || "");
+
+        const perms = document.createElement("p");
+        perms.className = "market-perms";
+        const permList = Array.isArray(entry.permissions) ? entry.permissions : [];
+        perms.textContent =
+          "权限：" +
+          (permList.length > 0
+            ? permList.map((p) => PLUGIN_PERMISSION_LABELS[p] || String(p)).join("、")
+            : "无特权能力");
+
+        const actions = document.createElement("div");
+        actions.className = "market-card-actions";
+        const status = document.createElement("span");
+        status.className = "market-status" + (enabled ? " ok" : "");
+        status.textContent = enabled ? "已启用" : state ? "已停用" : "未安装";
+        actions.appendChild(status);
+        // 启用中的浮动插件：卡片上直接提供"新建窗口"（全部关掉后的兜底入口）
+        if (enabled && entry.slot === "float") {
+          const createBtn = document.createElement("button");
+          createBtn.type = "button";
+          createBtn.className = "ghost-btn";
+          createBtn.textContent = "新建窗口";
+          createBtn.addEventListener("click", () => {
+            closeMarketModal();
+            createFloatWindow(pluginId);
+          });
+          actions.appendChild(createBtn);
+        }
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = enabled ? "ghost-btn" : "primary-btn";
+        toggleBtn.textContent = !state ? "安装" : enabled ? "停用" : "启用";
+        toggleBtn.addEventListener("click", () => togglePluginInstalled(pluginId, !enabled, toggleBtn));
+        actions.appendChild(toggleBtn);
+        if (state) {
+          // 卸载即清空该插件数据；两段式确认避免误触
+          const uninstallBtn = document.createElement("button");
+          uninstallBtn.type = "button";
+          uninstallBtn.className = "ghost-btn";
+          uninstallBtn.textContent = "卸载";
+          uninstallBtn.addEventListener("click", () => {
+            if (uninstallBtn.dataset.confirm === "1") {
+              uninstallPlugin(pluginId, uninstallBtn);
+              return;
+            }
+            uninstallBtn.dataset.confirm = "1";
+            uninstallBtn.textContent = "确认卸载";
+            window.setTimeout(() => {
+              uninstallBtn.dataset.confirm = "";
+              uninstallBtn.textContent = "卸载";
+            }, 4000);
+          });
+          actions.appendChild(uninstallBtn);
+        }
+
+        card.appendChild(head);
+        card.appendChild(desc);
+        card.appendChild(perms);
+        card.appendChild(actions);
+        return card;
+      }
+
+      function renderMarketList() {
+        marketListEl.textContent = "";
+        if (!pluginRegistry || pluginRegistry.length === 0) {
+          setMarketMessage(pluginRegistryError || "暂无可用插件", true);
+          return;
+        }
+        setMarketMessage("", false);
+        pluginRegistry.forEach((entry) => marketListEl.appendChild(buildMarketCard(entry)));
+      }
+
+      async function openMarketModal() {
+        marketModalEl.hidden = false;
+        setMarketMessage("加载中...", false);
+        await ensurePluginData();
+        renderMarketList();
+      }
+
+      function closeMarketModal() {
+        marketModalEl.hidden = true;
+      }
+
+      async function togglePluginInstalled(pluginId, enabled, btn) {
+        if (pluginActionBusy.has(pluginId)) return;
+        pluginActionBusy.add(pluginId);
+        btn.disabled = true;
+        try {
+          const response = await apiFetch(
+            getPluginsApiUrl(encodeURIComponent(pluginId) + "/installed"),
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ enabled }),
+            }
+          );
+          const data = await response.json().catch(() => null);
+          if (!response.ok) {
+            setMarketMessage((data && data.error) || "操作失败，请重试", true);
+            return;
+          }
+          await loadPluginState();
+          renderMarketList();
+          await refreshPluginUI();
+        } catch (_) {
+          setMarketMessage("操作失败，网络异常", true);
+        } finally {
+          pluginActionBusy.delete(pluginId);
+          btn.disabled = false;
+        }
+      }
+
+      async function uninstallPlugin(pluginId, btn) {
+        if (pluginActionBusy.has(pluginId)) return;
+        pluginActionBusy.add(pluginId);
+        btn.disabled = true;
+        try {
+          const response = await apiFetch(
+            getPluginsApiUrl(encodeURIComponent(pluginId) + "/installed?purge=1"),
+            { method: "DELETE" }
+          );
+          const data = await response.json().catch(() => null);
+          if (!response.ok) {
+            setMarketMessage((data && data.error) || "卸载失败，请重试", true);
+            return;
+          }
+          // 不清 mountedFloatSignatures：窗口清理循环靠它发现"已挂载但未启用"的
+          // 插件；删了它卸载的插件就不进清理循环，浮动窗口会残留到下次刷新
+          delete pluginWindows[pluginId];
+          await loadPluginState();
+          renderMarketList();
+          await refreshPluginUI();
+        } catch (_) {
+          setMarketMessage("卸载失败，网络异常", true);
+        } finally {
+          pluginActionBusy.delete(pluginId);
+          btn.disabled = false;
+        }
+      }
+
       /* ===== 背景设置 ===== */
       function clearBodyInlineBackground() {
         document.body.style.backgroundColor = "";
@@ -4127,6 +5061,22 @@
       transferImportForm.addEventListener("submit", submitTransferImport);
       transferExportBtn.addEventListener("click", submitTransferExport);
 
+      pluginsTitleEl.addEventListener("click", togglePluginsPanel);
+      pluginsTitleEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          togglePluginsPanel();
+        }
+      });
+      pluginsMarketBtn.addEventListener("click", () => {
+        if (!requireManageToken()) return;
+        openMarketModal();
+      });
+      marketCloseBtn.addEventListener("click", closeMarketModal);
+      marketModalEl.addEventListener("click", (event) => {
+        if (event.target === marketModalEl) closeMarketModal();
+      });
+
       document.addEventListener("click", (event) => {
         if (!contextMenuEl.hidden && !contextMenuEl.contains(event.target)) {
           hideContextMenu();
@@ -4135,7 +5085,7 @@
       document.addEventListener("click", (event) => {
         if (addPanelEl.classList.contains("collapsed")) return;
         if (addPanelEl.contains(event.target)) return;
-        if (!editModalEl.hidden || !deleteModalEl.hidden || !tokenModalEl.hidden || !backgroundModalEl.hidden || !transferModalEl.hidden) return;
+        if (!editModalEl.hidden || !deleteModalEl.hidden || !tokenModalEl.hidden || !backgroundModalEl.hidden || !transferModalEl.hidden || !marketModalEl.hidden) return;
         if (contextMenuEl.contains(event.target)) return;
         setAddCollapsed(true);
       });
@@ -4149,6 +5099,7 @@
         if (!tokenModalEl.hidden) closeTokenModal();
         if (!backgroundModalEl.hidden) closeBackgroundModal();
         if (!transferModalEl.hidden) closeTransferModal();
+        if (!marketModalEl.hidden) closeMarketModal();
       });
 
       form.addEventListener("submit", submitUrl);
@@ -4195,6 +5146,16 @@
       loadBackgroundSetting();
       Promise.all([loadSites(), loadTags()]).then(() => {
         renderTagBar();
+      });
+      try {
+        setPluginsCollapsed(localStorage.getItem(PLUGINS_COLLAPSED_KEY) === "1");
+      } catch (_) {}
+      // 插件仅在管理身份下加载：访客不拉取安装状态，也就不会触发 401 弹窗
+      authStatusReady.then(() => {
+        if (!hasManageAccess()) return;
+        ensurePluginData()
+          .then(refreshPluginUI)
+          .catch(() => {});
       });
     </script>
   </body>

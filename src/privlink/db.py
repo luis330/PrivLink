@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 import time
 from contextlib import closing, contextmanager
@@ -224,6 +225,12 @@ D1_SCHEMA_STATEMENTS: list[tuple[str, tuple[Any, ...]]] = [
         (),
     ),
     ("CREATE INDEX IF NOT EXISTS idx_site_tags_tag ON site_tags(tag_id);", ()),
+    (
+        "CREATE TABLE IF NOT EXISTS plugin_data ("
+        "plugin_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, "
+        "updated_at TEXT NOT NULL, PRIMARY KEY (plugin_id, key));",
+        (),
+    ),
 ]
 
 _remote_schema_ready = False
@@ -341,6 +348,17 @@ def init_storage() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_site_tags_tag ON site_tags(tag_id);"
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS plugin_data (
+                plugin_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (plugin_id, key)
+            );
+            """
+        )
         conn.commit()
 
 
@@ -365,6 +383,114 @@ async def set_app_setting(key: str, value: str) -> None:
         """,
         (key, value, utc_now()),
     )
+
+
+# ===== 插件市场：安装状态（app_settings 单键 JSON）与插件数据（plugin_data 表） =====
+
+PLUGIN_STATE_SETTING_KEY = "plugins_state"
+
+
+async def get_plugin_state() -> dict[str, dict[str, Any]]:
+    """已安装插件状态：{pluginId: {enabled: bool, installedAt: str}}；损坏的 JSON 视为空。"""
+    raw = await get_app_setting(PLUGIN_STATE_SETTING_KEY)
+    if not raw:
+        return {}
+    try:
+        state = json.loads(raw)
+    except ValueError:
+        return {}
+    return state if isinstance(state, dict) else {}
+
+
+async def set_plugin_state(state: dict[str, dict[str, Any]]) -> None:
+    await set_app_setting(PLUGIN_STATE_SETTING_KEY, json.dumps(state, ensure_ascii=False))
+
+
+async def delete_app_setting(key: str) -> None:
+    await get_db().run("DELETE FROM app_settings WHERE key = ?;", (key,))
+
+
+# 浮动窗口布局（宿主所有，插件经桥不可达）：app_settings 键 plugin_windows:<pluginId>
+PLUGIN_WINDOWS_SETTING_PREFIX = "plugin_windows:"
+
+
+async def get_plugin_windows(plugin_id: str) -> list[dict[str, Any]] | None:
+    """窗口布局注册表；键不存在（从未有过实例）返回 None，与「用户已全部关闭」(=[]) 区分。"""
+    raw = await get_app_setting(PLUGIN_WINDOWS_SETTING_PREFIX + plugin_id)
+    if raw is None:
+        return None
+    try:
+        windows = json.loads(raw)
+    except ValueError:
+        config.logger.warning("插件 %s 的窗口布局数据损坏，按空处理", plugin_id)
+        return []
+    return windows if isinstance(windows, list) else []
+
+
+async def set_plugin_windows(plugin_id: str, windows: list[dict[str, Any]]) -> None:
+    await set_app_setting(
+        PLUGIN_WINDOWS_SETTING_PREFIX + plugin_id,
+        json.dumps(windows, ensure_ascii=False),
+    )
+
+
+async def fetch_plugin_data(plugin_id: str, key: str) -> str | None:
+    row = await get_db().fetch_one(
+        "SELECT value FROM plugin_data WHERE plugin_id = ? AND key = ?;",
+        (plugin_id, key),
+    )
+    if not row:
+        return None
+    return str(row["value"])
+
+
+async def upsert_plugin_data(plugin_id: str, key: str, value: str) -> None:
+    await get_db().run(
+        """
+        INSERT INTO plugin_data (plugin_id, key, value, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(plugin_id, key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at;
+        """,
+        (plugin_id, key, value, utc_now()),
+    )
+
+
+async def delete_plugin_data(plugin_id: str, key: str | None = None, prefix: str | None = None) -> int:
+    """删除插件数据。
+
+    key 为 None 且 prefix 为 None 时清空该插件全部数据（卸载 purge）；给定 key 删单键
+    （桥 storage.del）；给定 prefix 删实例前缀下全部键（浮动便签关闭单实例，见 docs/plugins.md）。
+    prefix 须由路由先行校验字符集（不含 LIKE 通配符）。
+    """
+    if key is not None:
+        return await get_db().run(
+            "DELETE FROM plugin_data WHERE plugin_id = ? AND key = ?;",
+            (plugin_id, key),
+        )
+    if prefix is not None:
+        return await get_db().run(
+            "DELETE FROM plugin_data WHERE plugin_id = ? AND key LIKE ?;",
+            (plugin_id, prefix + "%"),
+        )
+    return await get_db().run("DELETE FROM plugin_data WHERE plugin_id = ?;", (plugin_id,))
+
+
+async def plugin_data_usage(plugin_id: str) -> dict[str, int]:
+    """配额用量：键数与键值字节总量（D1/SQLite 的 LENGTH 对 TEXT 均按字符计，作近似即可）。"""
+    row = await get_db().fetch_one(
+        """
+        SELECT COUNT(*) AS key_count,
+               COALESCE(SUM(LENGTH(value)), 0) AS value_chars
+        FROM plugin_data WHERE plugin_id = ?;
+        """,
+        (plugin_id,),
+    )
+    return {
+        "key_count": int((row or {}).get("key_count") or 0),
+        "value_chars": int((row or {}).get("value_chars") or 0),
+    }
 
 
 async def upsert_site_record(

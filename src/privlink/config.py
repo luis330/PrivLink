@@ -34,6 +34,10 @@ APP_PORT = 8000
 DB_PATH = Path("data") / "sites.db"
 ICON_DIR = Path("ICON")
 BACKGROUND_DIR = Path("background")
+# 内置插件源目录（仓库根，Docker 与本地部署由此读取；Workers 由 Assets 服务 assets/plugins/）
+PLUGINS_DIR = Path("plugins")
+# 插件 id 同时用作 URL 段与数据命名空间：小写字母数字与连字符，禁止点（registry.json 不是插件）
+PLUGIN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 FRONTEND_PATH = Path("index.html")
 # 根路径品牌资源（图标 + PWA manifest）所在目录，与 index.html 同级
 ROOT_ASSET_DIR = Path(".")
@@ -136,6 +140,20 @@ CSP_PAGE = (
 # SVG 以独立文档直接打开时执行内嵌脚本的收口：<img> 引用不受影响（图像上下文本就不执行
 # 脚本），直接导航时 sandbox 使脚本失效。
 CSP_SVG = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+# 插件文档 CSP：插件运行在 sandbox="allow-scripts"（无 allow-same-origin）iframe 里，
+# 属不透明源，拿不到主页面 DOM/localStorage/token。default-src 'none' 断网断外链，
+# img 仅 data:/blob:（堵死图片外传信道）；sandbox allow-scripts 使插件被直接导航打开时
+# 同样进沙箱（不可照抄 CSP_SVG 的裸 sandbox——那会连 iframe 内脚本一起禁掉）。
+# 有意不设 frame-ancestors：沙箱文档离开宿主桥即惰性，且避免 'self' 与不透明源的匹配歧义。
+CSP_PLUGIN = (
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+    "img-src data: blob:; sandbox allow-scripts"
+)
+# 插件数据配额：每插件键数与键值字节总量上限（防存储滥用；超限写入整体拒绝）
+PLUGIN_DATA_MAX_KEYS = 200
+PLUGIN_DATA_MAX_BYTES = 256 * 1024
+# 浮动窗口注册表：单插件实例数上限（防异常累积）
+PLUGIN_MAX_WINDOWS = 100
 
 logging.basicConfig(
     level=logging.INFO,

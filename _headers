@@ -9,3 +9,13 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   X-Frame-Options: SAMEORIGIN
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
+
+# 插件文档：运行在 sandbox="allow-scripts"（无 allow-same-origin）iframe 中的不透明源。
+# 重复全部基础安全头并把 CSP 替换为 CSP_PLUGIN（与 config.py 保持一致）：无论 Workers
+# 对多段匹配采用"后者覆盖"还是"多 CSP 叠加取交集"语义，结果都等价于更严的插件策略。
+/plugins/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; sandbox allow-scripts
