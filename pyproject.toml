@@ -1,6 +1,6 @@
 [project]
 name = "privlink"
-version = "0.2.0"
+version = "0.3.0"
 description = "PrivLink — 轻量自部署书签导航"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -35,16 +35,25 @@ from privlink.db import (
     D1Database,
     IntegrityConflictError,
     bind_db,
+    delete_app_setting,
+    delete_plugin_data,
     ensure_remote_schema,
     fetch_all_site_tags,
+    fetch_plugin_data,
     fetch_site_row,
     fetch_site_tags,
     get_db,
+    get_plugin_state,
+    get_plugin_windows,
     init_storage,
     normalize_tag_list,
     normalize_tag_name,
+    plugin_data_usage,
+    set_plugin_state,
+    set_plugin_windows,
     site_tags_statements,
     unbind_db,
+    upsert_plugin_data,
     utc_now,
 )
 from privlink.fetcher import PublicIPv4LookupError
@@ -64,6 +73,9 @@ from privlink.models import (
     MessageResponse,
     ParseRequest,
     ParseResponse,
+    PluginDataWriteRequest,
+    PluginStateRequest,
+    PluginWindowsRequest,
     PublicIPv4Response,
     ReorderRequest,
     SiteItem,
@@ -1007,3 +1019,189 @@ async def import_sites(
             },
         )
     return JSONResponse(content={"total": total, "imported": imported, "skipped": skipped})
+
+
+# ===== 插件市场（内置精选） =====
+#
+# 信任模型：插件永远运行在 sandbox="allow-scripts"（无 allow-same-origin）的 iframe
+# 不透明源中，经 postMessage 桥使用宿主代理的能力；即使插件完全恶意，也接触不到
+# token、书签与主页面 DOM。registry 成员校验是审查门禁的落地：未收录的插件不可加载。
+
+
+def load_plugin_registry() -> list[dict[str, Any]]:
+    """读取内置插件清单 plugins/registry.json（每次读取，不缓存：编辑清单即时生效）。
+
+    Workers 上 Python 侧无文件系统（插件静态文件由 Workers Assets 服务，响应头见
+    根 _headers 的 /plugins/* 段），返回空列表：API 端点跳过成员校验——数据端点已有
+    TokenGuard 门禁且调用方本就是 owner，成员校验只在本地静态路由上强制。
+    """
+    try:
+        data = json.loads((config.PLUGINS_DIR / "registry.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    plugins = data.get("plugins") if isinstance(data, dict) else None
+    if not isinstance(plugins, list):
+        return []
+    return [entry for entry in plugins if isinstance(entry, dict)]
+
+
+def _plugin_registry_entry(plugin_id: str) -> dict[str, Any] | None:
+    for entry in load_plugin_registry():
+        if entry.get("id") == plugin_id:
+            return entry
+    return None
+
+
+def _valid_plugin_id(plugin_id: str) -> bool:
+    return bool(config.PLUGIN_ID_RE.fullmatch(plugin_id))
+
+
+@app.get("/plugins/registry.json", include_in_schema=False, response_model=None)
+async def serve_plugin_registry(request: Request):
+    """内置插件清单（公开静态：仅元数据，无敏感信息）。本地部署专用；Workers 由 Assets 服务。"""
+    response = conditional_file_response(
+        request, config.PLUGINS_DIR / "registry.json", "application/json", "no-cache"
+    )
+    if response is None:
+        return _media_not_found()
+    return response
+
+
+@app.get("/plugins/{plugin_id}/{file_path:path}", include_in_schema=False, response_model=None)
+async def serve_plugin_file(request: Request, plugin_id: str, file_path: str):
+    """内置插件静态文件。
+
+    三道门禁：id 格式、registry 成员、resolve 后必须仍位于该插件目录内
+    （嵌套穿越与绝对路径替换均被拒绝，_safe_media_name 只适用单层文件名故不沿用）。
+    插件文档运行在沙箱 iframe：显式下发 CSP_PLUGIN（安全头中间件不覆盖已存在的
+    CSP）；no-cache + ETag 保证插件升级即时生效。
+    """
+    if not _valid_plugin_id(plugin_id):
+        return _media_not_found()
+    entry = _plugin_registry_entry(plugin_id)
+    if entry is None:
+        return _media_not_found()
+    relative = file_path.strip()
+    if not relative:
+        relative = str(entry.get("entry") or "index.html").strip()
+    plugin_root = (config.PLUGINS_DIR / plugin_id).resolve()
+    target = (config.PLUGINS_DIR / plugin_id / relative).resolve()
+    if not target.is_relative_to(plugin_root):
+        return _media_not_found()
+    response = conditional_file_response(
+        request,
+        target,
+        media_type_for(target.name),
+        "no-cache",
+        {"Content-Security-Policy": config.CSP_PLUGIN},
+    )
+    if response is None:
+        return _media_not_found()
+    return response
+
+
+@app.get("/api/plugins/installed", response_model=None)
+async def list_installed_plugins() -> dict[str, dict[str, Any]]:
+    """已安装插件状态（owner-only：不在 TokenGuard 公开只读白名单）。"""
+    return await get_plugin_state()
+
+
+@app.put("/api/plugins/{plugin_id}/installed", response_model=MessageResponse)
+async def set_plugin_installed(plugin_id: str, payload: PluginStateRequest) -> JSONResponse:
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    if load_plugin_registry() and _plugin_registry_entry(plugin_id) is None:
+        # registry 可读（本地部署）时强制成员校验；Workers 无文件系统，
+        # 由 Assets 部署范围（_headers/静态目录）兜底
+        return JSONResponse(status_code=404, content={"error": "插件不在内置清单中"})
+    state = await get_plugin_state()
+    record = state.get(plugin_id) if isinstance(state.get(plugin_id), dict) else {}
+    state[plugin_id] = {
+        "enabled": bool(payload.enabled),
+        "installedAt": record.get("installedAt") or utc_now(),
+    }
+    await set_plugin_state(state)
+    return JSONResponse(status_code=200, content={"message": "ok"})
+
+
+@app.delete("/api/plugins/{plugin_id}/installed", response_model=MessageResponse)
+async def uninstall_plugin(plugin_id: str, purge: bool = False) -> JSONResponse:
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    state = await get_plugin_state()
+    state.pop(plugin_id, None)
+    await set_plugin_state(state)
+    if purge:
+        await delete_plugin_data(plugin_id)
+        # 浮动窗口布局注册表一并清除，避免重装后旧位置"复活"
+        await delete_app_setting(f"plugin_windows:{plugin_id}")
+    return JSONResponse(status_code=200, content={"message": "ok"})
+
+
+@app.get("/api/plugins/{plugin_id}/data", response_model=None)
+async def read_plugin_data(plugin_id: str, key: str) -> JSONResponse:
+    """桥专用键值读取：宿主代持 token 调用，插件自身无法直接触达。"""
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    clean_key = key.strip()
+    value = await fetch_plugin_data(plugin_id, clean_key)
+    if value is None:
+        return JSONResponse(status_code=404, content={"error": "数据不存在"})
+    return JSONResponse(status_code=200, content={"key": clean_key, "value": value})
+
+
+@app.put("/api/plugins/{plugin_id}/data", response_model=MessageResponse)
+async def write_plugin_data(plugin_id: str, payload: PluginDataWriteRequest) -> JSONResponse:
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    key = payload.key.strip()
+    if not key:
+        return JSONResponse(status_code=400, content={"error": "数据键不能为空"})
+    existing = await fetch_plugin_data(plugin_id, key)
+    usage = await plugin_data_usage(plugin_id)
+    next_count = usage["key_count"] + (0 if existing is not None else 1)
+    if next_count > config.PLUGIN_DATA_MAX_KEYS:
+        return JSONResponse(status_code=400, content={"error": "插件数据键数超出配额"})
+    next_chars = usage["value_chars"] + len(payload.value) - len(existing or "")
+    if next_chars > config.PLUGIN_DATA_MAX_BYTES:
+        return JSONResponse(status_code=413, content={"error": "插件数据总量超出配额"})
+    await upsert_plugin_data(plugin_id, key, payload.value)
+    return JSONResponse(status_code=200, content={"message": "ok"})
+
+
+@app.delete("/api/plugins/{plugin_id}/data", response_model=MessageResponse)
+async def remove_plugin_data(plugin_id: str, key: str = "", prefix: str = "") -> JSONResponse:
+    """删除插件数据；key=单键，prefix=实例前缀（浮动便签关单实例），都不带=清空全部。"""
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    clean_prefix = prefix.strip()
+    if clean_prefix and not config.PLUGIN_ID_RE.fullmatch(clean_prefix.rstrip(":")):
+        # 前缀将拼进 LIKE 模式：只放行 id 字符集与分隔符，杜绝通配符注入
+        return JSONResponse(status_code=400, content={"error": "无效的数据前缀"})
+    if key.strip():
+        await delete_plugin_data(plugin_id, key.strip())
+    elif clean_prefix:
+        await delete_plugin_data(plugin_id, prefix=clean_prefix)
+    else:
+        await delete_plugin_data(plugin_id)
+    return JSONResponse(status_code=200, content={"message": "ok"})
+
+
+@app.get("/api/plugins/{plugin_id}/windows", response_model=None)
+async def read_plugin_windows(plugin_id: str) -> JSONResponse:
+    """浮动窗口布局注册表（宿主所有；插件经桥不可达）。键不存在返回 404=从未有过实例。"""
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    windows = await get_plugin_windows(plugin_id)
+    if windows is None:
+        return JSONResponse(status_code=404, content={"error": "暂无窗口布局"})
+    return JSONResponse(status_code=200, content={"windows": windows})
+
+
+@app.put("/api/plugins/{plugin_id}/windows", response_model=MessageResponse)
+async def write_plugin_windows(plugin_id: str, payload: PluginWindowsRequest) -> JSONResponse:
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    windows = [item.model_dump() for item in payload.windows]
+    await set_plugin_windows(plugin_id, windows)
+    return JSONResponse(status_code=200, content={"message": "ok"})

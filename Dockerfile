@@ -15,6 +15,8 @@ RUN uv sync --frozen --no-dev --no-install-project && uv cache clean
 COPY main.py ./
 COPY src/privlink/ ./src/privlink/
 COPY index.html simple-icons.json manifest.json LICENSE favicon.ico favicon-16x16.png favicon-32x32.png apple-touch-icon.png android-chrome-192x192.png android-chrome-512x512.png ./
+# 内置插件市场：本地路由由 /plugins/{id}/{path} 直接读取该目录（Workers 走 Assets）
+COPY plugins/ ./plugins/
 # --no-editable：项目以普通 wheel 安装（uv 官方生产镜像建议）。editable 安装在 uv cache clean
 # 后会失去轮子缓存副本，导致 uv run 每次容器启动都现场重建，且依赖构建后端可获取
 RUN uv sync --frozen --no-dev --no-editable && uv cache clean && mkdir -p /app/data /app/ICON /app/background

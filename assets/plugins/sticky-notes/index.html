@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>便签</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+    #root {
+      width: 100%;
+      height: 100%;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #fff;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    /* 玻璃底由宿主窗口容器承担（沙箱 iframe 的 backdrop-filter 看不到主页面），
+       插件内部只用半透明白色分层 + 白字，与站点图标玻璃风格一致 */
+    .bridge-hint {
+      margin: 8px;
+      padding: 10px 12px;
+      border: 1px dashed rgba(255, 255, 255, 0.4);
+      border-radius: 8px;
+      color: rgba(255, 255, 255, 0.92);
+      background: rgba(15, 35, 70, 0.55);
+    }
+    .note {
+      display: flex;
+      flex-direction: column;
+      width: 100%; height: 100%;
+    }
+    .note-bar {
+      flex: 0 0 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+      cursor: move;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    .note-btn {
+      width: 28px; height: 28px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.92);
+      font-size: 18px;
+      line-height: 28px;
+      text-align: center;
+      cursor: pointer;
+    }
+    .note-btn:hover { background: rgba(255, 255, 255, 0.14); }
+    .note-btn.close:hover { background: rgba(200, 60, 40, 0.35); color: #fff; }
+    .note-text {
+      flex: 1 1 auto;
+      width: 100%;
+      border: none;
+      padding: 10px 12px;
+      background: transparent;
+      resize: none;
+      outline: none;
+      font: inherit;
+      color: #fff;
+      caret-color: #fff;
+    }
+    .note-text::placeholder { color: rgba(255, 255, 255, 0.5); }
+    .note-grip {
+      position: absolute;
+      right: 2px; bottom: 2px;
+      width: 18px; height: 18px;
+      cursor: nwse-resize;
+      touch-action: none;
+    }
+    .note-grip::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      background: repeating-linear-gradient(
+        -45deg,
+        transparent 0 2px,
+        rgba(255, 255, 255, 0.55) 2px 3px,
+        transparent 3px 5px
+      );
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    (function () {
+      "use strict";
+
+      /* ===== 桥：与宿主（导航页）的 postMessage 通信，协议见 docs/plugins.md =====
+         本插件 slot=float：每个实例即一张便签窗口，窗口的位置/尺寸由宿主管理。
+         拖拽/缩放采用「插件侧 setPointerCapture + 坐标中继」：宿主只做增量位移。 */
+      var BRIDGE_VERSION = 1;
+      var CONTENT_KEY = "content";
+      var root = document.getElementById("root");
+      var seq = 0;
+      var pending = new Map();
+      var bridgeOk = false;
+      var saveTimer = null;
+      var dirtyText = "";
+
+      function callBridge(type, payload) {
+        return new Promise(function (resolve, reject) {
+          var id = "p" + (++seq);
+          pending.set(id, { resolve: resolve, reject: reject });
+          window.parent.postMessage({ v: BRIDGE_VERSION, id: id, type: type, payload: payload || {} }, "*");
+          window.setTimeout(function () {
+            if (pending.has(id)) {
+              pending.delete(id);
+              reject(new Error("桥响应超时"));
+            }
+          }, 8000);
+        });
+      }
+
+      // 高频消息（拖拽 move）不等回包：宿主的应答因无 pending 记录而被插件丢弃
+      function notifyBridge(type, payload) {
+        window.parent.postMessage({ v: BRIDGE_VERSION, id: "n" + (++seq), type: type, payload: payload || {} }, "*");
+      }
+
+      window.addEventListener("message", function (event) {
+        if (event.source !== window.parent) return;
+        var msg = event.data;
+        if (!msg || typeof msg !== "object" || msg.v !== BRIDGE_VERSION || !pending.has(msg.id)) return;
+        var task = pending.get(msg.id);
+        pending.delete(msg.id);
+        if (msg.ok) {
+          task.resolve(msg.data);
+        } else {
+          task.reject(new Error(msg.error || "桥调用失败"));
+        }
+      });
+
+      /* ===== 渲染 ===== */
+      function showHint(text) {
+        root.textContent = "";
+        var note = document.createElement("div");
+        note.className = "bridge-hint";
+        note.textContent = text;
+        root.appendChild(note);
+      }
+
+      var textarea = null;
+
+      function buildNote() {
+        var note = document.createElement("div");
+        note.className = "note";
+        note.style.position = "relative";
+
+        var bar = document.createElement("div");
+        bar.className = "note-bar";
+        var add = document.createElement("button");
+        add.type = "button";
+        add.className = "note-btn";
+        add.setAttribute("aria-label", "新建便签");
+        add.textContent = "+";
+        add.addEventListener("click", function () {
+          callBridge("window.create", {}).catch(function () {});
+        });
+        var close = document.createElement("button");
+        close.type = "button";
+        close.className = "note-btn close";
+        close.setAttribute("aria-label", "删除便签");
+        close.textContent = "×";
+        close.addEventListener("click", function () {
+          flushSave();
+          callBridge("window.close", {}).catch(function () {});
+        });
+        bar.appendChild(add);
+        bar.appendChild(close);
+
+        textarea = document.createElement("textarea");
+        textarea.className = "note-text";
+        textarea.placeholder = "记笔记...";
+        textarea.addEventListener("input", function () {
+          dirtyText = textarea.value;
+          scheduleSave();
+        });
+
+        var grip = document.createElement("div");
+        grip.className = "note-grip";
+        grip.setAttribute("aria-label", "调整便签大小");
+
+        note.appendChild(bar);
+        note.appendChild(textarea);
+        note.appendChild(grip);
+        root.appendChild(note);
+
+        attachDrag(bar, "move");
+        attachDrag(grip, "resize");
+      }
+
+      /* 点击便签任意处置顶（含 textarea，宿主据此调整层级） */
+      document.addEventListener("pointerdown", function () {
+        if (bridgeOk) notifyBridge("window.focus", {});
+      }, true);
+
+      /* ===== 拖拽/缩放：捕获 + 坐标快照中继 =====
+         pointerdown 时在自己文档内 setPointerCapture：后续 move/up 必达本插件。
+         关键协议约束：每次中继的指针坐标必须连同"测量瞬间的参照系"（该坐标所相对的
+         窗口原点，取自宿主上一次应答的 origin）一起发送——宿主按 指针页面坐标 =
+         局部坐标 + 参照原点 还原真实位置，与宿主是否已应用之前的位移无关（无竞态、
+         无反馈回路）。泵按"上一拍应答后再发下一拍"串行化，end 在其后收敛。 */
+      function attachDrag(handle, mode) {
+        var dragging = false;
+        var lastX = 0;
+        var lastY = 0;
+        var snapshot = null; // { x, y, rx, ry }：待发送快照；参照系未就位前不生成
+        var currentRef = { x: 0, y: 0 };
+        var refKnown = false;
+        var endQueued = false;
+        var inFlight = false;
+
+        handle.addEventListener("pointerdown", function (event) {
+          if (event.button !== 0 && event.pointerType === "mouse") return;
+          if (dragging) return;
+          // 标题栏内的按钮（+/×）不启动拖拽：否则 setPointerCapture 会把后续
+          // pointerup 重定向到把手，click 派发到公共祖先，按钮永远收不到点击
+          if (event.target && event.target.closest && event.target.closest("button")) return;
+          event.preventDefault();
+          dragging = true;
+          endQueued = false;
+          refKnown = false;
+          snapshot = null;
+          lastX = event.clientX;
+          lastY = event.clientY;
+          try {
+            handle.setPointerCapture(event.pointerId);
+          } catch (_) {}
+          callBridge("window.drag", {
+            phase: "start",
+            mode: mode,
+            x: lastX,
+            y: lastY,
+          })
+            .then(function (ack) {
+              if (ack && ack.origin) {
+                currentRef = { x: ack.origin.x, y: ack.origin.y };
+              }
+              refKnown = true;
+              // 关键：参照系刚就位，以最新指针位置重拍快照再启动泵。此前 pointermove
+              // 的坐标相对未知参照系（初始 (0,0)），直接发送会让宿主把窗口瞬间拽到
+              // 页面左上角（首次拖拽闪烁的根因）
+              snapshot = { x: lastX, y: lastY, rx: currentRef.x, ry: currentRef.y };
+              beat();
+            })
+            .catch(function () {
+              dragging = false;
+            });
+        });
+
+        handle.addEventListener("pointermove", function (event) {
+          if (!dragging) return;
+          lastX = event.clientX;
+          lastY = event.clientY;
+          if (!refKnown) return; // 参照系未就位：只记录坐标，不生成快照
+          snapshot = { x: lastX, y: lastY, rx: currentRef.x, ry: currentRef.y };
+        });
+
+        function beat() {
+          if (inFlight) return;
+          if (!snapshot || (!dragging && !endQueued)) return;
+          if (!dragging) endQueued = false;
+          var msg = {
+            phase: dragging ? "move" : "end",
+            mode: mode,
+            x: snapshot.x,
+            y: snapshot.y,
+            rx: snapshot.rx,
+            ry: snapshot.ry,
+          };
+          inFlight = true;
+          callBridge("window.drag", msg)
+            .then(function (ack) {
+              inFlight = false;
+              if (ack && ack.origin) {
+                currentRef = { x: ack.origin.x, y: ack.origin.y };
+              }
+              beat();
+            })
+            .catch(function () {
+              inFlight = false;
+              dragging = false;
+              endQueued = false;
+            });
+        }
+
+        function finish() {
+          if (!dragging) return;
+          dragging = false;
+          endQueued = true;
+          beat();
+        }
+        handle.addEventListener("pointerup", finish);
+        handle.addEventListener("pointercancel", finish);
+      }
+
+      /* ===== 持久化：单键 "content"，防抖保存；页面隐藏时立即冲刷防丢字 ===== */
+      function scheduleSave() {
+        if (saveTimer) window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(flushSave, 400);
+      }
+
+      function flushSave() {
+        if (saveTimer) {
+          window.clearTimeout(saveTimer);
+          saveTimer = null;
+        }
+        if (!bridgeOk || dirtyText === "") return;
+        var value = dirtyText;
+        dirtyText = "";
+        callBridge("storage.set", { key: CONTENT_KEY, value: value }).catch(function () {
+          if (!dirtyText) dirtyText = value; // 无更新内容时恢复待存，下次输入重试
+          showHintOnce("保存失败：与导航页的连接已中断。");
+        });
+      }
+
+      var hintShown = false;
+      function showHintOnce(text) {
+        if (hintShown) return;
+        hintShown = true;
+        showHint(text);
+      }
+
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") flushSave();
+      });
+
+      /* ===== 初始化：握手（重试避开竞态）→ 取回正文 ===== */
+      function handshake(tries) {
+        return callBridge("hello", {}).then(function (data) {
+          bridgeOk = true;
+          return data;
+        }).catch(function (error) {
+          if (tries <= 1) throw error;
+          return new Promise(function (resolve) {
+            window.setTimeout(resolve, 250);
+          }).then(function () {
+            return handshake(tries - 1);
+          });
+        });
+      }
+
+      function init() {
+        if (window.top === window.self) {
+          // 被直接导航打开（CSP sandbox 生效，无宿主桥）：插件只能在导航页内使用
+          showHint("这是一个导航页插件。请在导航页的插件库中安装并启用「便签」后使用。");
+          return;
+        }
+        handshake(4).then(function () {
+          return callBridge("storage.get", { key: CONTENT_KEY });
+        }).then(function (data) {
+          buildNote();
+          textarea.value = (data && typeof data.value === "string") ? data.value : "";
+        }).catch(function () {
+          showHint("无法连接导航页宿主，便签暂不可用。请刷新页面重试。");
+        });
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>

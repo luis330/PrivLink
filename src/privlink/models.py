@@ -100,6 +100,29 @@ class ReorderRequest(BaseModel):
     site_ids: list[int] = Field(min_length=1)
 
 
+class PluginStateRequest(BaseModel):
+    enabled: bool
+
+
+class PluginDataWriteRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=128)
+    value: str = Field(max_length=config.PLUGIN_DATA_MAX_BYTES)
+
+
+class PluginWindowItem(BaseModel):
+    """浮动窗口实例布局；坐标为视口坐标（position:fixed）。"""
+
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    x: float = Field(allow_inf_nan=False, ge=-200, le=20000)
+    y: float = Field(allow_inf_nan=False, ge=-200, le=20000)
+    w: float = Field(allow_inf_nan=False, ge=40, le=5000)
+    h: float = Field(allow_inf_nan=False, ge=40, le=5000)
+
+
+class PluginWindowsRequest(BaseModel):
+    windows: list[PluginWindowItem] = Field(max_length=config.PLUGIN_MAX_WINDOWS)
+
+
 def error_payload(message: str) -> dict[str, str]:
     return {
         "url": "",
