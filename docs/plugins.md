@@ -85,14 +85,16 @@ float 插件是**多实例**的：一个插件 = 任意多个独立窗口（如�
 
 | 消息 | payload | 说明 |
 |---|---|---|
-| `window.drag` | `{phase: "start"\|"move"\|"end", mode: "move"\|"resize", x, y, rx, ry}` | 移动/缩放。**坐标参照系约定**：`x/y` 为指针的 iframe 局部坐标，`rx/ry` 为测量瞬间所参照的窗口原点（取自宿主上一次应答的 `origin`）。宿主按 `指针页面坐标 = x+rx, y+ry` 还原，无竞态无反馈回路；每次应答携带应用后的 `origin`，插件以下一帧为参照 |
+| `window.drag` | start: `{phase: "start", mode: "move"\|"resize", x, y, pointerId}`；兜底 end: `{phase: "end", mode, x, y}` | 移动/缩放。`x/y` 为指针的 iframe 局部坐标，`pointerId` 供宿主过滤指针。**宿主在 start 时接管指针**：把 iframe 置 `pointer-events:none`，在 window 上监听 move/up 用页面绝对坐标驱动，结束后恢复命中、持久化位置，并向插件回推 `window.dragEnd` 通知。旧版的 move/end 坐标中继（`x/y/rx/ry` 参照系约定）仍被兼容处理，但新插件不应再使用——沙箱 iframe 收不到范围外指针事件，插件侧自行跟踪必然丢事件 |
 | `window.create` | `{}` | 新建一个实例（宿主级联 +24px 定位），应答 `{id}` |
 | `window.close` | `{}` | 关闭当前实例（按上面顺序清理） |
 | `window.focus` | `{}` | 当前窗口置顶 |
 
 - `notify`/`openUrl` 为预留能力，未实现。
 
-**拖拽中继的实现要点**（写插件的拖拽时必读）：在把手上 `pointerdown` 时调用 `setPointerCapture`（保证指针移出 iframe/窗口后事件仍达）；每次 `pointermove` 把坐标与**当时的参照原点**定格成快照再发送（两者必须同帧，混帧会导致位置漂移）；中继按"上一拍应答后再发下一拍"串行化；`end` 在其之后发出，宿主直接按 end 坐标收敛。不要用 `requestAnimationFrame` 做节流——标签页被遮挡时 rAF 停摆，中继会整体丢失。
+**拖拽的实现要点**（写 float 插件的拖拽时必读）：沙箱 iframe 只能收到指针位于其范围内的事件，`setPointerCapture` 不跨文档边界——插件侧自行跟踪指针，快速拖拽时必然丢 `move`/`up`（表现为抖动、松手后窗口停在旧位置、僵局会话吞掉下一次拖拽）。正确做法：`pointerdown` 时向宿主发 `window.drag` start（带局部坐标与 `pointerId`）后即不再跟踪，指针事件由宿主接管；插件监听宿主回推的 `window.dragEnd` 复位本地状态，并保留本地 `pointerup`/`pointercancel` 作为宿主未接管的兜底。
+
+- **宿主 → 插件通知**：`{v: 1, type: "window.dragEnd", payload: {mode}}`（无 `id`，不走应答表）。宿主结束一次接管的拖拽/缩放后回推，插件据此复位本地拖拽状态；安全性同回包——插件只信 `event.source === window.parent`。
 
 ### 插件侧胶水代码
 
@@ -113,7 +115,9 @@ function callBridge(type, payload) {
 window.addEventListener("message", function (event) {
   if (event.source !== window.parent) return;
   var msg = event.data;
-  if (!msg || typeof msg !== "object" || msg.v !== 1 || !pending.has(msg.id)) return;
+  if (!msg || typeof msg !== "object" || msg.v !== 1) return;
+  if (msg.type === "window.dragEnd") { /* 复位本地拖拽状态 */ return; }
+  if (!pending.has(msg.id)) return;
   var task = pending.get(msg.id); pending.delete(msg.id);
   if (msg.ok) task.resolve(msg.data); else task.reject(new Error(msg.error || "桥调用失败"));
 });

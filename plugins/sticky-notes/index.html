@@ -114,6 +114,7 @@
       var bridgeOk = false;
       var saveTimer = null;
       var dirtyText = "";
+      var dragActive = null; // { mode }：单指针假设，同一时刻至多一个活动拖拽
 
       function callBridge(type, payload) {
         return new Promise(function (resolve, reject) {
@@ -137,7 +138,13 @@
       window.addEventListener("message", function (event) {
         if (event.source !== window.parent) return;
         var msg = event.data;
-        if (!msg || typeof msg !== "object" || msg.v !== BRIDGE_VERSION || !pending.has(msg.id)) return;
+        if (!msg || typeof msg !== "object" || msg.v !== BRIDGE_VERSION) return;
+        // 宿主接管拖拽后的结束通知：复位本地拖拽状态（无 pending，不走应答表）
+        if (msg.type === "window.dragEnd") {
+          dragActive = null;
+          return;
+        }
+        if (!pending.has(msg.id)) return;
         var task = pending.get(msg.id);
         pending.delete(msg.id);
         if (msg.ok) {
@@ -211,101 +218,38 @@
         if (bridgeOk) notifyBridge("window.focus", {});
       }, true);
 
-      /* ===== 拖拽/缩放：捕获 + 坐标快照中继 =====
-         pointerdown 时在自己文档内 setPointerCapture：后续 move/up 必达本插件。
-         关键协议约束：每次中继的指针坐标必须连同"测量瞬间的参照系"（该坐标所相对的
-         窗口原点，取自宿主上一次应答的 origin）一起发送——宿主按 指针页面坐标 =
-         局部坐标 + 参照原点 还原真实位置，与宿主是否已应用之前的位移无关（无竞态、
-         无反馈回路）。泵按"上一拍应答后再发下一拍"串行化，end 在其后收敛。 */
+      /* ===== 拖拽/缩放：pointerdown 上报 + 宿主接管指针 =====
+         沙箱 iframe 只能收到指针位于其范围内的事件（setPointerCapture 不跨文档
+         边界），插件侧自行跟踪快速拖拽必丢 move/up。因此插件只在 pointerdown
+         上报起始抓取点（iframe 局部坐标 + pointerId），由宿主把 iframe 设为
+         pointer-events:none 后在 window 上接管；结束时宿主回推 window.dragEnd
+         复位 dragActive。本地 pointerup/pointercancel 仅作宿主未接管的兜底。 */
       function attachDrag(handle, mode) {
-        var dragging = false;
-        var lastX = 0;
-        var lastY = 0;
-        var snapshot = null; // { x, y, rx, ry }：待发送快照；参照系未就位前不生成
-        var currentRef = { x: 0, y: 0 };
-        var refKnown = false;
-        var endQueued = false;
-        var inFlight = false;
-
         handle.addEventListener("pointerdown", function (event) {
           if (event.button !== 0 && event.pointerType === "mouse") return;
-          if (dragging) return;
-          // 标题栏内的按钮（+/×）不启动拖拽：否则 setPointerCapture 会把后续
-          // pointerup 重定向到把手，click 派发到公共祖先，按钮永远收不到点击
+          // dragActive 仍挂着说明上一场拖拽的结束通知丢了（僵局）：直接复位重启。
+          // 宿主接管期间 iframe 收不到 pointerdown，能到这里就不会打断活动拖拽。
+          // 标题栏内的按钮（+/×）不启动拖拽：否则宿主接管后按钮永远收不到 click
           if (event.target && event.target.closest && event.target.closest("button")) return;
           event.preventDefault();
-          dragging = true;
-          endQueued = false;
-          refKnown = false;
-          snapshot = null;
-          lastX = event.clientX;
-          lastY = event.clientY;
-          try {
-            handle.setPointerCapture(event.pointerId);
-          } catch (_) {}
+          dragActive = { mode: mode };
           callBridge("window.drag", {
             phase: "start",
             mode: mode,
-            x: lastX,
-            y: lastY,
-          })
-            .then(function (ack) {
-              if (ack && ack.origin) {
-                currentRef = { x: ack.origin.x, y: ack.origin.y };
-              }
-              refKnown = true;
-              // 关键：参照系刚就位，以最新指针位置重拍快照再启动泵。此前 pointermove
-              // 的坐标相对未知参照系（初始 (0,0)），直接发送会让宿主把窗口瞬间拽到
-              // 页面左上角（首次拖拽闪烁的根因）
-              snapshot = { x: lastX, y: lastY, rx: currentRef.x, ry: currentRef.y };
-              beat();
-            })
-            .catch(function () {
-              dragging = false;
-            });
+            x: event.clientX,
+            y: event.clientY,
+            pointerId: event.pointerId,
+          }).catch(function () {
+            if (dragActive && dragActive.mode === mode) dragActive = null;
+          });
         });
 
-        handle.addEventListener("pointermove", function (event) {
-          if (!dragging) return;
-          lastX = event.clientX;
-          lastY = event.clientY;
-          if (!refKnown) return; // 参照系未就位：只记录坐标，不生成快照
-          snapshot = { x: lastX, y: lastY, rx: currentRef.x, ry: currentRef.y };
-        });
-
-        function beat() {
-          if (inFlight) return;
-          if (!snapshot || (!dragging && !endQueued)) return;
-          if (!dragging) endQueued = false;
-          var msg = {
-            phase: dragging ? "move" : "end",
-            mode: mode,
-            x: snapshot.x,
-            y: snapshot.y,
-            rx: snapshot.rx,
-            ry: snapshot.ry,
-          };
-          inFlight = true;
-          callBridge("window.drag", msg)
-            .then(function (ack) {
-              inFlight = false;
-              if (ack && ack.origin) {
-                currentRef = { x: ack.origin.x, y: ack.origin.y };
-              }
-              beat();
-            })
-            .catch(function () {
-              inFlight = false;
-              dragging = false;
-              endQueued = false;
-            });
-        }
-
-        function finish() {
-          if (!dragging) return;
-          dragging = false;
-          endQueued = true;
-          beat();
+        // 兜底：宿主未接管（start 上报失败/旧宿主）而指针在 iframe 内释放时通知
+        // 结束。宿主接管期间 iframe 收不到任何指针事件，本监听不会触发。
+        function finish(event) {
+          if (!dragActive || dragActive.mode !== mode) return;
+          dragActive = null;
+          notifyBridge("window.drag", { phase: "end", mode: mode, x: event.clientX, y: event.clientY });
         }
         handle.addEventListener("pointerup", finish);
         handle.addEventListener("pointercancel", finish);
