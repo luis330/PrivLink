@@ -3770,7 +3770,10 @@
         // 审计 F4 顺序：先解绑桥（此后该窗口的在途 storage.set 按"未知来源"丢弃），
         // 再移除窗口元素（插件的防抖定时器随之消亡），最后清数据与注册表
         unbindPluginBridgeByFrame(frame);
-        if (frame && frame.contentWindow) pluginDragSessions.delete(frame.contentWindow);
+        if (frame && frame.contentWindow) {
+          if (hostDragSession && hostDragSession.sourceWin === frame.contentWindow) hostDriveEnd(false);
+          pluginDragSessions.delete(frame.contentWindow);
+        }
         const winEl = frame ? frame.closest(".plugin-window") : null;
         if (winEl) winEl.remove();
         if (Array.isArray(pluginWindows[pluginId])) {
@@ -3809,7 +3812,7 @@
           const el = bridge.frame.closest(".plugin-window");
           if (!el) return null;
           const start = parseWindowOrigin(el);
-          pluginDragSessions.set(sourceWin, {
+          const session = {
             pluginId: bridge.id,
             instId,
             mode: payload.mode === "resize" ? "resize" : "move",
@@ -3818,8 +3821,17 @@
             grab: { x: Number(payload.x) || 0, y: Number(payload.y) || 0 },
             el,
             cur: { ...start },
-          });
-          // 应答回带起始原点：插件后续中继坐标以此为参照系
+          };
+          pluginDragSessions.set(sourceWin, session);
+          // 指针事件层移交宿主：沙箱 iframe 只能收到指针位于其范围内的事件，
+          // 插件侧自行跟踪快速拖拽必丢 move/up（抖动/失位/僵局会话的根因）
+          hostDriveBegin(
+            session,
+            sourceWin,
+            bridge.frame,
+            Number.isFinite(Number(payload.pointerId)) ? Number(payload.pointerId) : null
+          );
+          // 应答回带起始原点：旧版插件的中继坐标以此为参照系
           return { origin: { x: start.x, y: start.y } };
         }
         const session = sourceWin ? pluginDragSessions.get(sourceWin) : null;
@@ -3833,6 +3845,7 @@
         const pointerPageY = (Number(payload.y) || 0) + refY;
         if (!session.el) {
           // 窗口已在拖拽中被移除（如禁用插件）：仅结束会话
+          if (hostDragSession && hostDragSession.sourceWin === sourceWin) hostDriveEnd(false);
           pluginDragSessions.delete(sourceWin);
           return { origin: { x: session.cur.x, y: session.cur.y } };
         }
@@ -3863,21 +3876,108 @@
           }
         }
         if (payload.phase === "end") {
-          pluginDragSessions.delete(sourceWin);
-          const windows = Array.isArray(pluginWindows[session.pluginId])
-            ? pluginWindows[session.pluginId]
-            : [];
-          const inst = windows.find((w) => w.id === session.instId);
-          if (inst) {
-            inst.x = session.cur.x;
-            inst.y = session.cur.y;
-            inst.w = session.cur.w;
-            inst.h = session.cur.h;
-            mountedFloatSignatures.set(session.pluginId, JSON.stringify(windows));
-            putPluginWindows(session.pluginId).catch(() => {});
+          if (hostDragSession && hostDragSession.sourceWin === sourceWin) {
+            hostDriveEnd(true); // 含持久化与 dragEnd 通知
+          } else {
+            pluginDragSessions.delete(sourceWin);
+            persistSessionWindow(session);
           }
         }
         return { origin: { x: session.cur.x, y: session.cur.y } };
+      }
+
+      /* ===== 拖拽接管 =====
+         沙箱 iframe 只能在指针位于其范围内时收到指针事件（setPointerCapture 不跨
+         文档边界），插件侧跟踪快速拖拽必然丢事件——表现为抖动、松手后窗口停在
+         旧位置、僵局会话吞掉下一次拖拽。因此 start 时宿主把 iframe 设为
+         pointer-events:none，在 window 上用页面绝对坐标接管 move/up，结束后恢复
+         iframe 命中、持久化位置，并通知插件复位其拖拽状态。 */
+      let hostDragSession = null;
+
+      function hostDriveBegin(session, sourceWin, frame, pointerId) {
+        hostDriveEnd(false); // 单指针假设：正常不并发，兜底收敛残留会话
+        if (frame) frame.style.pointerEvents = "none";
+        const onMove = (event) => {
+          if (pointerId !== null && event.pointerId !== pointerId) return;
+          if (event.buttons === 0) {
+            // 指针在浏览器窗口外释放时宿主收不到 up：借重入后的首个 move 收尾。
+            // start 后紧随的 buttons=0 move（个别驱动/自动化的悬停伪影）不算释放。
+            if (session.sawPressedMove) hostDriveEnd(true);
+            return;
+          }
+          session.sawPressedMove = true;
+          if (!session.el || !session.el.isConnected) {
+            hostDriveEnd(false);
+            return;
+          }
+          if (session.mode === "move") {
+            session.cur.x = clampNumber(
+              event.clientX - session.grab.x, 0, Math.max(0, window.innerWidth - session.cur.w)
+            );
+            session.cur.y = clampNumber(
+              event.clientY - session.grab.y, 0, Math.max(0, window.innerHeight - session.cur.h)
+            );
+            session.el.style.transform =
+              "translate(" + Math.round(session.cur.x) + "px, " + Math.round(session.cur.y) + "px)";
+          } else {
+            // 缩放期间窗口原点不动：尺寸增量 = 指针页面位移
+            session.cur.w = clampNumber(
+              session.start.w + (event.clientX - (session.grab.x + session.start.x)),
+              PLUGIN_WINDOW_MIN_W,
+              Math.max(PLUGIN_WINDOW_MIN_W, Math.min(PLUGIN_WINDOW_MAX_W, window.innerWidth - session.cur.x))
+            );
+            session.cur.h = clampNumber(
+              session.start.h + (event.clientY - (session.grab.y + session.start.y)),
+              PLUGIN_WINDOW_MIN_H,
+              Math.max(PLUGIN_WINDOW_MIN_H, Math.min(PLUGIN_WINDOW_MAX_H, window.innerHeight - session.cur.y))
+            );
+            session.el.style.width = Math.round(session.cur.w) + "px";
+            session.el.style.height = Math.round(session.cur.h) + "px";
+          }
+        };
+        const finish = () => hostDriveEnd(true);
+        window.addEventListener("pointermove", onMove, true);
+        window.addEventListener("pointerup", finish, true);
+        window.addEventListener("pointercancel", finish, true);
+        window.addEventListener("blur", finish);
+        hostDragSession = { session, sourceWin, frame, onMove, finish };
+      }
+
+      function hostDriveEnd(persist) {
+        const drive = hostDragSession;
+        if (!drive) return;
+        hostDragSession = null;
+        window.removeEventListener("pointermove", drive.onMove, true);
+        window.removeEventListener("pointerup", drive.finish, true);
+        window.removeEventListener("pointercancel", drive.finish, true);
+        window.removeEventListener("blur", drive.finish);
+        if (drive.frame) drive.frame.style.pointerEvents = "";
+        if (drive.sourceWin) pluginDragSessions.delete(drive.sourceWin);
+        if (persist) persistSessionWindow(drive.session);
+        // 通知插件复位拖拽状态（旧版插件无此处理，静默忽略）
+        try {
+          if (drive.sourceWin) {
+            drive.sourceWin.postMessage(
+              { v: PLUGIN_BRIDGE_VERSION, type: "window.dragEnd", payload: { mode: drive.session.mode } },
+              "*"
+            );
+          }
+        } catch (_) {}
+      }
+
+      function persistSessionWindow(session) {
+        const windows = Array.isArray(pluginWindows[session.pluginId])
+          ? pluginWindows[session.pluginId]
+          : [];
+        const inst = windows.find((w) => w.id === session.instId);
+        if (inst) {
+          inst.x = session.cur.x;
+          inst.y = session.cur.y;
+          inst.w = session.cur.w;
+          inst.h = session.cur.h;
+          mountedFloatSignatures.set(session.pluginId, JSON.stringify(windows));
+          putPluginWindows(session.pluginId).catch(() => {});
+        }
       }
 
       function replyToPlugin(source, id, ok, data, error) {
