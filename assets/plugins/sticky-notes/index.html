@@ -76,6 +76,41 @@
       caret-color: #fff;
     }
     .note-text::placeholder { color: rgba(255, 255, 255, 0.5); }
+    /* 渲染视图：与编辑区同构（同 padding/字号行高），自带滚动 */
+    .note-render {
+      flex: 1 1 auto;
+      width: 100%;
+      padding: 10px 12px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      white-space: pre-wrap;
+      word-break: break-word;
+      cursor: text;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .note-render p, .note-render ul, .note-render ol, .note-render blockquote {
+      margin: 0 0 6px;
+    }
+    .note-render > :last-child { margin-bottom: 0; }
+    .note-render ul, .note-render ol { padding-left: 1.4em; }
+    .note-render li { margin: 2px 0; }
+    .note-render input[type="checkbox"] {
+      margin-right: 6px;
+      accent-color: #0f7cf0;
+    }
+    .note-render blockquote {
+      padding-left: 8px;
+      border-left: 3px solid rgba(255, 255, 255, 0.35);
+      color: rgba(255, 255, 255, 0.85);
+    }
+    .note-render code {
+      font-family: ui-monospace, Consolas, "Courier New", monospace;
+      font-size: 13px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
     .note-grip {
       position: absolute;
       right: 2px; bottom: 2px;
@@ -164,6 +199,7 @@
       }
 
       var textarea = null;
+      var renderBox = null; // 渲染视图（失焦自动显示，与 textarea 互斥占位）
 
       function buildNote() {
         var note = document.createElement("div");
@@ -199,6 +235,26 @@
           dirtyText = textarea.value;
           scheduleSave();
         });
+        // 失焦自动渲染：聚焦编辑（见原文标记），失焦查看排版效果
+        textarea.addEventListener("focus", function () {
+          setMode("edit");
+        });
+        textarea.addEventListener("blur", function () {
+          if (!textarea.value.trim()) return; // 空内容留在编辑态，placeholder 可见
+          setMode("view");
+        });
+
+        renderBox = document.createElement("div");
+        renderBox.className = "note-render";
+        renderBox.style.display = "none";
+        // 渲染态点击正文回到编辑；正在选中复制时不切换；复选框点击自行 stopPropagation。
+        // 必须先 setMode 显示 textarea 再 focus——display:none 的元素 focus() 是 no-op
+        renderBox.addEventListener("click", function () {
+          var sel = window.getSelection();
+          if (sel && String(sel)) return;
+          setMode("edit");
+          textarea.focus();
+        });
 
         var grip = document.createElement("div");
         grip.className = "note-grip";
@@ -206,11 +262,123 @@
 
         note.appendChild(bar);
         note.appendChild(textarea);
+        note.appendChild(renderBox);
         note.appendChild(grip);
         root.appendChild(note);
 
         attachDrag(bar, "move");
         attachDrag(grip, "resize");
+      }
+
+      /* ===== Markdown 微型渲染 =====
+         仅支持：行内代码 `x`、无序/有序列表、任务列表（复选框可勾选回写）、块引用 >。
+         其余语法一律按纯文本原样显示。全程 createElement + textContent 构建、
+         不碰 innerHTML（docs/plugins.md 渲染卫生要求），注入内容只会显示为文字。 */
+      var LIST_RE = /^([-*+]|\d{1,9}\.)[ \t]+(.*)$/;
+      var TASK_RE = /^\[([xX ])\](?:[ \t]+(.*))?$/;
+
+      function setMode(mode) {
+        var view = mode === "view";
+        if (view) renderNote(textarea.value);
+        textarea.style.display = view ? "none" : "";
+        renderBox.style.display = view ? "" : "none";
+      }
+
+      // 列表行分类：{ ordered, task: 是否任务项, done: 是否已勾选, text }；非列表行返回 null。
+      // 裸任务行（[x] xxx，无列表标记）视为无序任务项，与 - [x] 同样渲染、可勾选回写
+      function classifyList(line) {
+        var t = TASK_RE.exec(line);
+        if (t) return { ordered: false, task: true, done: t[1] !== " ", text: t[2] || "" };
+        var m = LIST_RE.exec(line);
+        if (!m) return null;
+        t = TASK_RE.exec(m[2]);
+        var ordered = /^\d/.test(m[1]);
+        if (t) return { ordered: ordered, task: true, done: t[1] !== " ", text: t[2] || "" };
+        return { ordered: ordered, task: false, done: false, text: m[2] };
+      }
+
+      function renderNote(text) {
+        renderBox.textContent = "";
+        var lines = String(text).replace(/\r\n?/g, "\n").split("\n");
+        var i = 0;
+        while (i < lines.length) {
+          if (!lines[i].trim()) { i++; continue; }
+          if (/^\s*>/.test(lines[i])) {
+            var quote = document.createElement("blockquote");
+            while (i < lines.length && /^\s*>/.test(lines[i])) {
+              if (quote.childNodes.length) quote.appendChild(document.createElement("br"));
+              appendInline(quote, lines[i].replace(/^\s*>\s?/, ""));
+              i++;
+            }
+            renderBox.appendChild(quote);
+            continue;
+          }
+          var first = classifyList(lines[i].replace(/^[ \t]+/, ""));
+          if (first) {
+            var list = document.createElement(first.ordered ? "ol" : "ul");
+            var num = first.ordered ? parseInt(lines[i], 10) : 0;
+            if (num !== 1) list.start = num; // 有序列表按首个数字起算
+            while (i < lines.length) {
+              var item = classifyList(lines[i].replace(/^[ \t]+/, ""));
+              if (!item || item.ordered !== first.ordered) break; // 空行/换标记类型即结束列表
+              var li = document.createElement("li");
+              if (item.task) {
+                var box = document.createElement("input");
+                box.type = "checkbox";
+                box.checked = item.done;
+                box.setAttribute("aria-label", "切换任务状态");
+                box.dataset.line = String(i); // 回写时定位源文本行
+                box.addEventListener("click", onTaskClick);
+                li.appendChild(box);
+              }
+              appendInline(li, item.text);
+              list.appendChild(li);
+              i++;
+            }
+            renderBox.appendChild(list);
+            continue;
+          }
+          var p = document.createElement("p");
+          while (i < lines.length && lines[i].trim() &&
+                 !/^\s*>/.test(lines[i]) && !classifyList(lines[i].replace(/^[ \t]+/, ""))) {
+            if (p.childNodes.length) p.appendChild(document.createElement("br"));
+            appendInline(p, lines[i]);
+            i++;
+          }
+          renderBox.appendChild(p);
+        }
+      }
+
+      // 行内处理：仅反引号行内代码（单行内成对）；未成对反引号原样显示
+      function appendInline(parent, text) {
+        var segs = String(text).split("`");
+        for (var k = 0; k < segs.length; k++) {
+          if (k % 2 === 0) {
+            if (segs[k]) parent.appendChild(document.createTextNode(segs[k]));
+          } else if (k + 1 < segs.length) {
+            var code = document.createElement("code");
+            code.textContent = segs[k];
+            parent.appendChild(code);
+            if (segs[k + 1]) parent.appendChild(document.createTextNode(segs[k + 1]));
+            k++; // 消费闭合反引号之后的文本段
+          } else {
+            parent.appendChild(document.createTextNode("`" + segs[k]));
+          }
+        }
+      }
+
+      // 任务复选框：回写源文本对应行的任务标记并保存。渲染态下 textarea 不可编辑，
+      // 渲染时记录的行号在两次渲染之间始终有效。
+      function onTaskClick(event) {
+        event.stopPropagation(); // 不冒泡到渲染容器，避免同时切回编辑态
+        var lineNo = parseInt(event.target.dataset.line, 10);
+        var lines = textarea.value.split("\n");
+        if (isNaN(lineNo) || lineNo < 0 || lineNo >= lines.length) return;
+        lines[lineNo] = lines[lineNo].replace(/\[[ xX]\]/, event.target.checked ? "[x]" : "[ ]");
+        textarea.value = lines.join("\n");
+        dirtyText = textarea.value; // 复选框不触发 textarea 的 input 事件，手动进保存链路
+        scheduleSave();
+        renderNote(textarea.value);
       }
 
       /* 点击便签任意处置顶（含 textarea，宿主据此调整层级） */
@@ -312,6 +480,7 @@
         }).then(function (data) {
           buildNote();
           textarea.value = (data && typeof data.value === "string") ? data.value : "";
+          setMode(textarea.value.trim() ? "view" : "edit"); // 有内容先看排版，空则直接编辑
         }).catch(function () {
           showHint("无法连接导航页宿主，便签暂不可用。请刷新页面重试。");
         });
