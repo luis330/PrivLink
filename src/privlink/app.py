@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections import deque
@@ -34,25 +35,30 @@ from privlink.db import (
     TAG_NAME_MAX_LEN,
     D1Database,
     IntegrityConflictError,
+    add_plugin_window,
     bind_db,
     delete_app_setting,
     delete_plugin_data,
+    delete_plugin_window,
     ensure_remote_schema,
     fetch_all_site_tags,
     fetch_plugin_data,
     fetch_site_row,
     fetch_site_tags,
+    fetch_tag_ids_by_casefold,
     get_db,
     get_plugin_state,
     get_plugin_windows,
     init_storage,
     normalize_tag_list,
     normalize_tag_name,
+    orphan_tags_statement,
     plugin_data_usage,
     set_plugin_state,
     set_plugin_windows,
     site_tags_statements,
     unbind_db,
+    update_plugin_window,
     upsert_plugin_data,
     utc_now,
 )
@@ -75,6 +81,7 @@ from privlink.models import (
     ParseResponse,
     PluginDataWriteRequest,
     PluginStateRequest,
+    PluginWindowItem,
     PluginWindowsRequest,
     PublicIPv4Response,
     ReorderRequest,
@@ -678,6 +685,7 @@ async def list_tags(request: Request) -> list[dict[str, Any]]:
             FROM tags
             LEFT JOIN site_tags ON site_tags.tag_id = tags.id
             GROUP BY tags.id
+            HAVING COUNT(site_tags.site_id) > 0
             ORDER BY tags.name COLLATE NOCASE ASC;
             """
     else:
@@ -789,7 +797,10 @@ async def update_site(site_id: int, payload: SiteUpdateRequest) -> JSONResponse 
             (1 if payload.is_public else 0, site_id),
         ))
     if normalized_tags is not None:
-        statements.extend(site_tags_statements(site_id, normalized_tags, now))
+        existing_tag_ids = await fetch_tag_ids_by_casefold()
+        statements.extend(site_tags_statements(site_id, normalized_tags, now, existing_tag_ids))
+    # 清理无引用的孤儿标签（含历史残留）；与站点/标签写入同批保证原子
+    statements.append(orphan_tags_statement())
     try:
         await db.batch(statements)
     except IntegrityConflictError:
@@ -858,7 +869,11 @@ async def delete_site(site_id: int) -> JSONResponse:
     if not row:
         return JSONResponse(status_code=404, content={"error": "网站不存在"})
     icon_rel_path = (row["icon_rel_path"] or "").strip()
-    await db.run("DELETE FROM sites WHERE id = ?;", (site_id,))
+    # 站点删除与孤儿标签清理同批：不再留下 count=0 的死标签
+    await db.batch([
+        ("DELETE FROM sites WHERE id = ?;", (site_id,)),
+        orphan_tags_statement(),
+    ])
 
     await maybe_remove_old_icon(icon_rel_path, "")
     config.logger.info("删除网站: id=%d", site_id)
@@ -871,20 +886,25 @@ BOOKMARKS_IMPORT_MAX_BYTES = 5 * 1024 * 1024
 IMPORT_BATCH_SITES = 50  # 每批提交的站点数，规避 D1 单请求语句数上限
 
 
-def _normalize_import_tags(folders: list[str]) -> list[str]:
-    """书签文件夹名转标签：压缩空白、截断到标签长度上限、大小写不敏感去重。"""
+def _normalize_import_tags(folders: list[str]) -> tuple[list[str], list[str]]:
+    """书签文件夹名转标签：压缩空白、截断到标签长度上限、casefold 去重。
+
+    返回 (标签列表, 被截断的原始名列表)——截断不再静默，由调用方并入响应 warning。
+    """
     tags: list[str] = []
     seen: set[str] = set()
+    truncated: list[str] = []
     for folder in folders:
         name = normalize_tag_name(folder)
         if len(name) > TAG_NAME_MAX_LEN:
+            truncated.append(name)
             name = name[:TAG_NAME_MAX_LEN].rstrip()
-        key = name.lower()
+        key = name.casefold()
         if not name or key in seen:
             continue
         seen.add(key)
         tags.append(name)
-    return tags
+    return tags, truncated
 
 
 def _import_site_statements(
@@ -894,8 +914,14 @@ def _import_site_statements(
     now: str,
     sort_order: int,
     is_public: bool,
+    tag_ids_by_casefold: dict[str, int] | None = None,
 ) -> list[tuple[str, tuple[Any, ...]]]:
-    """单个导入站点的写入语句组；site_id 用 URL 子查询取，不依赖插入返回值。"""
+    """单个导入站点的写入语句组；site_id 用 URL 子查询取，不依赖插入返回值。
+
+    tag_ids_by_casefold 提供库内已有标签索引：命中的标签直接挂既有行，
+    非 ASCII 大小写变体也能合并（与站点更新路径同规则）。
+    """
+    tag_ids_by_casefold = tag_ids_by_casefold or {}
     statements: list[tuple[str, tuple[Any, ...]]] = [
         (
             "INSERT INTO sites ("
@@ -906,6 +932,14 @@ def _import_site_statements(
         )
     ]
     for name in tags:
+        existing_id = tag_ids_by_casefold.get(name.casefold())
+        if existing_id is not None:
+            statements.append((
+                "INSERT OR IGNORE INTO site_tags (site_id, tag_id) "
+                "SELECT (SELECT id FROM sites WHERE url = ?), ?",
+                (url, existing_id),
+            ))
+            continue
         statements.append(
             ("INSERT OR IGNORE INTO tags (name, created_at) VALUES (?, ?)", (name, now))
         )
@@ -970,6 +1004,8 @@ async def import_sites(
     max_row = await db.fetch_one("SELECT COALESCE(MAX(sort_order), 0) AS max_sort FROM sites")
     next_sort = int((max_row or {}).get("max_sort") or 0) + 1
     now = utc_now()
+    tags_by_casefold = await fetch_tag_ids_by_casefold()
+    truncations: list[str] = []
 
     batch: list[tuple[str, tuple[Any, ...]]] = []
     staged = 0  # 本批已暂存、待提交确认的站点数
@@ -992,14 +1028,17 @@ async def import_sites(
                 skipped += 1
                 continue
             existing_urls.add(url)
+            site_tags, truncated = _normalize_import_tags(entry["folders"])
+            truncations.extend(truncated)
             batch.extend(
                 _import_site_statements(
                     url,
                     entry["title"],
-                    _normalize_import_tags(entry["folders"]),
+                    site_tags,
                     now,
                     next_sort,
                     is_public,
+                    tags_by_casefold,
                 )
             )
             next_sort += 1
@@ -1018,7 +1057,11 @@ async def import_sites(
                 "skipped": skipped,
             },
         )
-    return JSONResponse(content={"total": total, "imported": imported, "skipped": skipped})
+    result: dict[str, Any] = {"total": total, "imported": imported, "skipped": skipped}
+    if truncations:
+        # 截断不再静默：去重后随响应告知（最多列 10 条）
+        result["warnings"] = [f"标签超长已截断：{name}" for name in dict.fromkeys(truncations)][:10]
+    return JSONResponse(content=result)
 
 
 # ===== 插件市场（内置精选） =====
@@ -1205,3 +1248,58 @@ async def write_plugin_windows(plugin_id: str, payload: PluginWindowsRequest) ->
     windows = [item.model_dump() for item in payload.windows]
     await set_plugin_windows(plugin_id, windows)
     return JSONResponse(status_code=200, content={"message": "ok"})
+
+
+# 增量端点的读-改-写靠每插件一把进程内写锁串行化（本地单进程 / Workers 单隔离体内
+# 有效），替代旧全量 PUT 的"过期快照整键覆盖"竞态。
+_window_write_locks: dict[str, asyncio.Lock] = {}
+
+
+def _window_write_lock(plugin_id: str) -> asyncio.Lock:
+    lock = _window_write_locks.get(plugin_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _window_write_locks[plugin_id] = lock
+    return lock
+
+
+@app.post("/api/plugins/{plugin_id}/windows/add", response_model=None)
+async def add_plugin_window_endpoint(plugin_id: str, payload: PluginWindowItem) -> JSONResponse:
+    """新增（或按 id 幂等更新）单个窗口实例。"""
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    item = payload.model_dump()
+    async with _window_write_lock(plugin_id):
+        windows, rejected = await add_plugin_window(plugin_id, item)
+    if rejected:
+        return JSONResponse(status_code=409, content={"error": "窗口数量已达上限"})
+    return JSONResponse(status_code=200, content={"windows": windows})
+
+
+@app.patch("/api/plugins/{plugin_id}/windows/{inst_id}", response_model=None)
+async def patch_plugin_window_endpoint(
+    plugin_id: str, inst_id: str, payload: PluginWindowItem
+) -> JSONResponse:
+    """更新单个窗口实例的布局（拖拽/缩放结束时宿主调用）。"""
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    item = payload.model_dump()
+    if item["id"] != inst_id:
+        return JSONResponse(status_code=400, content={"error": "实例 id 与路径不一致"})
+    async with _window_write_lock(plugin_id):
+        windows = await update_plugin_window(plugin_id, item)
+    if windows is None:
+        return JSONResponse(status_code=404, content={"error": "窗口实例不存在"})
+    return JSONResponse(status_code=200, content={"windows": windows})
+
+
+@app.delete("/api/plugins/{plugin_id}/windows/{inst_id}", response_model=None)
+async def delete_plugin_window_endpoint(plugin_id: str, inst_id: str) -> JSONResponse:
+    """删除单个窗口实例；id 不存在视为幂等成功。键不存在（从未有过实例）返回 404。"""
+    if not _valid_plugin_id(plugin_id):
+        return JSONResponse(status_code=400, content={"error": "无效的插件 id"})
+    async with _window_write_lock(plugin_id):
+        windows = await delete_plugin_window(plugin_id, inst_id)
+    if windows is None:
+        return JSONResponse(status_code=404, content={"error": "暂无窗口布局"})
+    return JSONResponse(status_code=200, content={"windows": windows})

@@ -477,5 +477,83 @@ class PluginsTestCase(unittest.TestCase):
             self.assertIn(b"postMessage", html, f"{plugin_id}: 缺少桥胶水代码")
 
 
+    # ===== 窗口注册表增量端点 =====
+
+    def test_plugin_windows_incremental_add_patch_delete(self) -> None:
+        base = "/api/plugins/sticky-notes/windows"
+        self.assertEqual(
+            self.client.post(
+                base + "/add", json={"id": "w1", "x": 1, "y": 2, "w": 240, "h": 220}, headers=self.auth
+            ).status_code,
+            200,
+        )
+        # add 幂等：同 id 更新坐标而非追加
+        self.assertEqual(
+            self.client.post(
+                base + "/add", json={"id": "w1", "x": 9, "y": 9, "w": 240, "h": 220}, headers=self.auth
+            ).status_code,
+            200,
+        )
+        self.client.post(
+            base + "/add", json={"id": "w2", "x": 5, "y": 5, "w": 300, "h": 260}, headers=self.auth
+        )
+        data = self.client.get(base, headers=self.auth).json()["windows"]
+        self.assertEqual([w["id"] for w in data], ["w1", "w2"])
+        self.assertEqual(data[0]["x"], 9)
+
+        # patch 更新坐标；未知实例 404；路径与正文 id 不一致 400
+        self.assertEqual(
+            self.client.patch(
+                base + "/w2", json={"id": "w2", "x": 50, "y": 60, "w": 300, "h": 260}, headers=self.auth
+            ).status_code,
+            200,
+        )
+        w2 = next(
+            w for w in self.client.get(base, headers=self.auth).json()["windows"] if w["id"] == "w2"
+        )
+        self.assertEqual((w2["x"], w2["y"]), (50, 60))
+        self.assertEqual(
+            self.client.patch(
+                base + "/nope", json={"id": "nope", "x": 0, "y": 0, "w": 240, "h": 220}, headers=self.auth
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.patch(
+                base + "/w2", json={"id": "w1", "x": 0, "y": 0, "w": 240, "h": 220}, headers=self.auth
+            ).status_code,
+            400,
+        )
+
+        # delete：删除与幂等；删空后键仍存在（空数组 ≠ 从未有过实例）
+        self.assertEqual(self.client.delete(base + "/w1", headers=self.auth).status_code, 200)
+        data = self.client.get(base, headers=self.auth).json()["windows"]
+        self.assertEqual([w["id"] for w in data], ["w2"])
+        self.assertEqual(self.client.delete(base + "/w1", headers=self.auth).status_code, 200)
+        self.assertEqual(self.client.delete(base + "/w2", headers=self.auth).status_code, 200)
+        self.assertEqual(self.client.get(base, headers=self.auth).json()["windows"], [])
+
+    def test_plugin_windows_add_limit_and_auth(self) -> None:
+        base = "/api/plugins/sticky-notes/windows"
+        for i in range(config.PLUGIN_MAX_WINDOWS):
+            response = self.client.post(
+                base + "/add",
+                json={"id": f"w{i}", "x": 0, "y": 0, "w": 240, "h": 220},
+                headers=self.auth,
+            )
+            self.assertEqual(response.status_code, 200)
+        response = self.client.post(
+            base + "/add", json={"id": "overflow", "x": 0, "y": 0, "w": 240, "h": 220}, headers=self.auth
+        )
+        self.assertEqual(response.status_code, 409)
+        # 无 token 一律 401
+        self.assertEqual(
+            self.client.post(
+                base + "/add", json={"id": "wx", "x": 0, "y": 0, "w": 240, "h": 220}
+            ).status_code,
+            401,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
