@@ -441,20 +441,21 @@
         dirtyText = null;
         callBridge("storage.set", { key: CONTENT_KEY, value: value }).catch(function () {
           if (dirtyText === null) dirtyText = value; // 失败时恢复待存，下次输入重试
-          showHintOnce("保存失败：与导航页的连接已中断。");
+          showSaveFailureHint();
         });
       }
 
-      var hintShown = false;
-      function showHintOnce(text) {
-        if (hintShown) return;
-        hintShown = true;
-        showHint(text);
+      // 保存失败提示：每次失败都让用户看到，但 60 秒内去重避免刷屏
+      var lastFailureHintAt = 0;
+      function showSaveFailureHint() {
+        var now = Date.now();
+        if (now - lastFailureHintAt < 60000) return;
+        lastFailureHintAt = now;
+        showHint("保存失败：与导航页的连接已中断。内容暂留在便签内，恢复后编辑任意内容即可重试。");
       }
 
-      document.addEventListener("visibilitychange", function () {
-        if (document.visibilityState === "hidden") flushSave();
-      });
+      // 隐藏时冲刺保存；隐藏期间冲刷失败（dirtyText 仍挂着）则回到可见立即重试
+      document.addEventListener("visibilitychange", flushSave);
 
       /* ===== 初始化：握手（重试避开竞态）→ 取回正文 ===== */
       function handshake(tries) {
