@@ -121,6 +121,37 @@
         background: rgba(6, 18, 46, var(--bg-scrim-opacity, 0));
       }
 
+      /* 持久化失败警告条：注册表/布局写失败且重试无效时出现，手动关闭 */
+      .persist-warning {
+        position: fixed;
+        top: var(--sp-2);
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 200;
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        max-width: min(720px, calc(100% - var(--sp-4) * 2));
+        padding: var(--sp-2) var(--sp-3);
+        border-radius: var(--radius-m);
+        border: 1px solid var(--bad);
+        background: var(--bad-bg);
+        color: var(--bad);
+        font-size: var(--fs-s);
+        box-shadow: var(--shadow-2);
+      }
+
+      .persist-warning-close {
+        flex: 0 0 auto;
+        border: none;
+        background: transparent;
+        color: inherit;
+        font-size: var(--fs-m);
+        line-height: 1;
+        cursor: pointer;
+        padding: var(--sp-1);
+      }
+
       .app {
         width: min(980px, 100%);
         margin: 0 auto;
@@ -1872,6 +1903,10 @@
     </div>
 
     <div id="bg-overlay" class="bg-overlay" hidden></div>
+<div id="persist-warning" class="persist-warning" hidden>
+  <span id="persist-warning-text"></span>
+  <button id="persist-warning-close" class="persist-warning-close" type="button" aria-label="关闭警告">×</button>
+</div>
 
     <script>
       /* ===== DOM 引用 ===== */
@@ -3711,7 +3746,9 @@
           // [] = 用户刻意全部关闭，不自动重建（走抽屉"新建便签"兜底）
           windows = [defaultFloatWindow(null)];
           pluginWindows[pluginId] = windows;
-          putPluginWindows(pluginId).catch(() => {});
+          addPluginWindowRemote(pluginId, windows[0]).catch((error) =>
+            notePersistFailure("窗口布局保存失败——刷新后该窗口可能不会保留", error)
+          );
         }
         if (!enabled || !entry || !Array.isArray(windows)) windows = [];
         const signature = JSON.stringify(windows);
@@ -3731,61 +3768,136 @@
         });
       }
 
+      /* ===== 持久化失败可见化 =====
+         窗口注册表/布局的写入失败不再静默：网络类失败重试一次，仍败即显示
+         页面顶部警告条；布局未知（GET 失败）期间禁止一切注册表写，防止把
+         内存空数组覆盖到服务端。 */
+      let floatLayoutUnknown = false; // 布局加载失败：写操作前必须先重拉成功
+      let persistWarnShownAt = 0;
+
+      function showPersistWarning(message) {
+        const el = document.getElementById("persist-warning");
+        if (!el) return;
+        document.getElementById("persist-warning-text").textContent = message;
+        el.hidden = false;
+        persistWarnShownAt = Date.now();
+      }
+
+      function hidePersistWarning() {
+        const el = document.getElementById("persist-warning");
+        if (el) el.hidden = true;
+      }
+
+      function notePersistFailure(message, error) {
+        console.error(message, error);
+        showPersistWarning(message);
+      }
+
+      document.getElementById("persist-warning-close").addEventListener("click", hidePersistWarning);
+
+      async function ensureFloatLayoutKnown(pluginId) {
+        if (floatLayoutUnknown || pluginWindows[pluginId] === undefined) {
+          await loadFloatWindowLayouts();
+        }
+        return pluginWindows[pluginId] !== undefined;
+      }
+
+      // 网络类失败（fetch reject）重试一次；HTTP 状态错误不重试，直接抛出
+      async function windowRegistryFetch(path, options) {
+        const url = getPluginsApiUrl(path);
+        try {
+          return await apiFetch(url, options);
+        } catch (_) {
+          return await apiFetch(url, options);
+        }
+      }
+
+      async function addPluginWindowRemote(pluginId, inst) {
+        const response = await windowRegistryFetch(encodeURIComponent(pluginId) + "/windows/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(inst),
+        });
+        if (!response.ok) throw new Error("状态码 " + response.status);
+      }
+
+      async function patchPluginWindowRemote(pluginId, inst) {
+        const response = await windowRegistryFetch(
+          encodeURIComponent(pluginId) + "/windows/" + encodeURIComponent(inst.id),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(inst),
+          }
+        );
+        if (!response.ok) throw new Error("状态码 " + response.status);
+      }
+
+      async function deletePluginWindowRemote(pluginId, instId) {
+        const response = await windowRegistryFetch(
+          encodeURIComponent(pluginId) + "/windows/" + encodeURIComponent(instId),
+          { method: "DELETE" }
+        );
+        if (!response.ok) throw new Error("状态码 " + response.status);
+      }
+
       async function loadFloatWindowLayouts() {
+        floatLayoutUnknown = false;
         const floatIds = Object.keys(pluginInstalled).filter((id) => {
           const entry = registryEntryFor(id);
           return pluginInstalled[id] && pluginInstalled[id].enabled && entry && entry.slot === "float";
         });
         await Promise.all(
           floatIds.map(async (id) => {
-            try {
-              const response = await apiFetch(
-                getPluginsApiUrl(encodeURIComponent(id) + "/windows"),
-                { cache: "no-store" }
-              );
-              if (response.status === 404) {
-                pluginWindows[id] = null; // 从未有过实例（挂载时据此自动建首签）
-                return;
-              }
-              if (response.ok) {
-                const data = await response.json().catch(() => null);
-                pluginWindows[id] =
-                  data && Array.isArray(data.windows) ? data.windows : [];
-                return;
-              }
-              if (!(id in pluginWindows)) pluginWindows[id] = undefined; // 其他错误：未知态，不自动建窗
-            } catch (_) {
-              if (!(id in pluginWindows)) pluginWindows[id] = undefined;
+            const path = encodeURIComponent(id) + "/windows";
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                const response = await apiFetch(getPluginsApiUrl(path), { cache: "no-store" });
+                if (response.status === 404) {
+                  pluginWindows[id] = null; // 从未有过实例（挂载时据此自动建首签）
+                  return;
+                }
+                if (response.ok) {
+                  const data = await response.json().catch(() => null);
+                  pluginWindows[id] =
+                    data && Array.isArray(data.windows) ? data.windows : [];
+                  return;
+                }
+                if (response.status === 401) break; // Token 问题：弹窗已提示，重试无意义
+              } catch (_) {}
             }
+            // 失败：保留既有缓存值（避免签名变化触发重挂拆窗），但置未知态禁止注册表写
+            if (!(id in pluginWindows)) pluginWindows[id] = undefined;
+            floatLayoutUnknown = true;
           })
         );
-      }
-
-      async function putPluginWindows(pluginId) {
-        const windows = Array.isArray(pluginWindows[pluginId]) ? pluginWindows[pluginId] : [];
-        const response = await apiFetch(
-          getPluginsApiUrl(encodeURIComponent(pluginId) + "/windows"),
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ windows }),
-          }
-        );
-        if (!response.ok) throw new Error("状态码 " + response.status);
+        if (floatLayoutUnknown) {
+          showPersistWarning("插件窗口布局加载失败——已暂停布局保存，恢复后重试即可");
+        }
       }
 
       async function createFloatWindow(pluginId) {
+        const known = await ensureFloatLayoutKnown(pluginId);
         const current = Array.isArray(pluginWindows[pluginId]) ? pluginWindows[pluginId] : [];
         const inst = defaultFloatWindow(current);
-        const windows = current.concat([inst]);
-        pluginWindows[pluginId] = windows;
-        mountedFloatSignatures.set(pluginId, JSON.stringify(windows));
+        if (known) {
+          pluginWindows[pluginId] = current.concat([inst]);
+          mountedFloatSignatures.set(pluginId, JSON.stringify(pluginWindows[pluginId]));
+        }
         const win = buildFloatWindow(pluginId, inst);
         document.body.appendChild(win);
         bindPluginBridge(win.querySelector("iframe"), pluginId, inst.id);
+        if (!known) {
+          // 布局未知：窗口照常上屏供本次使用，但不写注册表（防止空数组覆盖）
+          showPersistWarning("窗口布局加载失败——新窗口仅本次会话有效，刷新后需重新创建");
+          return inst.id;
+        }
         try {
-          await putPluginWindows(pluginId);
-        } catch (_) {}
+          await addPluginWindowRemote(pluginId, inst);
+          hidePersistWarning();
+        } catch (error) {
+          notePersistFailure("窗口布局保存失败——刷新后该窗口可能不会保留", error);
+        }
         return inst.id;
       }
 
@@ -3803,8 +3915,11 @@
           pluginWindows[pluginId] = pluginWindows[pluginId].filter((w) => w.id !== instId);
           mountedFloatSignatures.set(pluginId, JSON.stringify(pluginWindows[pluginId]));
           try {
-            await putPluginWindows(pluginId);
-          } catch (_) {}
+            await deletePluginWindowRemote(pluginId, instId);
+            hidePersistWarning();
+          } catch (error) {
+            notePersistFailure("窗口关闭结果未能保存——刷新后该窗口可能出现，再次关闭即可", error);
+          }
         }
         try {
           await apiFetch(
@@ -3812,7 +3927,10 @@
               encodeURIComponent(instId + ":")),
             { method: "DELETE" }
           );
-        } catch (_) {}
+        } catch (error) {
+          // 孤儿数据键无害（占配额不影响功能），仅留痕不弹警告条
+          console.error("便签数据清理失败", error);
+        }
       }
 
       function parseWindowOrigin(el) {
@@ -3993,14 +4111,17 @@
           ? pluginWindows[session.pluginId]
           : [];
         const inst = windows.find((w) => w.id === session.instId);
-        if (inst) {
-          inst.x = session.cur.x;
-          inst.y = session.cur.y;
-          inst.w = session.cur.w;
-          inst.h = session.cur.h;
-          mountedFloatSignatures.set(session.pluginId, JSON.stringify(windows));
-          putPluginWindows(session.pluginId).catch(() => {});
-        }
+        if (!inst) return;
+        inst.x = session.cur.x;
+        inst.y = session.cur.y;
+        inst.w = session.cur.w;
+        inst.h = session.cur.h;
+        mountedFloatSignatures.set(session.pluginId, JSON.stringify(windows));
+        patchPluginWindowRemote(session.pluginId, inst)
+          .then(() => hidePersistWarning())
+          .catch((error) =>
+            notePersistFailure("窗口位置保存失败——刷新后可能回到上次的位置", error)
+          );
       }
 
       function replyToPlugin(source, id, ok, data, error) {
