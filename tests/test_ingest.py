@@ -308,5 +308,83 @@ class BrowserIngestTest(IsolatedAppTestCase):
         self.assertTrue(data["icon_rel_path"].endswith(".ico"))
 
 
+class TagsIntegrityTest(IsolatedAppTestCase):
+    """标签增删改的准确性与防线：孤儿清理、数量上限、不可见字符、Unicode 重名。"""
+
+    def ingest(self, url: str, name: str):
+        return self.client.post(
+            "/api/site/ingest",
+            json={"url": url, "final_url": url, "site_name": name, "icon": None},
+            headers={"X-Nav-Token": "secret-token"},
+        )
+
+    def put_site(self, site_id: int, **fields):
+        return self.client.put(
+            f"/api/sites/{site_id}",
+            json=fields,
+            headers={"X-Nav-Token": "secret-token"},
+        )
+
+    def sites(self):
+        return self.client.get("/api/sites", headers={"X-Nav-Token": "secret-token"}).json()
+
+    def owner_tags(self):
+        return self.client.get("/api/tags", headers={"X-Nav-Token": "secret-token"}).json()
+
+    def test_orphan_tags_cleaned_on_site_delete(self) -> None:
+        self.ingest("https://a.invalid/", "站点A")
+        site = self.sites()[0]
+        self.assertEqual(
+            self.put_site(
+                site["id"], site_name="站点A", url=site["url"], tags=["临时", "保留"], is_public=True
+            ).status_code,
+            200,
+        )
+        self.assertEqual({t["name"] for t in self.owner_tags()}, {"临时", "保留"})
+        # 删站点 → 它独占的标签成孤儿 → 同批清理
+        self.client.delete(f"/api/sites/{site['id']}", headers={"X-Nav-Token": "secret-token"})
+        self.assertEqual(self.owner_tags(), [])
+
+    def test_orphan_tags_cleaned_on_tag_removal(self) -> None:
+        self.ingest("https://b.invalid/", "站点B")
+        site = self.sites()[0]
+        self.put_site(site["id"], site_name="站点B", url=site["url"], tags=["甲", "乙"], is_public=True)
+        # 移除"甲"后不再被任何站点引用 → 死标签清理
+        self.put_site(site["id"], site_name="站点B", url=site["url"], tags=["乙"], is_public=True)
+        self.assertEqual([t["name"] for t in self.owner_tags()], ["乙"])
+
+    def test_tag_count_limit_rejected(self) -> None:
+        self.ingest("https://c.invalid/", "站点C")
+        site = self.sites()[0]
+        response = self.put_site(
+            site["id"],
+            site_name="站点C",
+            url=site["url"],
+            tags=[f"标签{i}" for i in range(51)],
+            is_public=True,
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_invisible_characters_stripped_from_tag(self) -> None:
+        self.ingest("https://d.invalid/", "站点D")
+        site = self.sites()[0]
+        response = self.put_site(
+            site["id"], site_name="站点D", url=site["url"], tags=["可\u200b见"], is_public=True
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([t["name"] for t in self.owner_tags()], ["可见"])
+
+    def test_unicode_case_variants_merge_into_one_tag(self) -> None:
+        self.ingest("https://e1.invalid/", "站点E1")
+        self.put_site(self.sites()[0]["id"], site_name="站点E1", url="https://e1.invalid/", tags=["Ñandu"], is_public=True)
+        self.ingest("https://e2.invalid/", "站点E2")
+        self.put_site(self.sites()[1]["id"], site_name="站点E2", url="https://e2.invalid/", tags=["ñandu"], is_public=True)
+        tags = self.owner_tags()
+        # ñandu 吸附到既有 Ñandu 行（DB 的 NOCASE 折叠不到非 ASCII），而不是另起一行
+        self.assertEqual(len(tags), 1)
+        self.assertEqual(tags[0]["name"], "Ñandu")
+        self.assertEqual(tags[0]["count"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

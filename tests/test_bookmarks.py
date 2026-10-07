@@ -317,5 +317,27 @@ class BookmarkApiTest(IsolatedAppTestCase):
         )
 
 
+    def test_import_truncates_long_folder_names_with_warning(self) -> None:
+        long_folder = "这是一个超过二十个字符的很长很长很长的文件夹名称"
+        html = (
+            "<!DOCTYPE NETSCAPE-Bookmark-file-1><H1>书签</H1><DL><p>"
+            f"<DT><H3>{long_folder}</H3><DL><p>"
+            '<DT><A HREF="https://long-folder.invalid/">长目录站点</A>'
+            "</DL><p></DL><p>"
+        )
+        response = self.client.post(
+            "/api/sites/import",
+            files=self._bookmark_file(html),
+            headers={"X-Nav-Token": self.nav_token},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["imported"], 1)
+        self.assertTrue(any("标签超长已截断" in w for w in data.get("warnings", [])))
+        # 标签按截断后的名字入库
+        tags = self.client.get("/api/tags", headers={"X-Nav-Token": self.nav_token}).json()
+        self.assertEqual([t["name"] for t in tags], [long_folder[:20].rstrip()])
+
+
 if __name__ == "__main__":
     unittest.main()

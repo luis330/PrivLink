@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sqlite3
 import time
 from contextlib import closing, contextmanager
@@ -12,6 +13,10 @@ from privlink import config
 from privlink.jsinterop import js_field, to_py
 
 TAG_NAME_MAX_LEN = 20
+TAG_COUNT_MAX = 50  # 单站点标签数上限；同时防 D1 batch 语句数爆炸（每标签 2 条语句）
+
+# 零宽/控制字符可造出视觉重名或隐藏内容，一律从标签名剔除
+_TAG_INVISIBLE_RE = re.compile("[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u2060\ufeff]")
 
 # SiteItem 需要的列（to_site_item 的输入）；列表与单行查询共用，避免多处手写漂移
 SITE_ITEM_COLUMNS = "id, url, site_name, icon_rel_path, updated_at, sort_order, is_public"
@@ -246,13 +251,15 @@ async def ensure_remote_schema() -> None:
 
 
 def normalize_tag_name(raw: str) -> str:
-    collapsed = " ".join((raw or "").split())
-    return collapsed
+    cleaned = _TAG_INVISIBLE_RE.sub("", raw or "")
+    return " ".join(cleaned.split())
 
 
 def normalize_tag_list(raw_tags: list[str] | None) -> list[str]:
     if not raw_tags:
         return []
+    if len(raw_tags) > TAG_COUNT_MAX:
+        raise ValueError(f"标签数量不能超过 {TAG_COUNT_MAX} 个")
     seen: dict[str, str] = {}
     for item in raw_tags:
         name = normalize_tag_name(str(item))
@@ -260,7 +267,8 @@ def normalize_tag_list(raw_tags: list[str] | None) -> list[str]:
             continue
         if len(name) > TAG_NAME_MAX_LEN:
             raise ValueError(f"标签长度不能超过 {TAG_NAME_MAX_LEN} 个字符")
-        key = name.lower()
+        # Unicode 折叠去重；DB 的 UNIQUE COLLATE NOCASE 只覆盖 ASCII，去重以这里为准
+        key = name.casefold()
         if key not in seen:
             seen[key] = name
     return list(seen.values())
@@ -434,6 +442,70 @@ async def set_plugin_windows(plugin_id: str, windows: list[dict[str, Any]]) -> N
     )
 
 
+async def add_plugin_window(plugin_id: str, item: dict[str, Any]) -> tuple[list[dict[str, Any]], bool]:
+    """新增（或按 id 幂等更新）单个窗口实例；返回 (最新数组, 是否因超上限被拒)。
+
+    读-改-写：调用方必须持有该插件的写锁串行化，消除全量覆盖写时代的
+    跨标签页过期快照竞态。
+    """
+    windows = await get_plugin_windows(plugin_id)
+    if windows is None:
+        windows = []
+    result: list[dict[str, Any]] = []
+    replaced = False
+    for window in windows:
+        if isinstance(window, dict) and window.get("id") == item["id"]:
+            result.append(item)
+            replaced = True
+        else:
+            result.append(window)
+    if not replaced:
+        if len(result) >= config.PLUGIN_MAX_WINDOWS:
+            return result, True
+        result.append(item)
+    await set_plugin_windows(plugin_id, result)
+    return result, False
+
+
+async def delete_plugin_window(plugin_id: str, inst_id: str) -> list[dict[str, Any]] | None:
+    """按 id 删除单个窗口实例。
+
+    键不存在返回 None（不创建空键，保留"从未有过实例"语义）；
+    id 不存在视为幂等，返回原数组不写。
+    """
+    windows = await get_plugin_windows(plugin_id)
+    if windows is None:
+        return None
+    result = [
+        window
+        for window in windows
+        if not (isinstance(window, dict) and window.get("id") == inst_id)
+    ]
+    if len(result) == len(windows):
+        return windows
+    await set_plugin_windows(plugin_id, result)
+    return result
+
+
+async def update_plugin_window(plugin_id: str, item: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """按 id 更新单个窗口实例的布局；键或 id 不存在返回 None。"""
+    windows = await get_plugin_windows(plugin_id)
+    if windows is None:
+        return None
+    result: list[dict[str, Any]] = []
+    found = False
+    for window in windows:
+        if isinstance(window, dict) and window.get("id") == item["id"]:
+            result.append(item)
+            found = True
+        else:
+            result.append(window)
+    if not found:
+        return None
+    await set_plugin_windows(plugin_id, result)
+    return result
+
+
 async def fetch_plugin_data(plugin_id: str, key: str) -> str | None:
     row = await get_db().fetch_one(
         "SELECT value FROM plugin_data WHERE plugin_id = ? AND key = ?;",
@@ -589,12 +661,44 @@ async def fetch_all_site_tags() -> dict[int, list[str]]:
     return result
 
 
-def site_tags_statements(site_id: int, names: list[str], now: str) -> list[tuple[str, tuple[Any, ...]]]:
-    """整体替换站点标签的语句组；须放进同一 batch 执行以保证原子性。"""
+async def fetch_tag_ids_by_casefold() -> dict[str, int]:
+    """现有标签名 → id 的 casefold 映射；用于跨 Unicode 大小写的重名吸附。
+
+    DB 的 UNIQUE COLLATE NOCASE 只折叠 ASCII，非 ASCII 大小写对（如 Ñandu/ñandu）
+    靠这层映射在写入前合并到既有行，而不是另起一行。
+    """
+    rows = await get_db().fetch_all("SELECT id, name FROM tags;")
+    return {str(row["name"]).casefold(): int(row["id"]) for row in rows}
+
+
+def orphan_tags_statement() -> tuple[str, tuple[Any, ...]]:
+    """清理无任何站点引用的标签行；须与 site_tags 的写语句放进同一 batch 保证原子。"""
+    return ("DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM site_tags);", ())
+
+
+def site_tags_statements(
+    site_id: int,
+    names: list[str],
+    now: str,
+    existing_by_casefold: dict[str, int] | None = None,
+) -> list[tuple[str, tuple[Any, ...]]]:
+    """整体替换站点标签的语句组；须放进同一 batch 执行以保证原子性。
+
+    existing_by_casefold 提供库内已有标签的 casefold 索引：命中时直接挂既有行，
+    否则 INSERT OR IGNORE 后用 NOCASE 子查询取 id（覆盖本次新插入的行）。
+    """
+    existing_by_casefold = existing_by_casefold or {}
     statements: list[tuple[str, tuple[Any, ...]]] = [
         ("DELETE FROM site_tags WHERE site_id = ?", (site_id,)),
     ]
     for name in names:
+        existing_id = existing_by_casefold.get(name.casefold())
+        if existing_id is not None:
+            statements.append((
+                "INSERT OR IGNORE INTO site_tags (site_id, tag_id) VALUES (?, ?)",
+                (site_id, existing_id),
+            ))
+            continue
         statements.append(("INSERT OR IGNORE INTO tags (name, created_at) VALUES (?, ?)", (name, now)))
         # 子查询取 tag id：不依赖上一步的返回值，整组可一次提交
         statements.append((
