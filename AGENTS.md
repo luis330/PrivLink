@@ -63,3 +63,4 @@
 - 正确模型：插件 pointerdown 只上报一次 `window.drag` start（iframe 局部坐标 + pointerId），宿主置 iframe `pointer-events:none` 后在 window 上用页面绝对坐标接管 move/up；结束时宿主恢复命中、持久化位置，并回推 `window.dragEnd` 通知复位插件状态
 - 宿主→插件通知形如 `{v, type, payload}`（无 id，不走应答表）；旧版 move/end 坐标中继（rx/ry 参照系）仍被兼容但不要再写
 - 拖拽期间的防御已内建：窗外松手借重入首拍（`buttons===0`）收敛；插件侧 pointerdown 无条件重启会话兜底
+- 窗口注册表（windows 布局）**前端写路径一律走增量端点**（`POST .../windows/add` 幂等 upsert、`PATCH/DELETE .../windows/{instId}`，服务端每插件进程内写锁串行化读-改-写），全量 PUT 仅为兼容保留——增量写消除跨标签页过期快照整键覆盖的竞态；布局 GET 失败时前端置未知态并禁止注册表写；注册表/布局写失败经"重试一次"仍败会弹页面顶部持久化警告条，不许再静默吞错

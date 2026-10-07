@@ -2052,6 +2052,8 @@
 
       /* ===== 常量 ===== */
       const TAG_NAME_MAX_LEN = 20;
+      // 与服务端 normalize_tag_name 同规则：剔除零宽/控制字符，防止视觉重名
+      const TAG_INVISIBLE_RE = /[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u2060\ufeff]/g;
       const ACTIVE_TAG_STORAGE_KEY = "nav_active_tag";
       const SITES_CACHE_STORAGE_KEY = "nav_cache_v1:sites";
       const TAGS_CACHE_STORAGE_KEY = "nav_cache_v1:tags";
@@ -2322,7 +2324,7 @@
       }
 
       function normalizeTagName(raw) {
-        return String(raw || "").trim().split(/\s+/).join(" ");
+        return String(raw || "").replace(TAG_INVISIBLE_RE, "").trim().split(/\s+/).join(" ");
       }
 
       function compactUrlLabel(value) {
@@ -2611,16 +2613,23 @@
       function addResultDraftTag(name) {
         const clean = normalizeTagName(name);
         if (!clean) return false;
-        if (clean.length > TAG_NAME_MAX_LEN) {
+        if ([...clean].length > TAG_NAME_MAX_LEN) {
           setResultManagerMessage("标签长度不能超过 " + TAG_NAME_MAX_LEN + " 个字符", true);
           return false;
         }
         const lower = clean.toLowerCase();
-        if (resultDraftTags.some((tag) => tag.toLowerCase() === lower)) return false;
-        resultDraftTags.push(clean);
+        if (resultDraftTags.some((tag) => tag.toLowerCase() === lower)) {
+          // 已在列表：清空输入框作为反馈（此前静默返回会让人以为没加上）
+          resultTagsInputEl.value = "";
+          return false;
+        }
+        // 命中库内同名（大小写不敏感）时采纳库内写法，保持全局一致的规范形态
+        const libraryTag = tagsCache.find((tag) => tag.name.toLowerCase() === lower);
+        resultDraftTags.push(libraryTag ? libraryTag.name : clean);
         renderResultTagChips();
         setResultManagerMessage("", false);
         updateResultSaveState();
+        resultTagsInputEl.value = "";
         return true;
       }
 
@@ -2655,7 +2664,7 @@
         const rawTyped = normalizeTagName(query);
         const canCreate =
           rawTyped.length > 0 &&
-          rawTyped.length <= TAG_NAME_MAX_LEN &&
+          [...rawTyped].length <= TAG_NAME_MAX_LEN &&
           !exactMatch &&
           !selectedLower.has(rawTyped.toLowerCase());
 
@@ -2850,6 +2859,13 @@
           renderResultManager(freshSite);
           setResultManagerMessage("已保存", false);
         } catch (error) {
+          // 保存失败：标签草稿回滚到存储现状，chips 与网格/tag-bar 保持一致
+          const rollbackSite = getSiteById(Number(resultSiteId)) || resultOriginalSite;
+          resultDraftTags = Array.isArray(rollbackSite && rollbackSite.tags)
+            ? rollbackSite.tags.slice()
+            : [];
+          renderResultTagChips();
+          updateResultSaveState();
           setResultManagerMessage(
             "保存失败：" + (error && error.message ? error.message : String(error)),
             true
@@ -3221,14 +3237,18 @@
       function addDraftTag(name) {
         const clean = normalizeTagName(name);
         if (!clean) return false;
-        if (clean.length > TAG_NAME_MAX_LEN) {
+        if ([...clean].length > TAG_NAME_MAX_LEN) {
           editErrorEl.textContent = "标签长度不能超过 " + TAG_NAME_MAX_LEN + " 个字符";
           return false;
         }
         const lower = clean.toLowerCase();
-        const existing = editDraftTags.find((t) => t.toLowerCase() === lower);
-        if (existing) return false;
-        editDraftTags.push(clean);
+        if (editDraftTags.some((t) => t.toLowerCase() === lower)) {
+          editTagsInputEl.value = ""; // 已在列表：清空输入框作为反馈
+          return false;
+        }
+        // 命中库内同名（大小写不敏感）时采纳库内写法，保持全局一致的规范形态
+        const libraryTag = tagsCache.find((t) => t.name.toLowerCase() === lower);
+        editDraftTags.push(libraryTag ? libraryTag.name : clean);
         renderEditTagChips();
         editErrorEl.textContent = "";
         return true;
@@ -3271,7 +3291,7 @@
         const rawTyped = normalizeTagName(query);
         const canCreate =
           rawTyped.length > 0 &&
-          rawTyped.length <= TAG_NAME_MAX_LEN &&
+          [...rawTyped].length <= TAG_NAME_MAX_LEN &&
           !exactMatch &&
           !selectedLower.has(rawTyped.toLowerCase());
 
