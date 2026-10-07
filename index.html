@@ -141,6 +141,10 @@
         box-shadow: var(--shadow-2);
       }
 
+      .persist-warning[hidden] {
+        display: none;
+      }
+
       .persist-warning-close {
         flex: 0 0 auto;
         border: none;
@@ -2055,6 +2059,8 @@
       // 与服务端 normalize_tag_name 同规则：剔除零宽/控制字符，防止视觉重名
       const TAG_INVISIBLE_RE = /[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u2060\ufeff]/g;
       const ACTIVE_TAG_STORAGE_KEY = "nav_active_tag";
+      // "无标签"虚拟分类的哨兵值：\u0000 会被服务端从真实标签名中剔除，永不与真实标签撞名
+      const TAG_UNTAGGED = "\u0000untagged";
       const SITES_CACHE_STORAGE_KEY = "nav_cache_v1:sites";
       const TAGS_CACHE_STORAGE_KEY = "nav_cache_v1:tags";
       const AUTH_TOKEN_STORAGE_KEY = "nav_auth_token_v1";
@@ -2975,6 +2981,11 @@
 
       function getFilteredSites() {
         if (!activeTag) return sitesCache.slice();
+        if (activeTag === TAG_UNTAGGED) {
+          return sitesCache.filter(
+            (site) => !Array.isArray(site.tags) || site.tags.length === 0
+          );
+        }
         return sitesCache.filter(
           (site) => Array.isArray(site.tags) && site.tags.includes(activeTag)
         );
@@ -2989,7 +3000,7 @@
         setNavState("", false);
         const list = getFilteredSites();
         if (list.length === 0) {
-          setNavState('分类"' + activeTag + '"下暂无网站', false);
+          setNavState('分类"' + (activeTag === TAG_UNTAGGED ? "无标签" : activeTag) + '"下暂无网站', false);
           return;
         }
         const fragment = document.createDocumentFragment();
@@ -3048,6 +3059,23 @@
         allBtn.addEventListener("click", () => setActiveTag(""));
         tagBarEl.appendChild(allBtn);
 
+        // "无标签"虚拟分类：固定紧跟"全部"；仅当存在未打标签的站点时显示
+        const untaggedCount = sitesCache.filter(
+          (site) => !Array.isArray(site.tags) || site.tags.length === 0
+        ).length;
+        if (untaggedCount > 0) {
+          const untaggedBtn = document.createElement("button");
+          untaggedBtn.type = "button";
+          untaggedBtn.className = "tag-btn" + (activeTag === TAG_UNTAGGED ? " active" : "");
+          untaggedBtn.textContent = "无标签";
+          const untaggedTotal = document.createElement("span");
+          untaggedTotal.className = "tag-count";
+          untaggedTotal.textContent = String(untaggedCount);
+          untaggedBtn.appendChild(untaggedTotal);
+          untaggedBtn.addEventListener("click", () => setActiveTag(TAG_UNTAGGED));
+          tagBarEl.appendChild(untaggedBtn);
+        }
+
         tagsCache.forEach((tag) => {
           const btn = document.createElement("button");
           btn.type = "button";
@@ -3063,8 +3091,7 @@
       }
 
       function setActiveTag(name) {
-        activeTag = name || "";
-        try {
+        activeTag = name || "";        try {
           if (activeTag) {
             localStorage.setItem(ACTIVE_TAG_STORAGE_KEY, activeTag);
           } else {
@@ -3078,6 +3105,26 @@
       }
 
       /* ===== 数据加载 ===== */
+      // 校验持久化的分类：真实标签须仍在库中；"无标签"哨兵在存在未标记站点时才有效
+      // （sitesCache 未加载完时跳过哨兵判定，交给站点+标签齐后的最终渲染兜底）
+      function normalizeActiveTag() {
+        if (!activeTag) return;
+        if (activeTag === TAG_UNTAGGED) {
+          const untagged = sitesCache.filter(
+            (site) => !Array.isArray(site.tags) || site.tags.length === 0
+          ).length;
+          if (sitesCache.length > 0 && untagged === 0) {
+            activeTag = "";
+            try { localStorage.removeItem(ACTIVE_TAG_STORAGE_KEY); } catch (_) {}
+          }
+          return;
+        }
+        if (!tagsCache.some((t) => t.name === activeTag)) {
+          activeTag = "";
+          try { localStorage.removeItem(ACTIVE_TAG_STORAGE_KEY); } catch (_) {}
+        }
+      }
+
       async function loadTags() {
         try {
           const response = await apiFetch(getTagsApiUrl(), { method: "GET" });
@@ -3100,10 +3147,8 @@
             tagsCache = [];
           }
         }
-        if (activeTag && !tagsCache.some((t) => t.name === activeTag)) {
-          activeTag = "";
-          try { localStorage.removeItem(ACTIVE_TAG_STORAGE_KEY); } catch (_) {}
-        }
+        // 校验持久化的分类：真实标签须仍在库中；"无标签"哨兵在存在未标记站点时才有效
+        normalizeActiveTag();
         renderTagBar();
       }
 
@@ -5437,6 +5482,7 @@
       loadPublicIp();
       loadBackgroundSetting();
       Promise.all([loadSites(), loadTags()]).then(() => {
+        normalizeActiveTag();
         renderTagBar();
       });
       try {
