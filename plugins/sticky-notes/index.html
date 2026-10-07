@@ -148,7 +148,7 @@
       var pending = new Map();
       var bridgeOk = false;
       var saveTimer = null;
-      var dirtyText = "";
+      var dirtyText = null; // null = 无待存变更；"" 是合法的"已清空"内容，同样需要落盘
       var dragActive = null; // { mode }：单指针假设，同一时刻至多一个活动拖拽
 
       function callBridge(type, payload) {
@@ -317,7 +317,7 @@
           if (first) {
             var list = document.createElement(first.ordered ? "ol" : "ul");
             var num = first.ordered ? parseInt(lines[i], 10) : 0;
-            if (num !== 1) list.start = num; // 有序列表按首个数字起算
+            if (first.ordered && num !== 1) list.start = num; // 有序列表按首个数字起算
             while (i < lines.length) {
               var item = classifyList(lines[i].replace(/^[ \t]+/, ""));
               if (!item || item.ordered !== first.ordered) break; // 空行/换标记类型即结束列表
@@ -356,9 +356,11 @@
           if (k % 2 === 0) {
             if (segs[k]) parent.appendChild(document.createTextNode(segs[k]));
           } else if (k + 1 < segs.length) {
-            var code = document.createElement("code");
-            code.textContent = segs[k];
-            parent.appendChild(code);
+            if (segs[k]) { // 空行内代码（``）不渲染空的 code 盒
+              var code = document.createElement("code");
+              code.textContent = segs[k];
+              parent.appendChild(code);
+            }
             if (segs[k + 1]) parent.appendChild(document.createTextNode(segs[k + 1]));
             k++; // 消费闭合反引号之后的文本段
           } else {
@@ -434,11 +436,11 @@
           window.clearTimeout(saveTimer);
           saveTimer = null;
         }
-        if (!bridgeOk || dirtyText === "") return;
+        if (!bridgeOk || dirtyText === null) return;
         var value = dirtyText;
-        dirtyText = "";
+        dirtyText = null;
         callBridge("storage.set", { key: CONTENT_KEY, value: value }).catch(function () {
-          if (!dirtyText) dirtyText = value; // 无更新内容时恢复待存，下次输入重试
+          if (dirtyText === null) dirtyText = value; // 失败时恢复待存，下次输入重试
           showHintOnce("保存失败：与导航页的连接已中断。");
         });
       }

@@ -52,9 +52,9 @@
 风格基调：玻璃光晕——径向光斑×2（--glow-a/--glow-b）+ 线性渐变 `--bg-a→--bg-b` + backdrop-blur 半透明白面板。主色 `#0f7cf0`（不是 #165DFF，该值在仓库中不存在）。**先收尺度再谈风格：不要往样式里引入新的裸值。**
 
 - `:root` 双层 token（改值改这里，不要散改规则）：
-  - 颜色/语义层：`--button-bg/--button-hover`（主色对）、`--bg-a/--bg-b`（画布渐变对）、`--focus/--focus-soft/--focus-soft-2`（焦点族）、`--ok/--warn/--bad`、`--glass-*`、`--fallback-*` 等 37 个
+  - 颜色/语义层：`--button-bg/--button-hover`（主色对）、`--bg-a/--bg-b`（画布渐变对）、`--focus/--focus-soft/--focus-soft-2`（焦点族）、`--ok/--warn/--bad` 及状态底 `--ok-bg/--warn-bg/--bad-bg`、`--danger/--danger-ink`（危险族）、`--brand-line/soft/soft-2/ink`（品牌派生）、`--surface-1/2/3`（亮面阶）、`--chip-ink/--chip-x-bg/-hover`、`--glass-*`、`--fallback-*` 等 52 个
   - 尺度层：圆角 3 档+full `--radius-s 10 / --radius-m 14 / --radius-l 18 / --radius-full 999`（等差 4）；字号 5 级+display `--fs-xs 12 / --fs-s 13 / --fs-m 14 / --fs-l 16 / --fs-xl 19` + `--fs-display clamp(24px,3.4vw,34px)`；间距 4 基数 6 档 `--sp-1 4 … --sp-6 24`；阴影 3 级 `--shadow-1/2/3`（统一 rgba(8,22,64,α) 色相，focus 环独立不算阴影）
-- 硬约束：`font-size`、`border-radius`、`padding/margin/gap`、`box-shadow` 一律引用 token 变量；颜色字面量只允许出现在三处——`:root` 定义、`<meta theme-color>`/manifest、色板 `data-color`（用户可选值）
+- 硬约束：`font-size`、`border-radius`、`padding/margin/gap`、`box-shadow` 一律引用 token 变量；颜色字面量只允许出现在三处——`:root` 定义、`<meta theme-color>`/manifest、色板 `data-color`（用户可选值）。**作用域为宿主 index.html**：沙箱插件文档（plugins\*）没有 `:root` 可引用，豁免本约束，沿用插件内既有约定
 - 有意保留的例外（勿当漏洞"修复"）：`3px/4px`（:focus-visible 描边贴合直角控件，带注释）、`50%`（圆形）、`2px`（发丝偏移）、`190px/210px`（body 底部给停靠面板 `.add-panel` 预留的滚动空隙，桌面/移动两档，改面板高度时同步）、`0.8em`（▾ 箭头伪元素）
 - 字号层级语义：11px 时代的辅助小字已统一升到 `--fs-xs 12`；15px 标题归 `--fs-l 16` 拉开与正文的层级
 
