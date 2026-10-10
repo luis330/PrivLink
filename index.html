@@ -5492,22 +5492,26 @@
         renderTagBar();
         renderSites();
       }
+      // 首屏 API 错峰发起：免费版 Workers 每个请求都会冷启动 Pyodide isolate，
+      // 一次并发 6-8 个请求会把 CPU/内存顶到资源上限（exceededResources/启动期异常）。
+      // 书签先由 localStorage 缓存渲染，网络请求按依赖顺序分两波：鉴权 → 内容 → 其余。
       authStatusReady = loadAuthStatus();
-      loadPublicIp();
-      loadBackgroundSetting();
-      Promise.all([loadSites(), loadTags()]).then(() => {
-        normalizeActiveTag();
-        renderTagBar();
-      });
-      try {
-        setPluginsCollapsed(localStorage.getItem(PLUGINS_COLLAPSED_KEY) === "1");
-      } catch (_) {}
-      // 插件仅在管理身份下加载：访客不拉取安装状态，也就不会触发 401 弹窗
       authStatusReady.then(() => {
-        if (!hasManageAccess()) return;
-        ensurePluginData()
-          .then(refreshPluginUI)
-          .catch(() => {});
+        Promise.all([loadSites(), loadTags()]).then(() => {
+          normalizeActiveTag();
+          renderTagBar();
+        });
+        loadBackgroundSetting();
+        loadPublicIp();
+        try {
+          setPluginsCollapsed(localStorage.getItem(PLUGINS_COLLAPSED_KEY) === "1");
+        } catch (_) {}
+        // 插件仅在管理身份下加载：访客不拉取安装状态，也就不会触发 401 弹窗
+        if (hasManageAccess()) {
+          ensurePluginData()
+            .then(refreshPluginUI)
+            .catch(() => {});
+        }
       });
     </script>
   </body>
