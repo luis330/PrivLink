@@ -111,6 +111,29 @@
       border-radius: 4px;
       padding: 1px 5px;
     }
+    /* 滚动条：细圆条半透明白融入玻璃底，轨道隐形，hover 才加深（编辑/渲染两区同款） */
+    .note-text,
+    .note-render {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+    }
+    .note-text::-webkit-scrollbar,
+    .note-render::-webkit-scrollbar {
+      width: 8px;
+    }
+    .note-text::-webkit-scrollbar-track,
+    .note-render::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .note-text::-webkit-scrollbar-thumb,
+    .note-render::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.28);
+      border-radius: 999px;
+    }
+    .note-text::-webkit-scrollbar-thumb:hover,
+    .note-render::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.4);
+    }
     .note-grip {
       position: absolute;
       right: 2px; bottom: 2px;
