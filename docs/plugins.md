@@ -39,7 +39,7 @@ plugins/
     {
       "id": "sticky-notes",
       "name": "便签",
-      "version": "1.2.0",
+      "version": "1.2.2",
       "description": "在导航页添加便签，支持基础 Markdown（行内代码、列表、任务列表、块引用）",
       "author": "luis",
       "slot": "float",
