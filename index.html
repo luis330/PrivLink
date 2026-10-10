@@ -77,6 +77,12 @@
         /* 背景光斑停靠色（radial 渐变起点；终点为 transparent） */
         --glow-a: #5cb8ff5c;
         --glow-b: #2d56ea73;
+        /* 玻璃滤镜 3 档：模糊深度 = 浮层高度；blur 必配 saturate，否则玻璃发灰 */
+        --filter-glass: blur(10px) saturate(140%);
+        --filter-menu: blur(18px) saturate(150%);
+        --filter-modal: blur(22px) saturate(150%);
+        /* 玻璃面顶部 1px 内高光，叠在阴影 token 之后使用 */
+        --glass-highlight: inset 0 1px 1px rgba(255, 255, 255, 0.22);
 
         /* ===== 语义色收口 ===== */
         --danger: #c92f2f; /* 危险按钮底 */
@@ -109,7 +115,7 @@
           radial-gradient(circle at 12% 16%, var(--glow-a) 0, transparent 34%),
           radial-gradient(circle at 88% 84%, var(--glow-b) 0, transparent 42%),
           linear-gradient(138deg, var(--bg-a), var(--bg-b));
-        padding: var(--sp-4) var(--sp-4) 190px; /* 190px：底部停靠"添加网站"面板展开态的滚动预留 */
+        padding: var(--sp-4) var(--sp-4) 190px; /* token-allow: 190px——底部停靠"添加网站"面板展开态的滚动预留 */
       }
 
       /* 自定义背景下的暗色遮罩：位于 body 背景之上、页面内容之下，按亮度调节透明度保证文字可读 */
@@ -167,8 +173,9 @@
         border: 1px solid var(--panel-border);
         border-radius: var(--radius-m);
         background: var(--panel-bg);
-        backdrop-filter: blur(10px);
-        box-shadow: var(--shadow-2);
+        -webkit-backdrop-filter: var(--filter-glass);
+        backdrop-filter: var(--filter-glass);
+        box-shadow: var(--shadow-2), var(--glass-highlight);
         padding: var(--sp-4);
       }
 
@@ -217,7 +224,7 @@
         flex-wrap: wrap;
         justify-content: center;
         align-content: flex-start;
-        gap: var(--sp-5) 0px;
+        gap: var(--sp-5) 0; /* 列间距 0：80px 定宽项自带 28px 视觉空隙，有意为之 */
       }
 
       .tag-bar {
@@ -343,18 +350,18 @@
         content: "▾";
         display: inline-block;
         margin-left: var(--sp-2);
-        font-size: 0.8em;
+        font-size: 0.8em; /* token-allow: ▾ 箭头随标题字号的相对缩小 */
         transition: transform 0.2s ease;
       }
 
       .add-title:focus-visible {
         outline: 2px solid #ffffffb3;
         outline-offset: 3px;
-        border-radius: 4px; /* 焦点描边贴合直角控件，不参与圆角档位 */
+        border-radius: 4px; /* token-allow: 焦点描边贴合直角控件，不参与圆角档位 */
       }
 
       .add-desc {
-        margin: 2px 0 0;
+        margin: 2px 0 0; /* token-allow: 发丝间距，低于 --sp-1 的微调 */
         color: var(--text-subtle);
         font-size: var(--fs-xs);
       }
@@ -378,7 +385,7 @@
 
       input[type="text"]:focus {
         border-color: var(--focus);
-        box-shadow: 0 0 0 3px var(--focus-soft);
+        box-shadow: 0 0 0 3px var(--focus-soft); /* token-allow: focus 环独立体系，不算阴影 */
       }
 
       .action-btn {
@@ -401,7 +408,7 @@
       }
 
       .hint {
-        margin: var(--sp-1) 2px 0;
+        margin: var(--sp-1) 2px 0; /* token-allow: 发丝间距，低于 --sp-1 的微调 */
         font-size: var(--fs-xs);
         color: var(--text-subtle);
       }
@@ -412,10 +419,10 @@
         border-radius: var(--radius-m);
         padding: var(--sp-2) var(--sp-3);
         background: var(--surface-1);
-        -webkit-backdrop-filter: blur(10px) saturate(140%);
-        backdrop-filter: blur(10px) saturate(140%);
+        -webkit-backdrop-filter: var(--filter-glass);
+        backdrop-filter: var(--filter-glass);
         color: var(--ink);
-        box-shadow: var(--shadow-2);
+        box-shadow: var(--shadow-2), var(--glass-highlight);
       }
 
       .result-main {
@@ -449,7 +456,7 @@
       }
 
       .result-url {
-        margin-top: 2px;
+        margin-top: 2px; /* token-allow: 发丝间距，低于 --sp-1 的微调 */
         overflow: hidden;
         color: var(--ink-muted);
         font-size: var(--fs-xs);
@@ -566,7 +573,7 @@
 
       .result-tags-input:focus {
         border-color: var(--button-bg);
-        box-shadow: 0 0 0 3px var(--focus-soft-2);
+        box-shadow: 0 0 0 3px var(--focus-soft-2); /* token-allow: focus 环独立体系，不算阴影 */
       }
 
       .result-icon-picker {
@@ -763,7 +770,7 @@
       .public-ip-refresh:focus-visible {
         outline: 2px solid #ffffffb3;
         outline-offset: 2px;
-        border-radius: 3px; /* 焦点描边贴合直角控件，不参与圆角档位 */
+        border-radius: 3px; /* token-allow: 焦点描边贴合直角控件，不参与圆角档位 */
       }
 
       .public-ip-refresh:disabled {
@@ -814,9 +821,9 @@
         border-radius: var(--radius-m);
         border: 1px solid var(--modal-border);
         background: var(--menu-bg);
-        -webkit-backdrop-filter: blur(18px) saturate(150%);
-        backdrop-filter: blur(18px) saturate(150%);
-        box-shadow: var(--shadow-2);
+        -webkit-backdrop-filter: var(--filter-menu);
+        backdrop-filter: var(--filter-menu);
+        box-shadow: var(--shadow-2), var(--glass-highlight);
         padding: var(--sp-2);
         z-index: 80;
       }
@@ -865,10 +872,10 @@
         border-radius: var(--radius-l);
         border: 1px solid var(--modal-border);
         background: var(--modal-bg);
-        -webkit-backdrop-filter: blur(22px) saturate(150%);
-        backdrop-filter: blur(22px) saturate(150%);
+        -webkit-backdrop-filter: var(--filter-modal);
+        backdrop-filter: var(--filter-modal);
         color: var(--modal-text);
-        box-shadow: var(--shadow-3);
+        box-shadow: var(--shadow-3), var(--glass-highlight);
         padding: var(--sp-4);
       }
 
@@ -897,7 +904,7 @@
         display: grid;
         place-items: center;
         border: 1px solid rgba(120, 140, 170, 0.35);
-        border-radius: 50%;
+        border-radius: 50%; /* token-allow: 圆形 */
         background: var(--surface-1);
         color: var(--ink-muted);
         font-size: var(--fs-l);
@@ -943,7 +950,7 @@
 
       .modal-input:focus {
         border-color: var(--button-bg);
-        box-shadow: 0 0 0 3px var(--focus-soft);
+        box-shadow: 0 0 0 3px var(--focus-soft); /* token-allow: focus 环独立体系，不算阴影 */
       }
 
       .modal-error {
@@ -1083,7 +1090,7 @@
         border-radius: var(--radius-s);
         background: #fff;
         cursor: pointer;
-        padding: 2px;
+        padding: 2px; /* token-allow: 发丝间距，低于 --sp-1 的微调 */
       }
 
       .bg-tools-row {
@@ -1194,7 +1201,7 @@
         height: 18px;
         line-height: 16px;
         text-align: center;
-        border-radius: 50%;
+        border-radius: 50%; /* token-allow: 圆形 */
         border: none;
         background: var(--chip-x-bg);
         color: #1a2433;
@@ -1256,7 +1263,7 @@
       }
 
       .tag-suggest-item.active {
-        box-shadow: 0 0 0 2px var(--focus-soft), 0 0 0 1px var(--button-bg);
+        box-shadow: 0 0 0 2px var(--focus-soft), 0 0 0 1px var(--button-bg); /* token-allow: 双环选中态的内圈 1px 描边 */
       }
 
       .tag-suggest-item.create-new {
@@ -1362,10 +1369,10 @@
         border-radius: var(--radius-s);
         overflow: hidden;
         background: var(--panel-bg);
-        -webkit-backdrop-filter: blur(10px);
-        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: var(--filter-glass);
+        backdrop-filter: var(--filter-glass);
         border: 1px solid var(--panel-border);
-        box-shadow: var(--shadow-2);
+        box-shadow: var(--shadow-2), var(--glass-highlight);
         will-change: transform;
       }
 
@@ -1548,20 +1555,20 @@
       }
 
       .nav-item.drag-over-left {
-        box-shadow: -3px 0 0 0 var(--button-bg);
+        box-shadow: -3px 0 0 0 var(--button-bg); /* token-allow: 拖拽落点指示条，硬边方向语言 */
       }
 
       .nav-item.drag-over-right {
-        box-shadow: 3px 0 0 0 var(--button-bg);
+        box-shadow: 3px 0 0 0 var(--button-bg); /* token-allow: 拖拽落点指示条，硬边方向语言 */
       }
 
       @media (max-width: 640px) {
         body {
-          padding: var(--sp-3) var(--sp-3) 210px; /* 210px：移动端表单单列更高，预留加大 */
+          padding: var(--sp-3) var(--sp-3) 210px; /* token-allow: 210px——移动端表单单列更高，停靠面板滚动预留加大 */
         }
 
         .nav-grid {
-          gap: var(--sp-5) 0px;
+          gap: var(--sp-5) 0; /* 列间距 0：80px 定宽项自带 28px 视觉空隙，有意为之 */
         }
 
         #parse-form {

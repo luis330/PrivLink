@@ -42,9 +42,9 @@
 - 纯 Python 项目（pyproject name=`privlink`）：**无 package.json、无前端构建步骤**，前端改动不需要任何打包
 - 后端：`src\privlink\`（FastAPI），入口 `main.py`；配置集中在 `src\privlink\config.py`（默认端口 8000；`NAV_TOKEN` 为空 = 开放模式，`.env` 不存在即开放）
 - 本地起服务：`& "D:\Studyspace\Gitea\Nav_Loacl\.venv\Scripts\python.exe" -m uvicorn main:app --host 127.0.0.1 --port <端口>`（须在仓库根目录运行，路径全是相对 CWD）
-- 前端：**根目录 `index.html` 是唯一样式源码**（约 190KB 单文件，CSS/JS 全内联，CRLF 行尾——脚本读写用 `newline=""` 保真，勿产生整文件行尾抖动）
+- 前端：**根目录 `index.html` 是唯一样式源码**（约 203KB 单文件，CSS/JS 全内联，CRLF 行尾——脚本读写用 `newline=""` 保真，勿产生整文件行尾抖动）
 - `assets\` 是部署镜像（Cloudflare Workers 用，`wrangler.jsonc` + `src\worker.py`），由 `scripts\sync-frontend.py` 从根目录同步（index.html、manifest.json、图标、plugins/）。**改任何前端/插件文件后必须重跑 sync**；本地部署由 FastAPI 直接读根目录原件
-- 测试：`& ".\.venv\Scripts\python.exe" -m pytest tests\ -q`（约 100 项，改前端后跑一遍）
+- 测试：`& ".\.venv\Scripts\python.exe" -m pytest tests\ -q`（约 110 项，改前端后跑一遍；含 token 执法检查）
 - 内置插件在 `plugins\<id>\index.html`，清单 `plugins\registry.json`；桥协议文档 `docs\plugins.md`
 - 改前端的标准流程：改根目录原件 → `scripts\sync-frontend.py` → `pytest` → 浏览器实测（对照改版前后截图）
 
@@ -52,10 +52,10 @@
 风格基调：玻璃光晕——径向光斑×2（--glow-a/--glow-b）+ 线性渐变 `--bg-a→--bg-b` + backdrop-blur 半透明白面板。主色 `#0f7cf0`（不是 #165DFF，该值在仓库中不存在）。**先收尺度再谈风格：不要往样式里引入新的裸值。**
 
 - `:root` 双层 token（改值改这里，不要散改规则）：
-  - 颜色/语义层：`--button-bg/--button-hover`（主色对）、`--bg-a/--bg-b`（画布渐变对）、`--focus/--focus-soft/--focus-soft-2`（焦点族）、`--ok/--warn/--bad` 及状态底 `--ok-bg/--warn-bg/--bad-bg`、`--danger/--danger-ink`（危险族）、`--brand-line/soft/soft-2/ink`（品牌派生）、`--surface-1/2/3`（亮面阶）、`--chip-ink/--chip-x-bg/-hover`、`--glass-*`、`--fallback-*` 等 52 个
-  - 尺度层：圆角 3 档+full `--radius-s 10 / --radius-m 14 / --radius-l 18 / --radius-full 999`（等差 4）；字号 5 级+display `--fs-xs 12 / --fs-s 13 / --fs-m 14 / --fs-l 16 / --fs-xl 19` + `--fs-display clamp(24px,3.4vw,34px)`；间距 4 基数 6 档 `--sp-1 4 … --sp-6 24`；阴影 3 级 `--shadow-1/2/3`（统一 rgba(8,22,64,α) 色相，focus 环独立不算阴影）
-- 硬约束：`font-size`、`border-radius`、`padding/margin/gap`、`box-shadow` 一律引用 token 变量；颜色字面量只允许出现在三处——`:root` 定义、`<meta theme-color>`/manifest、色板 `data-color`（用户可选值）。**作用域为宿主 index.html**：沙箱插件文档（plugins\*）没有 `:root` 可引用，豁免本约束，沿用插件内既有约定
-- 有意保留的例外（勿当漏洞"修复"）：`3px/4px`（:focus-visible 描边贴合直角控件，带注释）、`50%`（圆形）、`2px`（发丝偏移）、`190px/210px`（body 底部给停靠面板 `.add-panel` 预留的滚动空隙，桌面/移动两档，改面板高度时同步）、`0.8em`（▾ 箭头伪元素）
+  - 颜色/语义层：`--button-bg/--button-hover`（主色对）、`--bg-a/--bg-b`（画布渐变对）、`--focus/--focus-soft/--focus-soft-2`（焦点族）、`--ok/--warn/--bad` 及状态底 `--ok-bg/--warn-bg/--bad-bg`、`--danger/--danger-ink`（危险族）、`--brand-line/soft/soft-2/ink`（品牌派生）、`--surface-1/2/3`（亮面阶）、`--chip-ink/--chip-x-bg/-hover`、`--glass-*`、`--fallback-*` 等 56 个
+  - 尺度层：圆角 3 档+full `--radius-s 10 / --radius-m 14 / --radius-l 18 / --radius-full 999`（等差 4）；字号 5 级+display `--fs-xs 12 / --fs-s 13 / --fs-m 14 / --fs-l 16 / --fs-xl 19` + `--fs-display clamp(24px,3.4vw,34px)`；间距 4 基数 6 档 `--sp-1 4 … --sp-6 24`；阴影 3 级 `--shadow-1/2/3`（统一 rgba(8,22,64,α) 色相，focus 环独立不算阴影）；玻璃滤镜 3 档 `--filter-glass blur(10px)+saturate(140%) / --filter-menu blur(18px) / --filter-modal blur(22px)`（模糊深度=浮层高度，blur 必配 saturate 防发灰，借鉴 Station 配方）+ 玻璃面内高光 `--glass-highlight`（inset 1px 白，叠在阴影 token 之后）
+- 硬约束：`font-size`、`border-radius`、`padding/margin/gap`、`box-shadow`、`backdrop-filter` 一律引用 token 变量；颜色字面量只允许出现在三处——`:root` 定义、`<meta theme-color>`/manifest、色板 `data-color`（用户可选值）。**执法已脚本化**：`scripts\check-tokens.py` 扫描上述 7 属性裸值（白名单 = `:root` 块、行内 `/* token-allow: 理由 */` 标记、无单位 0），`tests\test_frontend_tokens.py` 挂进 pytest，CI 的 pytest 步骤自动携带。**作用域为宿主 index.html**：沙箱插件文档（plugins\*）没有 `:root` 可引用，豁免本约束，沿用插件内既有约定
+- 有意保留的例外（均已带 `token-allow` 标记，勿当漏洞"修复"）：`3px/4px`（:focus-visible 描边贴合直角控件）、`50%`（圆形）、`2px`（发丝间距，低于 --sp-1 的微调）、`0 0 0 3px` focus 环与 tag-suggest 双环内环 `1px`（选中态描边）、拖拽落点指示条 `±3px`（硬边方向语言，`.nav-item.drag-over-*`）、`190px/210px`（body 底部给停靠面板 `.add-panel` 预留的滚动空隙，桌面/移动两档，改面板高度时同步）、`0.8em`（▾ 箭头伪元素）；另 nav-grid 列间距恒为 0（80px 定宽项自带 28px 视觉空隙，有意为之）
 - 字号层级语义：11px 时代的辅助小字已统一升到 `--fs-xs 12`；15px 标题归 `--fs-l 16` 拉开与正文的层级
 
 ## 插件协议约束（float 拖拽，2026-10 修复定型）
