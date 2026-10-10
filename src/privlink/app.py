@@ -128,8 +128,10 @@ async def app_lifespan(_: FastAPI):
         config.logger.info("Workers 模式：跳过本地目录/SQLite 初始化")
     else:
         init_storage()
-    _icons_cache = list_simple_icons()
-    config.logger.info("服务启动完成，图标库加载 %d 个图标", len(_icons_cache))
+    # 图标目录刻意不在此预热：免费版 Workers 的 isolate 会被高频回收，每次冷启动
+    # 都解析 3453 条图标（CPU+内存）会把 Pyodide 占用顶到资源上限（exceededResources）。
+    # 改由 _icon_catalog() 在首个 /api/icons 请求时按需加载。
+    config.logger.info("服务启动完成")
     yield
 
 
