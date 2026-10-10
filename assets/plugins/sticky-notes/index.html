@@ -95,6 +95,11 @@
     .note-render > :last-child { margin-bottom: 0; }
     .note-render ul, .note-render ol { padding-left: 1.4em; }
     .note-render li { margin: 2px 0; }
+    /* 裸任务列表（[x] xxx，无列表标记）：顶格、无圆点，复选框即列表标记 */
+    .note-render ul.task-standalone {
+      list-style: none;
+      padding-left: 0;
+    }
     .note-render input[type="checkbox"] {
       margin-right: 6px;
       accent-color: #0f7cf0;
@@ -307,17 +312,18 @@
         renderBox.style.display = view ? "" : "none";
       }
 
-      // 列表行分类：{ ordered, task: 是否任务项, done: 是否已勾选, text }；非列表行返回 null。
-      // 裸任务行（[x] xxx，无列表标记）视为无序任务项，与 - [x] 同样渲染、可勾选回写
+      // 列表行分类：{ ordered, bare, task, done, text }；非列表行返回 null。
+      // bare=裸任务行（[x] xxx，无列表标记）：单独成组渲染为顶格无圆点的独立任务列表；
+      // 带标记的任务项（- [x] / 1. [x]）仍依附所在列表
       function classifyList(line) {
         var t = TASK_RE.exec(line);
-        if (t) return { ordered: false, task: true, done: t[1] !== " ", text: t[2] || "" };
+        if (t) return { ordered: false, bare: true, task: true, done: t[1] !== " ", text: t[2] || "" };
         var m = LIST_RE.exec(line);
         if (!m) return null;
         t = TASK_RE.exec(m[2]);
         var ordered = /^\d/.test(m[1]);
-        if (t) return { ordered: ordered, task: true, done: t[1] !== " ", text: t[2] || "" };
-        return { ordered: ordered, task: false, done: false, text: m[2] };
+        if (t) return { ordered: ordered, bare: false, task: true, done: t[1] !== " ", text: t[2] || "" };
+        return { ordered: ordered, bare: false, task: false, done: false, text: m[2] };
       }
 
       function renderNote(text) {
@@ -339,11 +345,13 @@
           var first = classifyList(lines[i].replace(/^[ \t]+/, ""));
           if (first) {
             var list = document.createElement(first.ordered ? "ol" : "ul");
+            if (first.bare) list.className = "task-standalone"; // 裸任务组：顶格无圆点
             var num = first.ordered ? parseInt(lines[i], 10) : 0;
             if (first.ordered && num !== 1) list.start = num; // 有序列表按首个数字起算
             while (i < lines.length) {
               var item = classifyList(lines[i].replace(/^[ \t]+/, ""));
-              if (!item || item.ordered !== first.ordered) break; // 空行/换标记类型即结束列表
+              // 空行/换标记类型（有序⇄无序）/裸任务⇄带标记列表，都结束当前组
+              if (!item || item.ordered !== first.ordered || item.bare !== first.bare) break;
               var li = document.createElement("li");
               if (item.task) {
                 var box = document.createElement("input");
