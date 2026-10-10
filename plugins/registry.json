@@ -4,7 +4,7 @@
     {
       "id": "sticky-notes",
       "name": "便签",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "description": "在导航页添加便签，支持基础 Markdown（行内代码、列表、任务列表、块引用），可浮动、拖拽移动与缩放；数据经宿主桥保存在本服务。",
       "author": "luis",
       "slot": "float",
