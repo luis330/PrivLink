@@ -34,7 +34,7 @@
 - npx 缓存的 `workerd.exe` 可能截断，报 `spawn EFTYPE` 时用 npm 重装 `@cloudflare/workerd-windows-64`
 
 ## ZCode 工具链事实（会话内验证）
-- Bash 工具实际运行 cmd.exe 而非 pwsh：PowerShell 命令需显式包装 `pwsh -NoProfile -Command "..."`
+- Bash 工具实际运行 cmd.exe 而非 pwsh：PowerShell 命令需显式包装 `pwsh -NoProfile -Command "..."`；cmd 不支持 HEREDOC——`git commit -m "$(cat <<'EOF'…)"` 会把字面量当消息，多行提交消息用 `git commit -F <消息文件>`；cmd 也不识别 `|` 管道内的 pwsh 片段与 `tail` 等Unix 工具，复杂文本处理改用 `.venv\Scripts\python.exe -c`（参数整体用双引号、内部用单引号）
 - 计划模式（plan mode）下 Bash 与 SendMessage 一律被禁，只读核查用 Explore 子代理
 - 浏览器自动化（IAB）怪癖：截图常比 evaluate 交互滞后一帧——交互与截图分两个 JS 调用、间隔 ≥1s 可避开；`tab.reload()` 不一定刷新 iframe 子资源缓存（必要时给 src 加 `?cb=` 参数穿透）；合成拖拽事件带子像素坐标，断言元素位置留 ±1px 容差
 
