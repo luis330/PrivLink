@@ -4501,7 +4501,11 @@
           );
           const data = await response.json().catch(() => null);
           if (!response.ok) {
-            setMarketMessage((data && data.error) || "操作失败，请重试", true);
+            // 无 error 字段的非 200(如 WAF/限流的 HTML 页)带上状态码,避免死胡同报错
+            setMarketMessage(
+              (data && data.error) || "操作失败（HTTP " + response.status + "），请重试",
+              true
+            );
             return;
           }
           await loadPluginState();
@@ -4526,7 +4530,10 @@
           );
           const data = await response.json().catch(() => null);
           if (!response.ok) {
-            setMarketMessage((data && data.error) || "卸载失败，请重试", true);
+            setMarketMessage(
+              (data && data.error) || "卸载失败（HTTP " + response.status + "），请重试",
+              true
+            );
             return;
           }
           // 不清 mountedFloatSignatures：窗口清理循环靠它发现"已挂载但未启用"的
