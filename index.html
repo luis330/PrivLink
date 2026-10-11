@@ -1100,6 +1100,40 @@
         margin-bottom: var(--sp-3);
       }
 
+      .bg-upload-progress {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-2);
+        margin-bottom: var(--sp-3);
+      }
+
+      .bg-upload-progress[hidden] {
+        display: none;
+      }
+
+      .bg-upload-progress-track {
+        flex: 1 1 auto;
+        height: 4px;
+        border-radius: var(--radius-full);
+        background: rgba(255, 255, 255, 0.25);
+        overflow: hidden;
+      }
+
+      .bg-upload-progress-fill {
+        height: 100%;
+        width: 0;
+        border-radius: var(--radius-full);
+        background: linear-gradient(135deg, #0f7cf0, #0b69cd);
+        transition: width 0.15s ease;
+      }
+
+      .bg-upload-progress-text {
+        flex: 0 0 auto;
+        font-size: var(--fs-xs);
+        color: #fff;
+        font-variant-numeric: tabular-nums;
+      }
+
       .bg-image-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -1840,6 +1874,12 @@
               <button type="button" id="bg-apply-image-btn" class="primary-btn" disabled>设置为背景</button>
               <button type="button" id="bg-delete-image-btn" class="danger-btn" disabled>删除</button>
             </div>
+            <div id="bg-upload-progress" class="bg-upload-progress" hidden>
+              <div class="bg-upload-progress-track">
+                <div id="bg-upload-progress-fill" class="bg-upload-progress-fill"></div>
+              </div>
+              <span id="bg-upload-progress-text" class="bg-upload-progress-text">0%</span>
+            </div>
             <div id="bg-image-grid" class="bg-image-grid"></div>
           </div>
           <div id="background-error" class="modal-error"></div>
@@ -2036,6 +2076,9 @@
       const bgColorInputEl = document.getElementById("bg-color-input");
       const bgUploadBtn = document.getElementById("bg-upload-btn");
       const bgUploadInputEl = document.getElementById("bg-upload-input");
+      const bgUploadProgressEl = document.getElementById("bg-upload-progress");
+      const bgUploadProgressFillEl = document.getElementById("bg-upload-progress-fill");
+      const bgUploadProgressTextEl = document.getElementById("bg-upload-progress-text");
       const bgApplyImageBtn = document.getElementById("bg-apply-image-btn");
       const bgDeleteImageBtn = document.getElementById("bg-delete-image-btn");
       const bgImageGridEl = document.getElementById("bg-image-grid");
@@ -4834,23 +4877,47 @@
         }
       }
 
+      function setBgUploadProgress(percent, label) {
+        bgUploadProgressFillEl.style.width = Math.min(100, Math.max(0, percent)) + "%";
+        bgUploadProgressTextEl.textContent = label || (Math.round(percent) + "%");
+      }
+
       async function uploadBackgroundFile(file) {
         if (backgroundBusy) return;
         backgroundBusy = true;
+        bgUploadBtn.disabled = true;
         setBackgroundError("");
+        bgUploadProgressEl.hidden = false;
+        setBgUploadProgress(0);
         try {
-          const formData = new FormData();
-          formData.append("image", file);
-          const response = await apiFetch(getBackgroundImagesApiUrl(), {
-            method: "POST",
-            body: formData,
-            headers: { Accept: "application/json" },
+          // fetch 无上传进度，改用 XHR 暴露 upload.onprogress（背景图可达数 MB）
+          const xhr = await new Promise((resolve, reject) => {
+            const request = new XMLHttpRequest();
+            request.open("POST", getBackgroundImagesApiUrl());
+            request.responseType = "json";
+            request.setRequestHeader("X-Nav-Token", authToken);
+            request.setRequestHeader("Accept", "application/json");
+            request.upload.onprogress = (event) => {
+              if (event.lengthComputable) {
+                setBgUploadProgress((event.loaded / event.total) * 100);
+              }
+            };
+            request.onload = () => resolve(request);
+            request.onerror = () => reject(new Error("网络异常"));
+            const formData = new FormData();
+            formData.append("image", file);
+            request.send(formData);
           });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) {
+          const data = xhr.response || {};
+          if (xhr.status < 200 || xhr.status >= 300) {
+            if (xhr.status === 401) {
+              openTokenModal(authToken ? "Token 已失效或不正确，请重新保存" : undefined);
+            }
             setBackgroundError(data.error || "上传失败，请稍后重试");
             return;
           }
+          // 100% 后服务端仍需落库，切到处理中提示
+          setBgUploadProgress(100, "服务器处理中…");
           // 上传即生效：应用返回的设置并刷新网格
           persistBackgroundSetting(data);
           applyBackgroundSetting(data);
@@ -4859,6 +4926,10 @@
           setBackgroundError("上传失败：" + (error && error.message ? error.message : String(error)));
         } finally {
           backgroundBusy = false;
+          bgUploadBtn.disabled = false;
+          window.setTimeout(() => {
+            bgUploadProgressEl.hidden = true;
+          }, 800);
         }
       }
 

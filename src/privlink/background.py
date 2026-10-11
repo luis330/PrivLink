@@ -80,6 +80,32 @@ def background_upload_filename(content: bytes, original_name: str) -> str:
     return f"bg-{digest}{ext}"
 
 
+def ensure_image_intact(content: bytes, original_name: str) -> None:
+    """拒绝传输中被截断的图片（PNG 缺尾部 IEND、JPEG 缺 FFD9 尾、WEBP RIFF 长度不符）。
+
+    上传链路对内容不做转换、按原字节存储，若客户端上传中断，服务端收到的半截文件
+    会以 200 正常入库并被设为背景——用户只看到"图片显示不全"。在入库前按格式尾部
+    特征校验，把这种文件挡在 400 并给出明确文案。误拒风险：PNG 规范禁止 IEND 之后
+    再有数据块，JPEG 尾部 FFD9 之后允许少量填充——校验窗口放宽到末尾 256 字节。
+    """
+    lower = original_name.lower()
+    if lower.endswith(".png"):
+        if len(content) >= 12 and content[:8] == b"\x89PNG\r\n\x1a\n":
+            if b"IEND" not in content[-256:]:
+                raise ValueError("图片文件不完整或已损坏（PNG 缺少结束块），请重新导出后再上传")
+        return
+    if lower.endswith((".jpg", ".jpeg")):
+        if len(content) >= 4 and content[:3] == b"\xff\xd8\xff":
+            if b"\xff\xd9" not in content[-256:]:
+                raise ValueError("图片文件不完整或已损坏（JPEG 缺少结束标记），请重新导出后再上传")
+        return
+    if lower.endswith(".webp"):
+        if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+            riff_size = int.from_bytes(content[4:8], "little") + 8
+            if riff_size != len(content):
+                raise ValueError("图片文件不完整或已损坏（WEBP 长度不符），请重新导出后再上传")
+
+
 async def list_background_images() -> list[dict[str, Any]]:
     entries = await storage.list_entries(storage.BACKGROUNDS)
     items: list[dict[str, Any]] = []

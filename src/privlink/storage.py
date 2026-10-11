@@ -62,6 +62,7 @@ class StoredObject:
     content_type: str
     etag: str
     body: AsyncIterator[bytes] | None
+    size: int | None = None  # 对象字节数（R2 元数据），用于下发 Content-Length；未知为 None
 
 
 def _object_meta(obj: Any, filename: str) -> tuple[str, str]:
@@ -120,7 +121,8 @@ async def get(area: StorageArea, filename: str, if_none_match: str = "") -> Stor
     if obj is None:
         return None
     content_type, etag = _object_meta(obj, filename)
-    return StoredObject(content_type, etag, _iter_body(obj))
+    size = int(js_field(obj, "size", 0) or 0) or None
+    return StoredObject(content_type, etag, _iter_body(obj), size)
 
 
 async def exists(area: StorageArea, filename: str) -> bool:

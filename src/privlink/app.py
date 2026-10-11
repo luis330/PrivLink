@@ -24,6 +24,7 @@ from privlink.auth import (
 from privlink.background import (
     background_upload_filename,
     delete_background_image_file,
+    ensure_image_intact,
     list_background_images,
     load_background_setting,
     save_background_setting,
@@ -462,6 +463,9 @@ async def _media_response(request: Request, file_path: str, area: StorageArea):
         headers["ETag"] = entry.etag
     if entry.body is None:
         return StarletteResponse(status_code=304, headers=headers)
+    if entry.size:
+        # 显式 Content-Length：浏览器可判断加载进度与完整性（流式响应默认不带头）
+        headers["Content-Length"] = str(entry.size)
     return StreamingResponse(entry.body, media_type=entry.content_type, headers=headers)
 
 
@@ -612,6 +616,12 @@ async def upload_background_image(image: UploadFile = File(...)) -> JSONResponse
         return JSONResponse(status_code=400, content={"error": "图片内容为空"})
     if len(content) > config.BACKGROUND_UPLOAD_MAX_BYTES:
         return JSONResponse(status_code=400, content={"error": "图片大小不能超过 5MB"})
+    # 入库前校验图片完整性：传输中断的半截文件（PNG 缺 IEND 等）此前会以 200 正常
+    # 入库并被设为背景，用户只看到"图片显示不全"而无任何提示
+    try:
+        ensure_image_intact(content, filename)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
 
     try:
         stored_name = background_upload_filename(content, filename)
