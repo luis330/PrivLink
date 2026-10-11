@@ -3991,13 +3991,48 @@
         }
       }
 
-      async function createFloatWindow(pluginId) {
+      // 插件库「新建窗口」内置的便签示例内容：覆盖便签支持的四种基础语法，
+      // 供新用户直接看到排版效果；便签标题栏 + 新建的窗口保持空白
+      const PLUGIN_SAMPLE_NOTE = [
+        "欢迎使用便签！",
+        "",
+        "支持基础 Markdown 排版：",
+        "- 无序列表",
+        "1. 有序列表",
+        "- [ ] 任务可以点击勾选",
+        "> 这是一段块引用",
+        "以及行内代码 `Ctrl+N`",
+        "",
+        "点击文字即可编辑，失焦自动排版。",
+      ].join("\n");
+
+      async function seedFloatWindowSample(pluginId, instId) {
+        const dataUrl = getPluginsApiUrl(encodeURIComponent(pluginId) + "/data");
+        const response = await apiFetch(dataUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: instId + ":content", value: PLUGIN_SAMPLE_NOTE }),
+        });
+        if (!response.ok) throw new Error("状态码 " + response.status);
+      }
+
+      async function createFloatWindow(pluginId, options) {
+        const seedSample = !!(options && options.seedSample);
         const known = await ensureFloatLayoutKnown(pluginId);
         const current = Array.isArray(pluginWindows[pluginId]) ? pluginWindows[pluginId] : [];
         const inst = defaultFloatWindow(current);
         if (known) {
           pluginWindows[pluginId] = current.concat([inst]);
           mountedFloatSignatures.set(pluginId, JSON.stringify(pluginWindows[pluginId]));
+        }
+        if (seedSample) {
+          // 先落库再挂 iframe：保证插件加载后的 storage.get 一定能读到示例内容
+          try {
+            await seedFloatWindowSample(pluginId, inst.id);
+            hidePersistWarning();
+          } catch (error) {
+            notePersistFailure("示例内容写入失败——新便签为空白", error);
+          }
         }
         const win = buildFloatWindow(pluginId, inst);
         document.body.appendChild(win);
@@ -4468,10 +4503,10 @@
           createBtn.type = "button";
           createBtn.className = "ghost-btn";
           createBtn.textContent = "新建窗口";
-          createBtn.addEventListener("click", () => {
-            closeMarketModal();
-            createFloatWindow(pluginId);
-          });
+  createBtn.addEventListener("click", () => {
+    closeMarketModal();
+    createFloatWindow(pluginId, { seedSample: true });
+  });
           actions.appendChild(createBtn);
         }
         const toggleBtn = document.createElement("button");
