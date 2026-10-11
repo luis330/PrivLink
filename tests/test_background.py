@@ -192,6 +192,37 @@ class BackgroundUploadTest(IsolatedBackgroundTestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_upload_rejects_truncated_png(self) -> None:
+        # 模拟传输中断：PNG 头有效但缺尾部 IEND 结束块，必须拒收而非静默入库
+        truncated = PNG_BYTES[: len(PNG_BYTES) - 8]
+        response = self.client.post(
+            "/api/appearance/background/images",
+            files={"image": ("bg-truncated.png", truncated, "image/png")},
+            headers=self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("不完整", response.json()["error"])
+        images = self.client.get(
+            "/api/appearance/background/images", headers=self.auth_headers
+        ).json()
+        self.assertEqual(images, [])
+
+    def test_upload_jpeg_tail_validation(self) -> None:
+        intact = b"\xff\xd8\xff\xe0" + b"\x00" * 32 + b"\xff\xd9"
+        response = self.client.post(
+            "/api/appearance/background/images",
+            files={"image": ("bg.jpg", intact, "image/jpeg")},
+            headers=self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        truncated = b"\xff\xd8\xff\xe0" + b"\x00" * 32  # 缺 FFD9 结束标记
+        response = self.client.post(
+            "/api/appearance/background/images",
+            files={"image": ("bg-cut.jpg", truncated, "image/jpeg")},
+            headers=self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 400)
+
 
 class BackgroundLibraryTest(IsolatedBackgroundTestCase):
     def test_list_and_delete_roundtrip(self) -> None:
