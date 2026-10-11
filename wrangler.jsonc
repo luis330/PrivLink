@@ -16,6 +16,14 @@
 		// (GM_xmlhttpRequest) and the MV3 extension (host_permissions) do NOT need this.
 		"NAV_CORS_ORIGINS": ""
 	},
+	// Custom domains: `wrangler deploy` creates the DNS records on the zone and
+	// attaches certificates automatically (zone must live in the same account).
+	// Both domains are bound during the migration window; once the old one is
+	// detached (plus a zone-level 301 redirect), delete its entry here.
+	"routes": [
+		{ "pattern": "privlink.hivebases.com", "custom_domain": true },
+		{ "pattern": "privlink.wanglifeng.org", "custom_domain": true }
+	],
 	"d1_databases": [
 		{
 			"binding": "DB",
