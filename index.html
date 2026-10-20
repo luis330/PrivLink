@@ -1848,6 +1848,7 @@
             <button type="button" id="bg-tab-default" class="bg-tab active">默认</button>
             <button type="button" id="bg-tab-color" class="bg-tab">纯色</button>
             <button type="button" id="bg-tab-image" class="bg-tab">图片</button>
+            <button type="button" id="bg-custom-gradient-btn" class="bg-tab" hidden></button>
           </div>
           <div id="bg-pane-default" class="bg-pane">
             <p class="bg-pane-hint">恢复内置的蓝色渐变背景。</p>
@@ -2079,6 +2080,7 @@
       const bgUploadProgressEl = document.getElementById("bg-upload-progress");
       const bgUploadProgressFillEl = document.getElementById("bg-upload-progress-fill");
       const bgUploadProgressTextEl = document.getElementById("bg-upload-progress-text");
+      const bgCustomGradientBtn = document.getElementById("bg-custom-gradient-btn");
       const bgApplyImageBtn = document.getElementById("bg-apply-image-btn");
       const bgDeleteImageBtn = document.getElementById("bg-delete-image-btn");
       const bgImageGridEl = document.getElementById("bg-image-grid");
@@ -2119,15 +2121,21 @@
       const BACKGROUND_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
       const BACKGROUND_IMAGE_RE = /\.(jpe?g|png|webp)$/i;
       const TRANSFER_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+      const PLUGIN_EXPORT_MAX_BYTES = 16 * 1024 * 1024;
+      const PLUGIN_EXPORT_MAX_DIM = 4096;
+      const PLUGIN_EXPORT_MAX_PIXELS = 4096 * 4096;
       const PLUGIN_BRIDGE_VERSION = 1;
-      const PLUGIN_PERMISSION_LABELS = { storage: "本地数据存储（经宿主代理）" };
+      const PLUGIN_PERMISSION_LABELS = {
+        storage: "本地数据存储（经宿主代理）",
+        export: "导出图片（下载 / 设为背景；背景对所有访客生效）",
+      };
       const PLUGIN_SLOT_LABELS = { inline: "页面内嵌", float: "浮动窗口" };
       const PLUGIN_WINDOW_DEFAULT_W = 240;
       const PLUGIN_WINDOW_DEFAULT_H = 220;
       const PLUGIN_WINDOW_MIN_W = 160;
       const PLUGIN_WINDOW_MIN_H = 120;
-      const PLUGIN_WINDOW_MAX_W = 640;
-      const PLUGIN_WINDOW_MAX_H = 640;
+      const PLUGIN_WINDOW_MAX_W = 1200;
+      const PLUGIN_WINDOW_MAX_H = 900;
       const PLUGIN_WINDOW_Z_BASE = 40;
 
       /* ===== API 地址 ===== */
@@ -3786,6 +3794,7 @@
       async function refreshPluginUI() {
         await loadFloatWindowLayouts();
         renderPluginSlots();
+        syncBackgroundPluginEntry();
       }
 
       /* ===== 浮动窗口（slot=float）：每实例一窗，宿主管位置/尺寸/层级 ===== */
@@ -3810,23 +3819,75 @@
         };
       }
 
-      function defaultFloatWindow(existing) {
+      function defaultFloatWindow(existing, entry) {
         // 级联偏移：新窗口相对上一张 +24px，钳制回视口
         const margin = 24;
         const last = existing && existing.length > 0 ? existing[existing.length - 1] : null;
-        const maxX = Math.max(0, window.innerWidth - PLUGIN_WINDOW_DEFAULT_W - margin);
-        const maxY = Math.max(0, window.innerHeight - PLUGIN_WINDOW_DEFAULT_H - margin);
+        const configured = entry && entry.defaultSize;
+        const baseW =
+          configured && Number.isFinite(Number(configured.w))
+            ? clampNumber(Number(configured.w), PLUGIN_WINDOW_MIN_W, PLUGIN_WINDOW_MAX_W)
+            : PLUGIN_WINDOW_DEFAULT_W;
+        const baseH =
+          configured && Number.isFinite(Number(configured.h))
+            ? clampNumber(Number(configured.h), PLUGIN_WINDOW_MIN_H, PLUGIN_WINDOW_MAX_H)
+            : PLUGIN_WINDOW_DEFAULT_H;
+        const w = window.innerWidth ? Math.min(baseW, window.innerWidth) : baseW;
+        const h = window.innerHeight ? Math.min(baseH, window.innerHeight) : baseH;
+        const maxX = Math.max(0, window.innerWidth - w - margin);
+        const maxY = Math.max(0, window.innerHeight - h - margin);
         return {
           id: "w" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
           x: clampNumber((last ? last.x : 60) + 24, 0, maxX),
           y: clampNumber((last ? last.y : 60) + 24, 0, maxY),
-          w: PLUGIN_WINDOW_DEFAULT_W,
-          h: PLUGIN_WINDOW_DEFAULT_H,
+          w,
+          h,
         };
       }
 
       function pluginWindowTitle(entry, pluginId) {
         return entry ? String(entry.name || pluginId) : pluginId;
+      }
+
+      function findFloatWindowElement(pluginId) {
+        const nodes = document.querySelectorAll('.plugin-window[data-plugin="' + pluginId + '"]');
+        return nodes.length ? nodes[nodes.length - 1] : null;
+      }
+
+      function focusFloatWindowElement(el) {
+        if (!el) return null;
+        el.style.zIndex = String(++pluginZCounter);
+        return el.dataset.inst || null;
+      }
+
+      const pendingFloatLaunches = new Map();
+
+      async function openFloatPlugin(pluginId, options) {
+        const entry = registryEntryFor(pluginId);
+        if (!entry || !pluginInstalled[pluginId] || !pluginInstalled[pluginId].enabled) return null;
+        if (!entry.singleton) return createFloatWindow(pluginId, options);
+        const existing = findFloatWindowElement(pluginId);
+        if (existing) return focusFloatWindowElement(existing);
+        if (pendingFloatLaunches.has(pluginId)) return pendingFloatLaunches.get(pluginId);
+        const task = (async () => {
+          const known = await ensureFloatLayoutKnown(pluginId);
+          const mounted = findFloatWindowElement(pluginId);
+          if (mounted) return focusFloatWindowElement(mounted);
+          if (
+            known &&
+            Array.isArray(pluginWindows[pluginId]) &&
+            pluginWindows[pluginId].length > 0
+          ) {
+            mountFloatWindows(pluginId);
+            const restored = findFloatWindowElement(pluginId);
+            if (restored) return focusFloatWindowElement(restored);
+          }
+          return createFloatWindow(pluginId, options);
+        })().finally(() => {
+          pendingFloatLaunches.delete(pluginId);
+        });
+        pendingFloatLaunches.set(pluginId, task);
+        return task;
       }
 
       function buildFloatWindow(pluginId, inst) {
@@ -3856,10 +3917,11 @@
         const enabled = Boolean(pluginInstalled[pluginId] && pluginInstalled[pluginId].enabled);
         const entry = registryEntryFor(pluginId);
         let windows = pluginWindows[pluginId];
-        if (enabled && entry && windows === null) {
+        if (enabled && entry && windows === null && entry.autoOpen !== false) {
           // 键不存在 = 从未有过实例（含 inline→float 升级）：自动浮出首张空白便签；
-          // [] = 用户刻意全部关闭，不自动重建（走抽屉"新建便签"兜底）
-          windows = [defaultFloatWindow(null)];
+          // [] = 用户刻意全部关闭，不自动重建（走抽屉"新建便签"兜底）；
+          // autoOpen:false = 只在用户显式点击启动入口时创建
+          windows = [defaultFloatWindow(null, entry)];
           pluginWindows[pluginId] = windows;
           addPluginWindowRemote(pluginId, windows[0]).catch((error) =>
             notePersistFailure("窗口布局保存失败——刷新后该窗口可能不会保留", error)
@@ -4017,10 +4079,19 @@
       }
 
       async function createFloatWindow(pluginId, options) {
+        const entry = registryEntryFor(pluginId);
+        if (entry && entry.singleton) {
+          const existing = findFloatWindowElement(pluginId);
+          if (existing) return focusFloatWindowElement(existing);
+        }
         const seedSample = !!(options && options.seedSample);
         const known = await ensureFloatLayoutKnown(pluginId);
+        if (entry && entry.singleton) {
+          const mounted = findFloatWindowElement(pluginId);
+          if (mounted) return focusFloatWindowElement(mounted);
+        }
         const current = Array.isArray(pluginWindows[pluginId]) ? pluginWindows[pluginId] : [];
-        const inst = defaultFloatWindow(current);
+        const inst = defaultFloatWindow(current, entry);
         if (known) {
           pluginWindows[pluginId] = current.concat([inst]);
           mountedFloatSignatures.set(pluginId, JSON.stringify(pluginWindows[pluginId]));
@@ -4080,6 +4151,17 @@
         } catch (error) {
           // 孤儿数据键无害（占配额不影响功能），仅留痕不弹警告条
           console.error("便签数据清理失败", error);
+        }
+      }
+
+      async function closeAllFloatWindows(pluginId) {
+        const windows = Array.isArray(pluginWindows[pluginId]) ? pluginWindows[pluginId].slice() : [];
+        for (const inst of windows) {
+          const winEl = document.querySelector(
+            '.plugin-window[data-plugin="' + pluginId + '"][data-inst="' + inst.id + '"]'
+          );
+          const frame = winEl ? winEl.querySelector("iframe") : null;
+          await closeFloatWindow(pluginId, inst.id, frame);
         }
       }
 
@@ -4346,6 +4428,113 @@
           );
       }
 
+      function parsePngHeader(bytes) {
+        if (!(bytes instanceof ArrayBuffer) || bytes.byteLength < 24) return null;
+        const view = new DataView(bytes);
+        const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+        for (let i = 0; i < signature.length; i += 1) {
+          if (view.getUint8(i) !== signature[i]) return null;
+        }
+        if (view.getUint32(8) !== 13 || view.getUint32(12) !== 0x49484452) return null;
+        const width = view.getUint32(16);
+        const height = view.getUint32(20);
+        if (!width || !height) return null;
+        if (width > PLUGIN_EXPORT_MAX_DIM || height > PLUGIN_EXPORT_MAX_DIM) return null;
+        if (width * height > PLUGIN_EXPORT_MAX_PIXELS) return null;
+        return { width, height };
+      }
+
+      function downloadPluginImage(bytes, filename) {
+        const url = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+
+      function pluginExportRequest(bridge, msgId, payload) {
+        const source = bridge.frame ? bridge.frame.contentWindow : null;
+        const action =
+          payload.action === "download" || payload.action === "background" ? payload.action : "";
+        const bytes = payload.bytes;
+        if (!action) {
+          replyToPlugin(source, msgId, false, null, "不支持的导出动作");
+          return;
+        }
+        if (!(bytes instanceof ArrayBuffer)) {
+          replyToPlugin(source, msgId, false, null, "导出数据格式无效");
+          return;
+        }
+        const maxBytes =
+          action === "background" ? BACKGROUND_UPLOAD_MAX_BYTES : PLUGIN_EXPORT_MAX_BYTES;
+        if (bytes.byteLength > maxBytes) {
+          replyToPlugin(
+            source,
+            msgId,
+            false,
+            null,
+            action === "background" ? "PNG 超过 5MB，请降低尺寸或网格密度" : "PNG 超过 16MB"
+          );
+          return;
+        }
+        const header = parsePngHeader(bytes);
+        if (!header) {
+          replyToPlugin(source, msgId, false, null, "PNG 校验失败或尺寸超限");
+          return;
+        }
+        const filename =
+          String(bridge.id || "plugin").replace(/[^a-z0-9_-]/gi, "") +
+          "-" +
+          header.width +
+          "x" +
+          header.height +
+          ".png";
+        if (action === "download") {
+          downloadPluginImage(bytes, filename);
+          replyToPlugin(source, msgId, true, {
+            width: header.width,
+            height: header.height,
+            action,
+          });
+          return;
+        }
+        const formData = new FormData();
+        formData.append("image", new Blob([bytes], { type: "image/png" }), filename);
+        apiFetch(getBackgroundImagesApiUrl(), {
+          method: "POST",
+          headers: { Accept: "application/json" },
+          body: formData,
+        })
+          .then(async (response) => {
+            const data = await response.json().catch(() => null);
+            if (!response.ok) {
+              if (response.status === 401) throw new Error("需要管理 Token 后重试");
+              throw new Error((data && data.error) || "上传失败（HTTP " + response.status + "）");
+            }
+            persistBackgroundSetting(data);
+            applyBackgroundSetting(data);
+            await loadBackgroundImages().catch(() => {});
+            replyToPlugin(source, msgId, true, {
+              width: header.width,
+              height: header.height,
+              action,
+            });
+          })
+          .catch((error) =>
+            replyToPlugin(
+              source,
+              msgId,
+              false,
+              null,
+              error && error.message ? error.message : "设为背景失败"
+            )
+          );
+      }
+
       function handlePluginMessage(event) {
         const bridge = pluginBridges.get(event.source);
         if (!bridge) return;
@@ -4412,6 +4601,14 @@
             return;
           }
           pluginStorageRequest(bridge.id, bridge, msg.id, msg.type, payload);
+          return;
+        }
+        if (msg.type === "image.export") {
+          if (!hasPluginPermission(entry, "export")) {
+            replyToPlugin(source, msg.id, false, null, "未声明 export 权限");
+            return;
+          }
+          pluginExportRequest(bridge, msg.id, payload);
           return;
         }
         replyToPlugin(source, msg.id, false, null, "不支持的消息类型");
@@ -4497,16 +4694,18 @@
         status.className = "market-status" + (enabled ? " ok" : "");
         status.textContent = enabled ? "已启用" : state ? "已停用" : "未安装";
         actions.appendChild(status);
-        // 启用中的浮动插件：卡片上直接提供"新建窗口"（全部关掉后的兜底入口）
+        // 启用中的浮动插件：卡片上直接提供启动入口（全部关掉后的兜底入口）。
+        // singleton 插件复用同一窗口，launchLabel 可覆盖按钮文案。
         if (enabled && entry.slot === "float") {
           const createBtn = document.createElement("button");
           createBtn.type = "button";
           createBtn.className = "ghost-btn";
-          createBtn.textContent = "新建窗口";
-  createBtn.addEventListener("click", () => {
-    closeMarketModal();
-    createFloatWindow(pluginId, { seedSample: true });
-  });
+          createBtn.textContent =
+            entry.launchLabel || (entry.singleton ? "打开窗口" : "新建窗口");
+          createBtn.addEventListener("click", () => {
+            closeMarketModal();
+            openFloatPlugin(pluginId, { seedSample: !entry.singleton }).catch(() => {});
+          });
           actions.appendChild(createBtn);
         }
         const toggleBtn = document.createElement("button");
@@ -4587,6 +4786,11 @@
             return;
           }
           await loadPluginState();
+          const entry = registryEntryFor(pluginId);
+          if (!enabled && entry && entry.autoOpen === false) {
+            // 手动启动型插件：停用即关闭编辑器并清除布局，避免再次启用时自动弹出
+            await closeAllFloatWindows(pluginId);
+          }
           renderMarketList();
           await refreshPluginUI();
         } catch (_) {
@@ -4760,6 +4964,26 @@
         });
       }
 
+      function syncBackgroundPluginEntry() {
+        const entry = (pluginRegistry || []).find(
+          (item) =>
+            item &&
+            item.backgroundLabel &&
+            item.slot === "float" &&
+            pluginInstalled[item.id] &&
+            pluginInstalled[item.id].enabled
+        );
+        if (!entry) {
+          bgCustomGradientBtn.hidden = true;
+          bgCustomGradientBtn.dataset.plugin = "";
+          bgCustomGradientBtn.textContent = "";
+          return;
+        }
+        bgCustomGradientBtn.hidden = false;
+        bgCustomGradientBtn.dataset.plugin = entry.id;
+        bgCustomGradientBtn.textContent = String(entry.backgroundLabel);
+      }
+
       function openBackgroundModal(hint) {
         // 该函数被直接绑为 click 处理器，首参可能是事件对象
         if (!requireManageToken()) return;
@@ -4771,6 +4995,7 @@
           currentType === "color" && backgroundSetting.color ? backgroundSetting.color : "#0a46b6";
         bgColorInputEl.value = bgSelectedColor;
         syncBgSwatches();
+        syncBackgroundPluginEntry();
         selectBgTab(startTab);
         if (startTab === "image") {
           loadBackgroundImages();
@@ -5018,6 +5243,12 @@
       backgroundSettingsBtn.addEventListener("click", openBackgroundModal);
       backgroundCloseBtn.addEventListener("click", closeBackgroundModal);
       backgroundCancelBtn.addEventListener("click", closeBackgroundModal);
+      bgCustomGradientBtn.addEventListener("click", () => {
+        const pluginId = bgCustomGradientBtn.dataset.plugin;
+        if (!pluginId) return;
+        closeBackgroundModal();
+        openFloatPlugin(pluginId).catch(() => {});
+      });
       backgroundForm.addEventListener("submit", submitBackgroundSetting);
       bgTabDefaultBtn.addEventListener("click", () => selectBgTab("default"));
       bgTabColorBtn.addEventListener("click", () => selectBgTab("color"));

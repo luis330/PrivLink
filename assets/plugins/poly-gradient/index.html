@@ -1,0 +1,1109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多边形渐变</title>
+<style>
+  :root {
+    --bg: #0a1120;
+    --panel: #101a2c;
+    --line: rgba(255, 255, 255, 0.12);
+    --ink: #e9eefb;
+    --muted: #93a4c3;
+    --accent: #4c8dff;
+    --danger: #ff8ba7;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 13px/1.45 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .app {
+    height: 100%;
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+  }
+  .stage {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .stage-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+  }
+  .badge {
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 3px 8px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .spacer { flex: 1; }
+  .canvas-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(120% 90% at 20% 0%, rgba(76, 141, 255, 0.08), transparent 60%),
+      rgba(0, 0, 0, 0.32);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  #canvas {
+    display: block;
+    touch-action: none;
+    border-radius: 6px;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.38);
+    cursor: crosshair;
+  }
+  .status {
+    min-height: 18px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .status.err { color: var(--danger); }
+  .panel {
+    width: 300px;
+    flex: none;
+    overflow: auto;
+    padding-right: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  }
+  .group {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .group > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 8px 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+  .group > summary::-webkit-details-marker { display: none; }
+  .group > summary::after {
+    content: "▾";
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .group:not([open]) > summary::after { content: "▸"; }
+  .count {
+    color: var(--muted);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .group-body {
+    padding: 0 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 26px;
+  }
+  .row > span {
+    flex: none;
+    width: 54px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .row > b {
+    flex: none;
+    width: 46px;
+    text-align: right;
+    font-weight: 500;
+    color: #cfe0ff;
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+  }
+  .row > input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+  .row > select,
+  .row > input[type="number"] {
+    flex: 1;
+    min-width: 0;
+    background: #0b1424;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 5px 7px;
+    outline: none;
+  }
+  .row > input[type="number"] { width: 72px; }
+  .row > input[type="color"] {
+    width: 42px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: transparent;
+  }
+  .row > input[type="checkbox"] { accent-color: var(--accent); }
+  .times { flex: none; width: auto !important; }
+  button {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 10px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  button:hover { background: rgba(255, 255, 255, 0.13); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary {
+    background: linear-gradient(135deg, #2f7cff, #6b5cff);
+    border-color: transparent;
+    font-weight: 600;
+  }
+  button.secondary {
+    background: rgba(255, 79, 163, 0.16);
+    border-color: rgba(255, 79, 163, 0.4);
+  }
+  button.ghost { background: transparent; }
+  button.icon-btn { padding: 4px 9px; color: var(--muted); }
+  .export {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 2px 0 6px;
+  }
+  .export button { width: 100%; padding: 8px 10px; }
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 18px;
+    background: rgba(4, 8, 18, 0.9);
+  }
+  .overlay[hidden] { display: none; }
+  .overlay img {
+    max-width: 94%;
+    max-height: 76%;
+    object-fit: contain;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: #050a14;
+  }
+  .overlay p { margin: 0; color: var(--muted); font-size: 12px; text-align: center; }
+  .confirm-card {
+    width: min(320px, 90%);
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .confirm-card p { margin: 0; color: var(--ink); font-size: 13px; text-align: left; }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  @media (max-width: 760px) {
+    .app { flex-direction: column; gap: 8px; padding: 8px; }
+    .stage { flex: none; height: 46vh; min-height: 220px; }
+    .panel { width: auto; flex: 1; min-height: 0; }
+    .row > span { width: 48px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="stage">
+    <div class="stage-head">
+      <span class="badge" id="sizeBadge">1920 × 1080</span>
+      <span class="spacer"></span>
+      <button type="button" id="resetBtn" class="icon-btn" title="恢复默认">重置</button>
+      <button type="button" id="closeBtn" class="icon-btn" title="关闭（不保存）">关闭</button>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="canvas"></canvas>
+    </div>
+    <div class="status" id="status" aria-live="polite"></div>
+  </div>
+
+  <aside class="panel" id="panel">
+    <details class="group" open>
+      <summary>尺寸</summary>
+      <div class="group-body">
+        <label class="row"><span>预设</span><select id="sizePreset"></select></label>
+        <div class="row" id="customRow" hidden>
+          <input type="number" id="customW" min="320" max="4096" step="1" aria-label="宽度">
+          <span class="times">×</span>
+          <input type="number" id="customH" min="320" max="4096" step="1" aria-label="高度">
+        </div>
+        <button type="button" id="swapSize" class="ghost">横竖互换</button>
+      </div>
+    </details>
+
+    <details class="group" open>
+      <summary>光源 <span class="count" id="lightCount">7</span></summary>
+      <div class="group-body">
+        <div class="row">
+          <select id="lightSelect" aria-label="选择光源"></select>
+          <button type="button" id="addLight" title="添加光源">+</button>
+          <button type="button" id="delLight" title="删除光源">−</button>
+        </div>
+        <label class="row"><span>底色</span><input type="color" id="baseColor" value="#071026"></label>
+        <label class="row"><span>颜色</span><input type="color" id="lightColor" value="#2244ff"></label>
+        <label class="row"><span>半径</span><input type="range" id="lightRadius" min="10" max="120" step="1" value="62"><b id="lightRadiusVal">62%</b></label>
+        <label class="row"><span>强度</span><input type="range" id="lightIntensity" min="10" max="150" step="1" value="105"><b id="lightIntensityVal">105%</b></label>
+        <label class="row"><span>衰减</span><input type="range" id="lightFalloff" min="1" max="4" step="0.1" value="2.2"><b id="lightFalloffVal">2.2</b></label>
+        <label class="row"><span>混合</span><select id="lightBlend">
+          <option value="normal">正常</option>
+          <option value="add">叠加</option>
+          <option value="screen">滤色</option>
+        </select></label>
+      </div>
+    </details>
+
+    <details class="group" open>
+      <summary>网格</summary>
+      <div class="group-body">
+        <label class="row"><span>密度</span><input type="range" id="meshCols" min="8" max="60" step="1" value="30"><b id="meshColsVal">30</b></label>
+        <label class="row"><span>抖动</span><input type="range" id="meshJitter" min="0" max="90" step="1" value="55"><b id="meshJitterVal">55%</b></label>
+        <label class="row"><span>面片</span><select id="meshFacet">
+          <option value="triangle">三角形</option>
+          <option value="quad">四边形</option>
+        </select></label>
+        <button type="button" id="meshSeed" class="ghost">换一批随机网格</button>
+      </div>
+    </details>
+
+    <div class="export">
+      <button type="button" id="downloadBtn" class="primary">下载 PNG</button>
+      <button type="button" id="backgroundBtn" class="secondary">设为背景</button>
+      <button type="button" id="previewBtn" class="ghost">预览 / 长按保存</button>
+    </div>
+  </aside>
+</div>
+
+<div class="overlay" id="previewOverlay" hidden>
+  <img id="previewImage" alt="生成图片预览">
+  <p>移动端长按图片保存；桌面端可右键另存为。</p>
+  <button type="button" id="previewClose">关闭预览</button>
+</div>
+
+<div class="overlay" id="confirmOverlay" hidden>
+  <div class="confirm-card">
+    <p>背景将立即应用到所有访客，继续？</p>
+    <div class="confirm-actions">
+      <button type="button" id="confirmCancel">取消</button>
+      <button type="button" id="confirmOk" class="secondary">确认设为背景</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = function (id) { return document.getElementById(id); };
+  const clamp = function (v, min, max) { return Math.min(Math.max(v, min), max); };
+  const clone = function (v) { return JSON.parse(JSON.stringify(v)); };
+
+  const PRESETS = [
+    ["1920x1080", "PC 1920 × 1080"],
+    ["2560x1440", "PC 2560 × 1440"],
+    ["3840x2160", "PC 4K 3840 × 2160"],
+    ["1366x768", "PC 1366 × 768"],
+    ["390x844", "手机 390 × 844"],
+    ["430x932", "手机 430 × 932"],
+    ["360x800", "手机 360 × 800"],
+    ["393x852", "手机 393 × 852"],
+    ["768x1024", "平板 768 × 1024"],
+    ["1024x768", "平板 1024 × 768"]
+  ];
+
+  const MAX_DIM = 4096;
+  const MAX_PIXELS = 4096 * 4096;
+  const BACKGROUND_MAX_BYTES = 5 * 1024 * 1024;
+
+  const DEFAULTS = {
+    size: { w: 1920, h: 1080 },
+    base: "#071026",
+    lights: [
+      { x: 0.12, y: 0.18, color: "#2244ff", radius: 0.72, intensity: 1.05, falloff: 2.2, blend: "normal" },
+      { x: 0.36, y: 0.40, color: "#7a35ff", radius: 0.68, intensity: 1.0, falloff: 2.0, blend: "normal" },
+      { x: 0.55, y: 0.58, color: "#ff2d8d", radius: 0.60, intensity: 1.05, falloff: 2.0, blend: "normal" },
+      { x: 0.76, y: 0.76, color: "#ff7a1a", radius: 0.58, intensity: 1.0, falloff: 2.1, blend: "normal" },
+      { x: 0.90, y: 0.90, color: "#ffd45e", radius: 0.55, intensity: 1.0, falloff: 2.1, blend: "normal" },
+      { x: 0.86, y: 0.10, color: "#5a55ff", radius: 0.62, intensity: 0.75, falloff: 2.0, blend: "normal" },
+      { x: 0.08, y: 0.86, color: "#2b2f9f", radius: 0.62, intensity: 0.7, falloff: 2.0, blend: "normal" }
+    ],
+    mesh: { cols: 30, jitter: 0.55, seed: 20261019, facet: "triangle" }
+  };
+
+  let state = clone(DEFAULTS);
+  let selectedLight = 0;
+  let drag = null;
+  let sceneVersion = 0;
+  let facetsVersion = -1;
+  let facetsCache = [];
+  let renderQueued = false;
+  let busy = false;
+  let bridgeReady = false;
+  let permissions = [];
+  let requestSeq = 0;
+  let previewUrl = "";
+  const pending = new Map();
+
+  const canvas = $("canvas");
+  const canvasWrap = $("canvasWrap");
+  const sizeBadge = $("sizeBadge");
+  const statusEl = $("status");
+  const resetBtn = $("resetBtn");
+  const closeBtn = $("closeBtn");
+  const sizePreset = $("sizePreset");
+  const customRow = $("customRow");
+  const customW = $("customW");
+  const customH = $("customH");
+  const swapSize = $("swapSize");
+  const lightSelect = $("lightSelect");
+  const addLight = $("addLight");
+  const delLight = $("delLight");
+  const baseColor = $("baseColor");
+  const lightColor = $("lightColor");
+  const lightRadius = $("lightRadius");
+  const lightRadiusVal = $("lightRadiusVal");
+  const lightIntensity = $("lightIntensity");
+  const lightIntensityVal = $("lightIntensityVal");
+  const lightFalloff = $("lightFalloff");
+  const lightFalloffVal = $("lightFalloffVal");
+  const lightBlend = $("lightBlend");
+  const lightCount = $("lightCount");
+  const meshCols = $("meshCols");
+  const meshColsVal = $("meshColsVal");
+  const meshJitter = $("meshJitter");
+  const meshJitterVal = $("meshJitterVal");
+  const meshFacet = $("meshFacet");
+  const meshSeed = $("meshSeed");
+  const downloadBtn = $("downloadBtn");
+  const backgroundBtn = $("backgroundBtn");
+  const previewBtn = $("previewBtn");
+  const previewOverlay = $("previewOverlay");
+  const previewImage = $("previewImage");
+  const previewClose = $("previewClose");
+  const confirmOverlay = $("confirmOverlay");
+  const confirmOk = $("confirmOk");
+  const confirmCancel = $("confirmCancel");
+
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function srgbToLinear(c) {
+    c /= 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  }
+
+  function linearToSrgb(v) {
+    v = clamp(v, 0, 1);
+    const c = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+    return Math.round(clamp(c, 0, 1) * 255);
+  }
+
+  function hexToLinear(hex) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
+    if (!m) return [0, 0, 0];
+    const n = parseInt(m[1], 16);
+    return [srgbToLinear((n >> 16) & 255), srgbToLinear((n >> 8) & 255), srgbToLinear(n & 255)];
+  }
+
+  function sampleField(x, y, W, H, lights, base) {
+    let r = base[0];
+    let g = base[1];
+    let b = base[2];
+    const minSide = Math.min(W, H);
+    for (let i = 0; i < lights.length; i += 1) {
+      const L = lights[i];
+      const dx = (x - L.x) * W;
+      const dy = (y - L.y) * H;
+      const d = Math.hypot(dx, dy) / minSide;
+      if (d >= L.radius) continue;
+      const w = clamp(L.intensity * Math.pow(1 - d / L.radius, L.falloff), 0, 1);
+      if (w <= 0) continue;
+      if (L.blend === "add") {
+        r = clamp(r + L.color[0] * w, 0, 1);
+        g = clamp(g + L.color[1] * w, 0, 1);
+        b = clamp(b + L.color[2] * w, 0, 1);
+      } else if (L.blend === "screen") {
+        r = 1 - (1 - r) * (1 - clamp(L.color[0] * w, 0, 1));
+        g = 1 - (1 - g) * (1 - clamp(L.color[1] * w, 0, 1));
+        b = 1 - (1 - b) * (1 - clamp(L.color[2] * w, 0, 1));
+      } else {
+        r = r * (1 - w) + L.color[0] * w;
+        g = g * (1 - w) + L.color[1] * w;
+        b = b * (1 - w) + L.color[2] * w;
+      }
+    }
+    return [linearToSrgb(r), linearToSrgb(g), linearToSrgb(b)];
+  }
+
+  function buildFacets() {
+    const W = state.size.w;
+    const H = state.size.h;
+    const cols = clamp(Math.round(state.mesh.cols), 6, 80);
+    const rows = clamp(Math.round((cols * H) / W), 4, 140);
+    const rand = mulberry32(state.mesh.seed >>> 0);
+    const points = [];
+    for (let j = 0; j <= rows; j += 1) {
+      const row = [];
+      for (let i = 0; i <= cols; i += 1) {
+        let x = i / cols;
+        let y = j / rows;
+        if (i > 0 && i < cols && j > 0 && j < rows) {
+          x += ((rand() * 2 - 1) * state.mesh.jitter * 0.5) / cols;
+          y += ((rand() * 2 - 1) * state.mesh.jitter * 0.5) / rows;
+        }
+        row.push([x, y]);
+      }
+      points.push(row);
+    }
+    const lights = state.lights.map(function (l) {
+      return {
+        x: l.x,
+        y: l.y,
+        radius: l.radius,
+        intensity: l.intensity,
+        falloff: l.falloff,
+        blend: l.blend,
+        color: hexToLinear(l.color)
+      };
+    });
+    const base = hexToLinear(state.base);
+    const out = [];
+    function addFacet(poly) {
+      let cx = 0;
+      let cy = 0;
+      for (let k = 0; k < poly.length; k += 1) {
+        cx += poly[k][0];
+        cy += poly[k][1];
+      }
+      cx /= poly.length;
+      cy /= poly.length;
+      const rgb = sampleField(cx, cy, W, H, lights, base);
+      out.push({ pts: poly, fill: "rgb(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + ")" });
+    }
+    for (let j = 0; j < rows; j += 1) {
+      for (let i = 0; i < cols; i += 1) {
+        const p00 = points[j][i];
+        const p10 = points[j][i + 1];
+        const p01 = points[j + 1][i];
+        const p11 = points[j + 1][i + 1];
+        if (state.mesh.facet === "triangle") {
+          const even = (((i + j + state.mesh.seed) % 2) + 2) % 2 === 0;
+          if (even) {
+            addFacet([p00, p10, p11]);
+            addFacet([p00, p11, p01]);
+          } else {
+            addFacet([p00, p10, p01]);
+            addFacet([p10, p11, p01]);
+          }
+        } else {
+          addFacet([p00, p10, p11, p01]);
+        }
+      }
+    }
+    return out;
+  }
+
+  function getFacets() {
+    if (facetsVersion === sceneVersion) return facetsCache;
+    facetsCache = buildFacets();
+    facetsVersion = sceneVersion;
+    return facetsCache;
+  }
+
+  function renderImage(ctx, W, H) {
+    ctx.save();
+    ctx.fillStyle = state.base;
+    ctx.fillRect(0, 0, W, H);
+    const facets = getFacets();
+    const scale = W / state.size.w;
+    ctx.lineJoin = "round";
+    for (let i = 0; i < facets.length; i += 1) {
+      const f = facets[i];
+      ctx.beginPath();
+      ctx.moveTo(f.pts[0][0] * W, f.pts[0][1] * H);
+      for (let k = 1; k < f.pts.length; k += 1) {
+        ctx.lineTo(f.pts[k][0] * W, f.pts[k][1] * H);
+      }
+      ctx.closePath();
+      ctx.fillStyle = f.fill;
+      ctx.fill();
+      ctx.strokeStyle = f.fill;
+      ctx.lineWidth = Math.max(0.6, scale * 0.8);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawOverlay(ctx, W, H) {
+    const minSide = Math.min(W, H);
+    const dot = Math.max(5, Math.min(14, minSide * 0.012));
+    for (let i = 0; i < state.lights.length; i += 1) {
+      const L = state.lights[i];
+      const cx = L.x * W;
+      const cy = L.y * H;
+      ctx.save();
+      if (i === selectedLight) {
+        ctx.strokeStyle = "rgba(120,180,255,.75)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 6]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, L.radius * minSide, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.fillStyle = i === selectedLight ? "#8fc1ff" : "rgba(255,255,255,.75)";
+      ctx.beginPath();
+      ctx.arc(cx, cy, dot * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0a1120";
+      ctx.font = "600 " + Math.max(9, dot * 1.1) + "px system-ui,sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(i + 1), cx, cy + 0.5);
+      ctx.restore();
+    }
+  }
+
+  function renderPreview() {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    renderImage(ctx, canvas.width, canvas.height);
+    drawOverlay(ctx, canvas.width, canvas.height);
+  }
+
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(function () {
+      renderQueued = false;
+      renderPreview();
+    });
+  }
+
+  function touchScene() {
+    sceneVersion += 1;
+    scheduleRender();
+  }
+
+  function fitCanvas() {
+    const rect = canvasWrap.getBoundingClientRect();
+    const availW = Math.max(80, rect.width - 24);
+    const availH = Math.max(80, rect.height - 24);
+    const aspect = state.size.w / state.size.h;
+    let w = availW;
+    let h = w / aspect;
+    if (h > availH) {
+      h = availH;
+      w = h * aspect;
+    }
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.style.width = Math.round(w) + "px";
+    canvas.style.height = Math.round(h) + "px";
+    canvas.width = Math.max(1, Math.round(w * dpr));
+    canvas.height = Math.max(1, Math.round(h * dpr));
+    scheduleRender();
+  }
+
+  function status(text, isError) {
+    statusEl.textContent = text;
+    statusEl.classList.toggle("err", Boolean(isError));
+  }
+
+  function applySize(w, h) {
+    let W = Math.round(clamp(Number(w) || 1920, 320, MAX_DIM));
+    let H = Math.round(clamp(Number(h) || 1080, 320, MAX_DIM));
+    if (W * H > MAX_PIXELS) {
+      const k = Math.sqrt(MAX_PIXELS / (W * H));
+      W = Math.max(320, Math.floor(W * k));
+      H = Math.max(320, Math.floor(H * k));
+    }
+    state.size = { w: W, h: H };
+    touchScene();
+    fitCanvas();
+    syncUI();
+  }
+
+  function syncSizeSelect() {
+    const key = state.size.w + "x" + state.size.h;
+    const has = Array.prototype.some.call(sizePreset.options, function (o) { return o.value === key; });
+    sizePreset.value = has ? key : "custom";
+    customRow.hidden = has;
+    customW.value = String(state.size.w);
+    customH.value = String(state.size.h);
+  }
+
+  function syncLightSelect() {
+    if (lightSelect.options.length !== state.lights.length) {
+      lightSelect.innerHTML = "";
+      for (let i = 0; i < state.lights.length; i += 1) {
+        const o = document.createElement("option");
+        o.value = String(i);
+        o.textContent = "光源 " + (i + 1);
+        lightSelect.appendChild(o);
+      }
+    }
+    lightSelect.value = String(selectedLight);
+  }
+
+  function syncLightLabels() {
+    const L = state.lights[selectedLight];
+    if (!L) return;
+    lightRadiusVal.textContent = Math.round(L.radius * 100) + "%";
+    lightIntensityVal.textContent = Math.round(L.intensity * 100) + "%";
+    lightFalloffVal.textContent = Number(L.falloff).toFixed(1);
+  }
+
+  function syncLightControls() {
+    baseColor.value = state.base;
+    const L = state.lights[selectedLight];
+    if (!L) return;
+    lightColor.value = L.color;
+    lightRadius.value = String(Math.round(L.radius * 100));
+    lightIntensity.value = String(Math.round(L.intensity * 100));
+    lightFalloff.value = String(L.falloff);
+    lightBlend.value = L.blend;
+    syncLightLabels();
+  }
+
+  function canExport() {
+    return bridgeReady && permissions.indexOf("export") >= 0;
+  }
+
+  function updateExportAvailability() {
+    const ok = canExport();
+    downloadBtn.disabled = !ok;
+    backgroundBtn.disabled = !ok;
+    downloadBtn.title = ok ? "" : "需要宿主 export 权限";
+    backgroundBtn.title = ok ? "" : "需要宿主 export 权限";
+    previewBtn.disabled = busy;
+    if (busy) {
+      downloadBtn.disabled = true;
+      backgroundBtn.disabled = true;
+    }
+  }
+
+  function syncUI() {
+    sizeBadge.textContent = state.size.w + " × " + state.size.h;
+    lightCount.textContent = String(state.lights.length);
+    syncSizeSelect();
+    syncLightSelect();
+    syncLightControls();
+    updateExportAvailability();
+  }
+
+  function canvasPointer(e) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      rect: rect,
+      px: e.clientX - rect.left,
+      py: e.clientY - rect.top,
+      x: rect.width ? (e.clientX - rect.left) / rect.width : 0,
+      y: rect.height ? (e.clientY - rect.top) / rect.height : 0
+    };
+  }
+
+  function hitLight(px, py, rect) {
+    for (let i = state.lights.length - 1; i >= 0; i -= 1) {
+      const L = state.lights[i];
+      if (Math.hypot(px - L.x * rect.width, py - L.y * rect.height) <= 14) return i;
+    }
+    return -1;
+  }
+
+  function onPointerDown(e) {
+    if (e.pointerType !== "touch" && e.button !== 0) return;
+    e.preventDefault();
+    const pt = canvasPointer(e);
+    if (!pt.rect.width || !pt.rect.height) return;
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    const idx = hitLight(pt.px, pt.py, pt.rect);
+    if (idx >= 0) {
+      selectedLight = idx;
+      drag = { kind: "light", index: idx, pointerId: e.pointerId };
+      touchScene();
+      syncUI();
+    }
+  }
+
+  function onPointerMove(e) {
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const pt = canvasPointer(e);
+    if (!pt.rect.width || !pt.rect.height) return;
+    e.preventDefault();
+    const L = state.lights[drag.index];
+    if (!L) return;
+    L.x = clamp(pt.x, 0, 1);
+    L.y = clamp(pt.y, 0, 1);
+    touchScene();
+  }
+
+  function endPointer(e) {
+    if (drag && drag.pointerId === e.pointerId) {
+      drag = null;
+      try {
+        if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+      scheduleRender();
+    }
+  }
+
+  function bridgeRequest(type, payload, transfer) {
+    return new Promise(function (resolve, reject) {
+      const id = "pg-" + (++requestSeq).toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+      const timer = window.setTimeout(function () {
+        pending.delete(id);
+        reject(new Error("宿主响应超时"));
+      }, 30000);
+      pending.set(id, { resolve: resolve, reject: reject, timer: timer });
+      try {
+        parent.postMessage({ v: 1, id: id, type: type, payload: payload || {} }, "*", transfer || []);
+      } catch (err) {
+        window.clearTimeout(timer);
+        pending.delete(id);
+        reject(err);
+      }
+    });
+  }
+
+  async function bootBridge() {
+    try {
+      const data = await Promise.race([
+        bridgeRequest("hello", {}),
+        new Promise(function (_, reject) {
+          window.setTimeout(function () { reject(new Error("宿主桥不可用")); }, 2500);
+        })
+      ]);
+      bridgeReady = true;
+      permissions = data && Array.isArray(data.permissions) ? data.permissions : [];
+    } catch (_) {
+      bridgeReady = false;
+      permissions = [];
+    }
+    updateExportAvailability();
+    if (!bridgeReady) status("未连接到导航页宿主，导出功能不可用", true);
+  }
+
+  function makePngBlob() {
+    return new Promise(function (resolve, reject) {
+      const c = document.createElement("canvas");
+      c.width = state.size.w;
+      c.height = state.size.h;
+      const ctx = c.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Canvas 不可用"));
+        return;
+      }
+      renderImage(ctx, c.width, c.height);
+      c.toBlob(function (blob) {
+        if (blob) resolve(blob);
+        else reject(new Error("PNG 生成失败"));
+      }, "image/png");
+    });
+  }
+
+  function setBusy(value) {
+    busy = value;
+    updateExportAvailability();
+  }
+
+  async function exportImage(action) {
+    if (busy) return;
+    if (!canExport()) {
+      status("导出功能不可用：未连接宿主或缺少权限", true);
+      return;
+    }
+    busy = true;
+    setBusy(true);
+    status(action === "background" ? "正在生成并上传…" : "正在生成 PNG…");
+    try {
+      const blob = await makePngBlob();
+      if (action === "background" && blob.size > BACKGROUND_MAX_BYTES) {
+        throw new Error("PNG 超过 5MB，请降低尺寸或网格密度");
+      }
+      const bytes = await blob.arrayBuffer();
+      await bridgeRequest("image.export", { action: action, bytes: bytes }, [bytes]);
+      status(action === "background" ? "已设为背景（对所有访客生效）" : "已开始下载");
+    } catch (err) {
+      status((err && err.message) || "导出失败", true);
+    } finally {
+      busy = false;
+      setBusy(false);
+    }
+  }
+
+  async function openPreview() {
+    if (busy) return;
+    busy = true;
+    setBusy(true);
+    status("正在生成预览…");
+    try {
+      const blob = await makePngBlob();
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = URL.createObjectURL(blob);
+      previewImage.src = previewUrl;
+      previewOverlay.hidden = false;
+      status("");
+    } catch (err) {
+      status((err && err.message) || "预览失败", true);
+    } finally {
+      busy = false;
+      setBusy(false);
+    }
+  }
+
+  function closePreview() {
+    previewOverlay.hidden = true;
+    previewImage.removeAttribute("src");
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      previewUrl = "";
+    }
+  }
+
+  function bindEvents() {
+    window.addEventListener("message", function (event) {
+      if (event.source !== parent) return;
+      const msg = event.data;
+      if (!msg || typeof msg !== "object" || msg.v !== 1 || typeof msg.id !== "string") return;
+      const entry = pending.get(msg.id);
+      if (!entry) return;
+      pending.delete(msg.id);
+      window.clearTimeout(entry.timer);
+      if (msg.ok) entry.resolve(msg.data || {});
+      else entry.reject(new Error(msg.error || "宿主拒绝请求"));
+    });
+
+    resetBtn.addEventListener("click", function () {
+      state = clone(DEFAULTS);
+      selectedLight = 0;
+      touchScene();
+      fitCanvas();
+      syncUI();
+      status("已恢复默认");
+    });
+    closeBtn.addEventListener("click", function () {
+      if (!bridgeReady) {
+        status("未连接到导航页宿主，无法关闭", true);
+        return;
+      }
+      bridgeRequest("window.close", {}).catch(function () {});
+    });
+
+    sizePreset.addEventListener("change", function () {
+      const value = sizePreset.value;
+      if (value === "custom") {
+        customRow.hidden = false;
+        customW.focus();
+        return;
+      }
+      const parts = value.split("x");
+      applySize(Number(parts[0]), Number(parts[1]));
+    });
+    customW.addEventListener("change", function () {
+      const w = Number(customW.value);
+      const h = Number(customH.value);
+      if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+        syncUI();
+        return;
+      }
+      applySize(w, h);
+    });
+    customH.addEventListener("change", function () {
+      const w = Number(customW.value);
+      const h = Number(customH.value);
+      if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+        syncUI();
+        return;
+      }
+      applySize(w, h);
+    });
+    swapSize.addEventListener("click", function () {
+      applySize(state.size.h, state.size.w);
+    });
+
+    lightSelect.addEventListener("change", function () {
+      selectedLight = Number(lightSelect.value) || 0;
+      syncUI();
+      scheduleRender();
+    });
+    addLight.addEventListener("click", function () {
+      if (state.lights.length >= 8) {
+        status("最多 8 个光源", true);
+        return;
+      }
+      const src = state.lights[selectedLight] || state.lights[0];
+      state.lights.push(Object.assign({}, src, {
+        x: clamp(src.x + 0.08, 0, 1),
+        y: clamp(src.y + 0.08, 0, 1)
+      }));
+      selectedLight = state.lights.length - 1;
+      touchScene();
+      syncUI();
+    });
+    delLight.addEventListener("click", function () {
+      if (state.lights.length <= 1) return;
+      state.lights.splice(selectedLight, 1);
+      selectedLight = clamp(selectedLight, 0, state.lights.length - 1);
+      touchScene();
+      syncUI();
+    });
+    baseColor.addEventListener("input", function () {
+      state.base = baseColor.value;
+      touchScene();
+    });
+    lightColor.addEventListener("input", function () {
+      const L = state.lights[selectedLight];
+      if (!L) return;
+      L.color = lightColor.value;
+      touchScene();
+    });
+    lightRadius.addEventListener("input", function () {
+      const L = state.lights[selectedLight];
+      if (!L) return;
+      L.radius = Number(lightRadius.value) / 100;
+      syncLightLabels();
+      touchScene();
+    });
+    lightIntensity.addEventListener("input", function () {
+      const L = state.lights[selectedLight];
+      if (!L) return;
+      L.intensity = Number(lightIntensity.value) / 100;
+      syncLightLabels();
+      touchScene();
+    });
+    lightFalloff.addEventListener("input", function () {
+      const L = state.lights[selectedLight];
+      if (!L) return;
+      L.falloff = Number(lightFalloff.value);
+      syncLightLabels();
+      touchScene();
+    });
+    lightBlend.addEventListener("change", function () {
+      const L = state.lights[selectedLight];
+      if (!L) return;
+      L.blend = lightBlend.value;
+      touchScene();
+    });
+
+    meshCols.addEventListener("input", function () {
+      state.mesh.cols = Number(meshCols.value);
+      meshColsVal.textContent = meshCols.value;
+      touchScene();
+    });
+    meshJitter.addEventListener("input", function () {
+      state.mesh.jitter = Number(meshJitter.value) / 100;
+      meshJitterVal.textContent = meshJitter.value + "%";
+      touchScene();
+    });
+    meshFacet.addEventListener("change", function () {
+      state.mesh.facet = meshFacet.value;
+      touchScene();
+    });
+    meshSeed.addEventListener("click", function () {
+      state.mesh.seed = Math.floor(Math.random() * 1000000000);
+      touchScene();
+    });
+
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerup", endPointer);
+    canvas.addEventListener("pointercancel", endPointer);
+
+    downloadBtn.addEventListener("click", function () { exportImage("download"); });
+    previewBtn.addEventListener("click", openPreview);
+    backgroundBtn.addEventListener("click", function () {
+      if (!canExport()) {
+        status("导出功能不可用：未连接宿主或缺少权限", true);
+        return;
+      }
+      confirmOverlay.hidden = false;
+    });
+    confirmCancel.addEventListener("click", function () {
+      confirmOverlay.hidden = true;
+    });
+    confirmOk.addEventListener("click", function () {
+      confirmOverlay.hidden = true;
+      exportImage("background");
+    });
+    confirmOverlay.addEventListener("click", function (e) {
+      if (e.target === confirmOverlay) confirmOverlay.hidden = true;
+    });
+    previewClose.addEventListener("click", closePreview);
+    previewOverlay.addEventListener("click", function (e) {
+      if (e.target === previewOverlay) closePreview();
+    });
+
+    if (window.ResizeObserver) new ResizeObserver(fitCanvas).observe(canvasWrap);
+    window.addEventListener("resize", fitCanvas);
+  }
+
+  function init() {
+    PRESETS.forEach(function (item) {
+      const o = document.createElement("option");
+      o.value = item[0];
+      o.textContent = item[1];
+      sizePreset.appendChild(o);
+    });
+    const custom = document.createElement("option");
+    custom.value = "custom";
+    custom.textContent = "自定义";
+    sizePreset.appendChild(custom);
+    bindEvents();
+    syncUI();
+    fitCanvas();
+    bootBridge();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

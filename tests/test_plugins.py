@@ -449,10 +449,37 @@ class PluginsTestCase(unittest.TestCase):
             self.assertTrue(str(entry.get("description", "")).strip(), plugin_id)
             permissions = entry.get("permissions")
             self.assertIsInstance(permissions, list, plugin_id)
-            self.assertTrue(set(permissions) <= {"storage"}, plugin_id)
+            self.assertTrue(set(permissions) <= {"storage", "export"}, plugin_id)
+            default_size = entry.get("defaultSize")
+            if default_size is not None:
+                self.assertIsInstance(default_size, dict, plugin_id)
+                for key in ("w", "h"):
+                    value = default_size.get(key)
+                    self.assertIsInstance(value, int, plugin_id)
+                    self.assertGreater(value, 0, plugin_id)
+            for flag in ("singleton", "autoOpen"):
+                if flag in entry:
+                    self.assertIsInstance(entry[flag], bool, f"{plugin_id}: {flag} 必须是布尔")
+            for label_key in ("launchLabel", "backgroundLabel"):
+                if label_key in entry:
+                    label = entry[label_key]
+                    self.assertIsInstance(label, str, f"{plugin_id}: {label_key} 必须是字符串")
+                    self.assertTrue(label.strip(), f"{plugin_id}: {label_key} 不能为空")
+                    self.assertEqual(entry.get("slot"), "float", f"{plugin_id}: {label_key} 仅用于 float")
             # entry 指向的文件必须真实存在
             entry_file = Path("plugins") / plugin_id / str(entry.get("entry", ""))
             self.assertTrue(entry_file.is_file(), f"{plugin_id}: entry 缺失")
+
+    def test_poly_gradient_manual_launch_config(self) -> None:
+        registry = self._load_builtin_registry()
+        entry = next(
+            (item for item in registry["plugins"] if item.get("id") == "poly-gradient"), None
+        )
+        self.assertIsNotNone(entry)
+        self.assertIs(entry.get("singleton"), True)
+        self.assertIs(entry.get("autoOpen"), False)
+        self.assertTrue(str(entry.get("launchLabel", "")).strip())
+        self.assertTrue(str(entry.get("backgroundLabel", "")).strip())
 
     def test_builtin_bridge_version_matches_host(self) -> None:
         registry = self._load_builtin_registry()

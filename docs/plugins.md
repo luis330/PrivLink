@@ -26,7 +26,9 @@ PrivLink 支持通过**插件库**扩展导航页功能。插件以"内置精选
 ```
 plugins/
 ├─ registry.json          # 唯一清单源（元数据都在这里）
-└─ sticky-notes/
+├─ sticky-notes/
+│  └─ index.html          # 插件本体
+└─ poly-gradient/
    └─ index.html          # 插件本体
 ```
 
@@ -54,18 +56,31 @@ plugins/
 |---|---|
 | `id` | `^[a-z0-9][a-z0-9-]{0,63}$`，禁止点；同时用作 URL 段与数据命名空间 |
 | `version` | semver（`x.y.z`） |
-| `slot` | `inline`（导航网格下方可折叠插件区）/ `float`（浮动窗口，每实例一窗；宿主即"插件库"，插件库卡片提供"新建窗口"入口） |
+| `slot` | `inline`（导航网格下方可折叠插件区）/ `float`（浮动窗口；默认每实例一窗，`singleton` 时至多一窗。宿主即"插件库"，卡片按钮文案由 `launchLabel` 决定） |
 | `entry` | 入口 HTML 文件名（相对插件目录） |
-| `permissions` | 子集 of `["storage"]`；未声明的能力桥会拒绝 |
+| `permissions` | 子集 of `["storage", "export"]`；未声明的能力桥会拒绝 |
+| `defaultSize` | 可选，`{w, h}`（浮窗首次创建的默认尺寸，宿主按视口与上下限钳制） |
+| `singleton` | 可选布尔。`true` 时该插件至多一个窗口，启动入口在已打开时只会把现有窗口置顶聚焦 |
+| `autoOpen` | 可选布尔，默认 `true`。`false` 时启用插件不自动浮出首窗，只能经插件库卡片 `launchLabel` 按钮或背景设置 `backgroundLabel` 入口启动 |
+| `launchLabel` | 可选字符串（仅 float）。插件库卡片启动按钮文案，如"创建图片"；缺省时多实例插件为"新建窗口"，`singleton` 为"打开窗口" |
+| `backgroundLabel` | 可选字符串（仅 float）。启用后在背景设置的"默认/纯色/图片"同级加入启动按钮，如"自定义渐变"；未启用或未声明则不显示 |
 | `bridgeVersion` | 清单级桥协议版本，必须与宿主 `PLUGIN_BRIDGE_VERSION` 一致（有测试把关） |
+
+### 内置插件
+
+| id | 槽位 / 权限 | 说明 |
+|---|---|---|
+| `sticky-notes` | float / `storage` | 多实例便签：每张便签一个浮窗，支持基础 Markdown、拖拽移动与缩放，数据经桥持久化 |
+| `poly-gradient` | float / `export` | 多点光源低多边形网格渐变：PC/移动尺寸预设与自定义尺寸、PNG 下载、设为背景；`singleton: true` + `autoOpen: false`，启用后不自动弹窗。入口有两处：插件库卡片的"创建图片"，以及背景设置顶部与"默认/纯色/图片"同级的"自定义渐变"。窗口内"关闭"直接丢弃本次编辑（插件未申请 storage），手动多边形绘制已移除，仅保留低多边形网格 |
 
 ## 二点五、浮动窗口模型（slot=float）
 
-float 插件是**多实例**的：一个插件 = 任意多个独立窗口（如每张便签一个窗口）。职责划分：
+float 插件默认是**多实例**的：一个插件 = 任意多个独立窗口（如每张便签一个窗口）；`singleton: true` 的插件例外（至多一窗）。职责划分：
 
 - **宿主管**：窗口挂载/销毁、位置与尺寸（`position:fixed` 视口坐标，拖拽/缩放后持久化）、点击置顶、视口钳制。窗口容器挂在 `<body>` 下（`.panel` 的 `backdrop-filter` 会成为 fixed 后代的包含块，嵌进去会定位错乱）。
-- **插件管**：窗口内容与自己的标题栏视觉（+ 新建 / × 删除 / 拖拽把手 / 缩放把手）。
-- **实例注册表**（`app_settings` 键 `plugin_windows:<id>`，经 `GET/PUT /api/plugins/{id}/windows` 读写，插件经桥**不可达**）：`[{id, x, y, w, h}]`，≤100 实例。键不存在（GET 404）= 从未有过实例 → 宿主自动浮出首张空白窗口；`[]` = 用户刻意全部关闭 → 不自动重建（插件库卡片"新建窗口"兜底）。
+- **插件管**：窗口内容与自己的标题栏视觉（+ 新建 / × 删除 / 拖拽把手 / 缩放把手；`singleton` / `autoOpen: false` 插件可只保留关闭等必要控件）。
+- **实例注册表**（`app_settings` 键 `plugin_windows:<id>`，宿主经 `GET` + `POST .../windows/add`、`PATCH/DELETE .../windows/{instId}` 增量读写，全量 `PUT` 仅为兼容保留，插件经桥**不可达**）：`[{id, x, y, w, h}]`，≤100 实例。键不存在（GET 404）= 从未有过实例 → 宿主自动浮出首张空白窗口（`autoOpen: false` 除外）；`[]` = 用户刻意全部关闭 → 不自动重建（启动型插件用卡片 `launchLabel` 按钮兜底）。
+- **手动启动 / 单实例**：`autoOpen: false` 的插件启用时不自动建窗，卡片按 `launchLabel` 显示启动按钮，`backgroundLabel` 会额外在背景设置的"默认/纯色/图片"同级生成入口；`singleton: true` 保证只存在一个窗口，重复启动只聚焦现有窗口；从背景入口启动会先关闭背景设置弹窗。停用 `autoOpen: false` 的插件会关闭其全部窗口并清除布局，避免再次启用时自动弹出；未关闭的窗口在刷新后照旧恢复。
 - **实例数据**：桥对 float 实例的 storage 键做透明前缀 `<实例id>:<key>`，插件代码无感；关闭实例按前缀清理（`DELETE /api/plugins/{id}/data?prefix=<实例id>:`）。卸载 purge 清空整个命名空间 + 布局注册表。
 - **生命周期顺序**（关闭实例）：解绑桥 → 移除窗口元素 → 更新注册表 → 清数据。
 
@@ -80,13 +95,29 @@ float 插件是**多实例**的：一个插件 = 任意多个独立窗口（如�
 ```
 
 - **安全校验**：宿主只处理 `event.source` 能在桥映射中命中的消息（iframe 创建时绑定 contentWindow↔(pluginId, 实例id)）；插件只信 `event.source === window.parent`。沙箱 iframe 的 origin 是 `"null"`，不能靠 origin 校验。
-- **通用能力**：`hello`（握手，宿主回 bridgeVersion 与 permissions）、`storage.get/set/del`（宿主代持 token 调 `/api/plugins/{id}/data`，**插件永不接触 token**；float 实例自动加键前缀）、`resize`（iframe 高度自适应，仅 inline 槽位有效，float 窗口尺寸归宿主管）。
+- **通用能力**：`hello`（握手，宿主回 bridgeVersion 与 permissions）、`storage.get/set/del`（宿主代持 token 调 `/api/plugins/{id}/data`，**插件永不接触 token**；float 实例自动加键前缀）、`resize`（iframe 高度自适应，仅 inline 槽位有效，float 窗口尺寸归宿主管）、`image.export`（需 `export` 权限，见下）。
+- **图片导出能力**（`image.export`，需声明 `export` 权限）：
+
+```js
+// 插件 → 宿主；bytes 用 transfer list 传递
+{ v: 1, id: "p1", type: "image.export",
+  payload: { action: "download" | "background", bytes: arrayBuffer } }
+// 宿主 → 插件
+{ v: 1, id: "p1", ok: true, data: { width: 1920, height: 1080, action: "download" } }
+```
+
+  - 仅接受 PNG；宿主校验签名与 IHDR，宽高 ≤4096、总像素 ≤4096×4096。
+  - `download`：宿主在页面文档内触发下载（≤16MB），插件无需（也无法）在沙箱内直接下载。
+  - `background`：宿主以持有 token 的 `apiFetch` 调用 `POST /api/appearance/background/images`，成功后立即应用并刷新背景库；单图 ≤5MB（`BACKGROUND_UPLOAD_MAX_BYTES`）。**该设置是服务端全局状态，对所有访客生效**，插件应在 UI 中二次确认。
+  - 插件侧不应自行拼接文件名/宽高；宿主从 PNG 头解析并生成文件名。
+  - 下载在移动端可能被浏览器接管，插件应同时提供本地预览（`blob:` 图片由 CSP 放行）作为长按保存兜底。
+
 - **float 专属能力**（inline 插件发来一律静默忽略）：
 
 | 消息 | payload | 说明 |
 |---|---|---|
 | `window.drag` | start: `{phase: "start", mode: "move"\|"resize", x, y, pointerId}`；兜底 end: `{phase: "end", mode, x, y}` | 移动/缩放。`x/y` 为指针的 iframe 局部坐标，`pointerId` 供宿主过滤指针。**宿主在 start 时接管指针**：把 iframe 置 `pointer-events:none`，在 window 上监听 move/up 用页面绝对坐标驱动，结束后恢复命中、持久化位置，并向插件回推 `window.dragEnd` 通知。旧版的 move/end 坐标中继（`x/y/rx/ry` 参照系约定）仍被兼容处理，但新插件不应再使用——沙箱 iframe 收不到范围外指针事件，插件侧自行跟踪必然丢事件 |
-| `window.create` | `{}` | 新建一个实例（宿主级联 +24px 定位），应答 `{id}` |
+| `window.create` | `{}` | 新建一个实例（宿主级联 +24px 定位），应答 `{id}`；`singleton` 插件由宿主兜底为聚焦现有窗口 |
 | `window.close` | `{}` | 关闭当前实例（按上面顺序清理） |
 | `window.focus` | `{}` | 当前窗口置顶 |
 
@@ -136,11 +167,14 @@ window.addEventListener("message", function (event) {
 新增插件随仓库 PR 审查，逐项确认：
 
 - [ ] registry.json 条目符合 schema（有测试校验：`tests/test_plugins.py::test_builtin_registry_schema`）
+- [ ] 手动启动 / 单实例插件声明 `autoOpen: false` / `singleton: true`，并提供 `launchLabel`；需要背景入口时再声明 `backgroundLabel`
 - [ ] 入口 HTML 通过静态审查——以下模式一律不得出现（测试 `test_builtin_plugin_html_static_review` 把关）：
   - 外部脚本/资源引用（`<script src=`、`src="//…"`、`href="//…"`）
   - 网络 API（`fetch(`、`XMLHttpRequest`、`WebSocket(`、`EventSource(`、动态 `import(`、`sendBeacon`）
   - 嵌套浏览上下文与表单（`<iframe`、`<form`、`target="_blank"`）
 - [ ] 数据经 storage 桥存储，不尝试 localStorage/cookie
+- [ ] 图片导出只走 `image.export` 桥：不在沙箱内直接下载/上传，不自行拼接文件名
+- [ ] `background` 动作有二次确认（全局生效）；PNG 尺寸 ≤4096、背景图 ≤5MB 已在插件侧预检
 - [ ] 渲染卫生：`createElement`/`textContent`，不拼 HTML 字符串
 - [ ] 功能克制：权限只申请真正需要的
 
@@ -166,7 +200,7 @@ window.addEventListener("message", function (event) {
 
 ## 六、新增插件步骤
 
-1. 建 `plugins/<id>/index.html`（复制 sticky-notes 的桥胶水骨架）；
+1. 建 `plugins/<id>/index.html`（桥胶水参考 sticky-notes；图片导出与单实例/手动启动参考 poly-gradient）；
 2. 在 `plugins/registry.json` 登记条目（id 与目录名一致）；
 3. `python scripts/sync-frontend.py`（镜像进 `assets/plugins/`，Workers 部署用）；
 4. 对照第四节审查清单自查；

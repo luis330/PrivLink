@@ -285,10 +285,22 @@ API 文档三件套（`/docs`、`/redoc`、`/openapi.json`）**默认关闭**—
 | GET | `/api/appearance/background/images` | 需 token | 背景图片列表 |
 | POST | `/api/appearance/background/images` | 需 token | 上传背景图（multipart 字段 `image`，≤5MB，jpg/png/webp；上传即生效） |
 | DELETE | `/api/appearance/background/images/{file}` | 需 token | 删除背景图；删的是当前背景时自动重置为默认 |
+| GET | `/api/plugins/installed` | 需 token | 已安装插件状态（owner-only） |
+| PUT | `/api/plugins/{id}/installed` | 需 token | 启用/停用插件（JSON `{enabled}`）；本地部署校验 registry 成员 |
+| DELETE | `/api/plugins/{id}/installed?purge=` | 需 token | 卸载；`purge=1` 同时清空插件数据与窗口布局 |
+| GET | `/api/plugins/{id}/data?key=` | 需 token | 桥数据读取；插件自身不持 token |
+| PUT | `/api/plugins/{id}/data` | 需 token | 写入插件键值；配额 200 键 / 256KB |
+| DELETE | `/api/plugins/{id}/data?key=&prefix=` | 需 token | 删除单键、实例前缀或整个命名空间 |
+| GET | `/api/plugins/{id}/windows` | 需 token | 浮窗布局；键不存在返回 404（从未有过实例） |
+| POST | `/api/plugins/{id}/windows/add` | 需 token | 增量新增/幂等 upsert 单窗 |
+| PATCH | `/api/plugins/{id}/windows/{instId}` | 需 token | 增量更新单窗位置与尺寸 |
+| DELETE | `/api/plugins/{id}/windows/{instId}` | 需 token | 增量删除单窗（幂等） |
+| PUT | `/api/plugins/{id}/windows` | 需 token | 全量写布局（仅为兼容保留） |
 | PUT | `/api/sites/reorder` | 需 token | 拖拽排序持久化 |
 | PUT | `/api/sites/{id}` | 需 token | 更新站点（名称/URL/标签/可见性/图标） |
 | POST | `/api/sites/{id}/icon` | 需 token | 上传站点图标（multipart，≤1MB） |
 | DELETE | `/api/sites/{id}` | 需 token | 删除站点 |
+| GET | `/plugins/registry.json`、`/plugins/{id}/{path}` | 公开 | 内置插件清单与静态文件；插件文档下发专用沙箱 CSP，服务端校验 registry 成员与路径穿越 |
 | GET | `/ICON/<file>`、`/background/<file>` | 公开 | 静态图标与背景图（文件名为不可枚举哈希，无目录列表） |
 | GET | `/favicon.ico`、`/favicon-*.png`、`/apple-touch-icon.png`、`/android-chrome-*.png`、`/manifest.json` | 公开 | 站点品牌图标与 PWA manifest；`.ico` 与 `apple-touch-icon.png` 覆盖浏览器、爬虫和 iOS 对根路径的隐式请求 |
 

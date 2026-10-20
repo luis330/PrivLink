@@ -64,5 +64,7 @@ Cloudflare 托管 Bot 防护仅基于 UA/指纹特征，可被简单伪造绕过
 | CORS 仅同源 | `app.py` CorsGuard + `NAV_CORS_ORIGINS` | 白名单默认空 |
 | 鉴权失败限速 | `app.py` TokenGuard + `NAV_AUTH_FAIL_*` | Workers 上为尽力而为，权威层见 1.3 |
 | SVG 沙箱 | `app.py` 媒体路由 + `icons.py` 内容检测 | 上传/抓取双检测 |
+| 插件沙箱 | `app.py` 插件静态路由 + iframe `sandbox="allow-scripts"` | 不透明源；`CSP_PLUGIN` 断网；`/api/plugins/*` 全走 TokenGuard，插件不接触 token |
+| 插件图片导出 | `index.html` `image.export` 桥 + `app.py` 背景上传 | 仅 PNG，校验签名/IHDR 与尺寸；下载 ≤16MB、背景 ≤5MB；背景为服务端全局状态 |
 | 导出收口 | `app.py` `export_sites` | 开放模式 403 |
 | 500 脱敏 | `app.py` generic_exception_handler | 不回显异常细节 |

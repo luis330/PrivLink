@@ -10,6 +10,21 @@
       "slot": "float",
       "entry": "index.html",
       "permissions": ["storage"]
+    },
+    {
+      "id": "poly-gradient",
+      "name": "多边形渐变",
+      "version": "1.1.0",
+      "description": "多点光源 + 低多边形网格渐变，支持 PC/移动端尺寸、PNG 下载与设为背景。",
+      "author": "luis",
+      "slot": "float",
+      "entry": "index.html",
+      "permissions": ["export"],
+      "defaultSize": { "w": 1000, "h": 720 },
+      "singleton": true,
+      "autoOpen": false,
+      "launchLabel": "创建图片",
+      "backgroundLabel": "自定义渐变"
     }
   ]
 }

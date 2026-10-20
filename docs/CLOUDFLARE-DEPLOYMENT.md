@@ -35,13 +35,14 @@ PrivLink/
 │       ├── config.py                # 配置与 IS_WORKERS 平台判断
 │       └── data/simple_icons_data.py  # 图标库内嵌模块（Workers 读不到 JSON，见 3.1）
 ├── index.html / favicon.ico / *.png / manifest.json   # 前端与品牌图标（唯一来源）
+├── plugins/                         # 内置插件源（registry.json + <id>/index.html）
 ├── assets/                          # Workers Assets 目录（由 sync-frontend.py 从根目录同步）
 ├── wrangler.jsonc                   # Workers 配置（D1 / R2 / Assets 绑定）
 ├── pyproject.toml / uv.lock         # 依赖（本地）
 ├── pylock.toml                      # Workers 依赖锁（pywrangler 生成，需提交）
 ├── tests/                           # pytest（覆盖两种后端的共性行为与 Workers 分支）
 └── scripts/
-    ├── sync-frontend.py             # 根目录前端文件 → assets/
+    ├── sync-frontend.py             # 根目录前端文件与 plugins/ → assets/
     ├── build-favicon.py             # 一组 PNG → 多尺寸 favicon.ico（纯标准库）
     ├── fetch-simple-icons.py        # 拉取图标库数据，生成 json 与内嵌模块
     ├── migrate-local-to-cloudflare.py  # 本地数据 → D1 / R2
@@ -66,7 +67,7 @@ PrivLink/
 | 数据库 | SQLite `data/sites.db` | D1 `privlink`（binding `DB`，SQL 与 SQLite 兼容） |
 | 站点图标 | `ICON/` 本地目录 | R2 桶 `privlink-icons`（binding `ICON_BUCKET`） |
 | 背景图 | `background/` 本地目录 | R2 桶 `privlink-backgrounds`（binding `BACKGROUND_BUCKET`） |
-| 首页与品牌图标 | FastAPI 显式路由（ETag/304） | Workers Assets（`assets/` 目录） |
+| 首页、品牌图标与插件静态文件 | FastAPI 显式路由（ETag/304；插件走 `/plugins/*`） | Workers Assets（`assets/` 目录） |
 | 图标库 | `simple-icons.json` | 内嵌模块 `simple_icons_data.py` |
 | 远程抓取 | httpx（支持代理） | httpx over 平台 fetch（无代理） |
 | gzip 压缩 | GZip 中间件 | 关闭中间件，由 Cloudflare 边缘处理 |
@@ -78,7 +79,7 @@ PrivLink/
 
 | 内容 | 性质 | 存储位置 |
 |---|---|---|
-| `index.html`、favicon、`manifest.json` | 部署时固定 | Workers Assets |
+| `index.html`、favicon、`manifest.json`、`plugins/<id>/index.html` 与 `plugins/registry.json` | 部署时固定 | Workers Assets |
 | `ICON/<file>` | 运行时上传或抓取 | R2 |
 | `background/<file>` | 运行时上传 | R2 |
 
