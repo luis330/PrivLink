@@ -25,6 +25,19 @@
       "autoOpen": false,
       "launchLabel": "创建图片",
       "backgroundLabel": "自定义渐变"
+    },
+    {
+      "id": "anniversary",
+      "name": "纪念日",
+      "version": "0.2.0",
+      "description": "月历选择公历/农历纪念日，双历法各自推算最近一次发生日并倒计时；闰月与小月自动回退。",
+      "author": "luis",
+      "slot": "float",
+      "entry": "index.html",
+      "permissions": ["storage"],
+      "defaultSize": { "w": 400, "h": 600 },
+      "singleton": true,
+      "globalStorage": true
     }
   ]
 }

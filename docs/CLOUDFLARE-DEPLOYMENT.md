@@ -221,7 +221,7 @@ python scripts/sync-frontend.py                                        # 再同�
 
 触发方式：
 
-- **自动**：push 到 `main`，且改动涉及 `src/`、`pyproject.toml`、`uv.lock`、`pylock.toml`、`wrangler.jsonc`、`assets/`、根目录前端文件、`scripts/sync-frontend.py` 或 workflow 文件。
+- **自动**：push 到 `main`，且改动涉及 `src/`、`pyproject.toml`、`uv.lock`、`pylock.toml`、`wrangler.jsonc`、`assets/`、`plugins/`、根目录前端文件、`scripts/sync-frontend.py` 或 workflow 文件。
 - **手动**：Actions → Deploy to Cloudflare Workers → Run workflow。可在输入框临时填写 `NAV_TOKEN`，覆盖仓库 Secret。
 
 Workflow 实际执行的步骤：

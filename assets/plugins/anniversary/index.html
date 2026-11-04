@@ -1,0 +1,2657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>纪念日</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+    #root {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #fff;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    /* 玻璃底由宿主窗口容器承担（沙箱 iframe 的 backdrop-filter 看不到主页面），
+       插件内部只用半透明白色分层 + 白字，与便签等站点插件保持同一套视觉 */
+    .bridge-hint {
+      margin: 8px;
+      padding: 10px 12px;
+      border: 1px dashed rgba(255, 255, 255, 0.4);
+      border-radius: 8px;
+      color: rgba(255, 255, 255, 0.92);
+      background: rgba(15, 35, 70, 0.55);
+    }
+    .anniv {
+      display: flex;
+      flex-direction: column;
+      width: 100%; height: 100%;
+    }
+    /* 头部行：窗口标题 + 设置/关闭，整行同时是移动拖拽把手 */
+    .anniv-bar {
+      flex: 0 0 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+      cursor: move;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    .anniv-title {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding-left: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.92);
+    }
+    .anniv-actions {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+    }
+    .anniv-btn {
+      width: 28px; height: 28px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.92);
+      font-size: 16px;
+      line-height: 28px;
+      text-align: center;
+      cursor: pointer;
+      padding: 0;
+    }
+    .anniv-btn:hover { background: rgba(255, 255, 255, 0.14); }
+    .anniv-btn.close { font-size: 18px; }
+    .anniv-btn.close:hover { background: rgba(200, 60, 40, 0.35); color: #fff; }
+    /* 列表区：按最近一次剩余天数升序，一行一条纪念日 */
+    .anniv-list {
+      flex: 1 1 auto;
+      width: 100%;
+      padding: 2px 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+    }
+    .anniv-list::-webkit-scrollbar { width: 8px; }
+    .anniv-list::-webkit-scrollbar-track { background: transparent; }
+    .anniv-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.28);
+      border-radius: 999px;
+    }
+    .anniv-list::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.4); }
+    .anniv-row {
+      padding: 8px 12px;
+      min-width: 0;
+    }
+    .anniv-row + .anniv-row {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .anniv-row-main {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
+    }
+    .anniv-count {
+      flex: 0 0 auto;
+      color: rgba(124, 192, 255, 0.95);
+      font-size: 12px;
+      line-height: 18px;
+      white-space: nowrap;
+    }
+    .anniv-count.today {
+      color: #fff;
+      font-weight: 600;
+    }
+    .anniv-name {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .anniv-sub {
+      margin-top: 2px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: pre;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.58);
+    }
+    .anniv-fallback {
+      margin-top: 1px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 11px;
+      color: rgba(255, 196, 107, 0.85);
+    }
+    .anniv-empty {
+      padding: 26px 12px;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.5);
+    }
+    .anniv-data-hint {
+      padding: 4px 12px 10px;
+      text-align: center;
+      font-size: 12px;
+      color: rgba(255, 196, 107, 0.8);
+      cursor: pointer;
+    }
+    .anniv-data-hint:hover { color: #ffc46b; }
+    /* 设置入口的占位提示：短暂出现后自动消失（悬浮于设置面板之上） */
+    .anniv-toast {
+      position: absolute;
+      left: 50%;
+      bottom: 12px;
+      z-index: 3;
+      transform: translateX(-50%);
+      max-width: calc(100% - 24px);
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: rgba(15, 35, 70, 0.85);
+      color: rgba(255, 255, 255, 0.92);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      pointer-events: none;
+      box-shadow: 0 2px 8px rgba(8, 22, 64, 0.4);
+    }
+    .anniv-grip {
+      position: absolute;
+      right: 2px; bottom: 2px;
+      z-index: 3;
+      width: 18px; height: 18px;
+      cursor: nwse-resize;
+      touch-action: none;
+    }
+    .anniv-grip::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      background: repeating-linear-gradient(
+        -45deg,
+        transparent 0 2px,
+        rgba(255, 255, 255, 0.55) 2px 3px,
+        transparent 3px 5px
+      );
+      border-radius: 2px;
+    }
+    /* ===== 设置面板：覆盖列表区的表单层（头部行仍可拖拽移动窗口） =====
+       深色实底 + iframe 内合成 blur：遮住下层列表又不失玻璃质感 */
+    .anniv-panel {
+      position: absolute;
+      left: 0; right: 0; top: 34px; bottom: 0;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      background: rgba(13, 32, 66, 0.97);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid rgba(255, 255, 255, 0.16);
+    }
+    .anniv-panel[hidden] { display: none; }
+    .panel-head {
+      flex: 0 0 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 4px 0 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .panel-head-title {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.92);
+    }
+    .panel-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 6px 12px 12px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+    }
+    .panel-body::-webkit-scrollbar { width: 8px; }
+    .panel-body::-webkit-scrollbar-track { background: transparent; }
+    .panel-body::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.28);
+      border-radius: 999px;
+    }
+    .panel-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.4); }
+    /* 表单视图用纵向 flex：内容不满一屏时把操作栏压到底部 */
+    .panel-form { display: flex; flex-direction: column; }
+    .panel-form[hidden] { display: none; }
+    .panel-form > * { flex: 0 0 auto; }
+    .panel-form .form-actions { margin-top: auto; }
+    /* 列表视图：点行编辑，删除走二次确认 */
+    .panel-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      min-width: 0;
+    }
+    .panel-row:hover { background: rgba(255, 255, 255, 0.1); }
+    .panel-row.warn {
+      background: rgba(200, 120, 40, 0.14);
+      cursor: default;
+    }
+    .panel-row.warn:hover { background: rgba(200, 120, 40, 0.2); }
+    .panel-row-main {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .panel-row-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #fff;
+    }
+    .panel-row.warn .panel-row-name { color: #ffd9a8; }
+    .panel-row-date {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.62);
+    }
+    .panel-row-del {
+      flex: 0 0 auto;
+      width: 24px; height: 24px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 14px;
+      line-height: 24px;
+      text-align: center;
+      padding: 0;
+      cursor: pointer;
+    }
+    .panel-row-del:hover { background: rgba(200, 60, 40, 0.35); color: #fff; }
+    .panel-row-del.confirm {
+      width: auto;
+      padding: 0 8px;
+      font-size: 12px;
+      background: rgba(200, 60, 40, 0.55);
+      color: #fff;
+    }
+    .panel-add {
+      display: block;
+      margin: 6px 0 0;
+      width: 100%;
+      border: 1px dashed rgba(255, 255, 255, 0.4);
+      border-radius: 8px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.85);
+      font: inherit;
+      font-size: 13px;
+      padding: 7px 8px;
+      cursor: pointer;
+    }
+    .panel-add:hover { background: rgba(255, 255, 255, 0.1); }
+    .panel-empty {
+      padding: 14px 0 6px;
+      text-align: center;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.5);
+    }
+    .panel-error {
+      padding: 18px 8px;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.6;
+      color: rgba(255, 190, 150, 0.95);
+    }
+    .panel-note {
+      margin: 8px 2px 0;
+      font-size: 11px;
+      line-height: 1.5;
+      color: rgba(255, 255, 255, 0.45);
+    }
+    /* 编辑视图表单 */
+    .form-field { margin: 0 0 6px; }
+    .form-label {
+      display: block;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.62);
+      margin: 0 0 2px;
+    }
+    .form-input, .form-select {
+      width: 100%;
+      border: none;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      font: inherit;
+      font-size: 14px;
+      padding: 6px 8px;
+      outline: none;
+    }
+    .form-input::placeholder { color: rgba(255, 255, 255, 0.4); }
+    .form-input:focus, .form-select:focus { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35); }
+    .form-select option { background: #142b52; color: #fff; }
+    .form-hint {
+      margin: 2px 0 0;
+      font-size: 11px;
+      line-height: 1.5;
+      color: rgba(255, 255, 255, 0.45);
+    }
+    /* 月历：周一起始，固定 6 行 × 7 列；格内上行公历日、下行农历/节气/节日 */
+    .cal {
+      margin-top: 2px;
+      padding: 4px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .cal-head {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 2px;
+    }
+    .cal-nav {
+      flex: 0 0 auto;
+      width: 24px; height: 24px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.9);
+      font: inherit;
+      font-size: 17px;
+      line-height: 24px;
+      text-align: center;
+      padding: 0;
+      cursor: pointer;
+    }
+    .cal-nav:hover { background: rgba(255, 255, 255, 0.14); }
+    .cal-year {
+      flex: 0 0 auto;
+      width: 54px;
+      padding: 4px 2px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .cal-unit {
+      flex: 0 0 auto;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.55);
+    }
+    .cal-month {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 4px 2px;
+      font-size: 13px;
+    }
+    .cal-today {
+      flex: 0 0 auto;
+      border: none;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.85);
+      font: inherit;
+      font-size: 12px;
+      padding: 4px 6px;
+      cursor: pointer;
+    }
+    .cal-today:hover { background: rgba(255, 255, 255, 0.18); }
+    .cal-week {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0;
+      margin: 2px 0 0;
+    }
+    .cal-week span {
+      text-align: center;
+      font-size: 10px;
+      line-height: 12px;
+      color: rgba(255, 255, 255, 0.45);
+    }
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+    }
+    .cal-cell {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 30px;
+      padding: 0;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: #fff;
+      font: inherit;
+      cursor: pointer;
+      overflow: hidden;
+      outline: none;
+    }
+    .cal-cell:hover { background: rgba(255, 255, 255, 0.1); }
+    .cal-cell:focus-visible {
+      outline: 2px solid rgba(255, 255, 255, 0.55);
+      outline-offset: 1px;
+    }
+    .cal-cell.out { color: rgba(255, 255, 255, 0.28); }
+    .cal-cell.out .cal-lunar { color: rgba(255, 255, 255, 0.22); }
+    .cal-cell.today { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55); }
+    .cal-cell.selected {
+      background: #0f7cf0;
+      box-shadow: 0 2px 8px rgba(15, 124, 240, 0.35);
+    }
+    .cal-cell.selected.today {
+      box-shadow: inset 0 0 0 1px #fff, 0 2px 8px rgba(15, 124, 240, 0.35);
+    }
+    .cal-cell.selected .cal-solar, .cal-cell.selected .cal-lunar { color: #fff; }
+    .cal-cell:disabled { opacity: 0.3; cursor: default; }
+    .cal-cell:disabled:hover { background: transparent; }
+    .cal-solar {
+      font-size: 13px;
+      line-height: 1.15;
+      font-weight: 500;
+    }
+    .cal-lunar {
+      max-width: 100%;
+      padding: 0 1px;
+      font-size: 9px;
+      line-height: 1.15;
+      color: rgba(255, 255, 255, 0.52);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cal-cell.term .cal-lunar { color: #7fd3ff; }
+    .cal-cell.festival .cal-lunar { color: #ffc46b; }
+    .cal-cell.month .cal-lunar {
+      color: rgba(255, 255, 255, 0.8);
+      font-weight: 600;
+    }
+    .cal-selected {
+      margin: 2px 0 0;
+      font-size: 12px;
+      line-height: 1.35;
+      color: rgba(255, 255, 255, 0.62);
+    }
+    .cal-selected strong { color: #fff; font-weight: 600; }
+    .cal-leap-note { color: #ffc46b; }
+    .cal-checks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+      margin-top: 0;
+    }
+    .check-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.85);
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .check-line input {
+      width: 15px; height: 15px;
+      margin: 0;
+      accent-color: #0f7cf0;
+    }
+    .form-preview {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.7);
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 4px 8px;
+      margin: 4px 0;
+      line-height: 1.45;
+    }
+    .form-preview.invalid { color: rgba(255, 190, 150, 0.95); }
+    .preview-line {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      min-width: 0;
+    }
+    .preview-line + .preview-line { margin-top: 2px; }
+    .preview-line.nearest { color: #fff; }
+    .preview-tag {
+      flex: 0 0 auto;
+      padding: 0 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.12);
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 10px;
+      line-height: 15px;
+    }
+    .preview-tag.lunar {
+      background: rgba(255, 196, 107, 0.15);
+      color: #ffc46b;
+    }
+    .preview-date {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .preview-days {
+      flex: 0 0 auto;
+      color: rgba(255, 255, 255, 0.9);
+    }
+    .preview-note {
+      margin-top: 1px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: rgba(255, 196, 107, 0.9);
+    }
+    .form-actions {
+      /* 窗口高度不足时保存/取消仍需可达：吸附在面板可视底部，不随内容滚走 */
+      position: sticky;
+      bottom: -12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 2px -12px -12px;
+      padding: 6px 12px;
+      background: rgba(13, 32, 66, 0.98);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .form-spacer { flex: 1 1 auto; }
+    .form-btn {
+      border: none;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.12);
+      color: rgba(255, 255, 255, 0.9);
+      font: inherit;
+      font-size: 13px;
+      padding: 5px 14px;
+      cursor: pointer;
+    }
+    .form-btn:hover { background: rgba(255, 255, 255, 0.2); }
+    .form-btn.primary { background: #0f7cf0; color: #fff; font-weight: 600; }
+    .form-btn.primary:hover { background: rgba(15, 124, 240, 0.82); }
+    .form-btn.danger { background: rgba(200, 60, 40, 0.35); color: #fff; }
+    .form-btn.danger:hover { background: rgba(200, 60, 40, 0.55); }
+    .form-btn.confirm { background: rgba(200, 60, 40, 0.7); }
+    @media (max-height: 460px) {
+      .cal-cell { height: 32px; }
+      .cal-solar { font-size: 12px; }
+      .cal-lunar { font-size: 8px; }
+      .form-field { margin-bottom: 8px; }
+      .cal-selected { margin-top: 4px; }
+    }
+    @media (max-width: 360px) {
+      .cal-head { gap: 3px; }
+      .cal-year { width: 50px; }
+      .cal-month { font-size: 12px; }
+      .cal-today { padding: 4px 4px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    (function () {
+      "use strict";
+
+      /* ===== 桥：与宿主（导航页）的 postMessage 通信，协议见 docs/plugins.md =====
+         本插件 slot=float 且 singleton：整页只有一条"纪念日"列表窗口，
+         数据存插件级键（registry 声明 globalStorage），关窗不丢。 */
+      var BRIDGE_VERSION = 1;
+      var LIST_KEY = "list";
+      var root = document.getElementById("root");
+      var seq = 0;
+      var pending = new Map();
+      var bridgeOk = false;
+      var dragActive = null; // { mode }：单指针假设，同一时刻至多一个活动拖拽
+
+      function callBridge(type, payload) {
+        return new Promise(function (resolve, reject) {
+          var id = "p" + (++seq);
+          pending.set(id, { resolve: resolve, reject: reject });
+          window.parent.postMessage({ v: BRIDGE_VERSION, id: id, type: type, payload: payload || {} }, "*");
+          window.setTimeout(function () {
+            if (pending.has(id)) {
+              pending.delete(id);
+              reject(new Error("桥响应超时"));
+            }
+          }, 8000);
+        });
+      }
+
+      // 高频消息（拖拽 move）不等回包：宿主的应答因无 pending 记录而被插件丢弃
+      function notifyBridge(type, payload) {
+        window.parent.postMessage({ v: BRIDGE_VERSION, id: "n" + (++seq), type: type, payload: payload || {} }, "*");
+      }
+
+      window.addEventListener("message", function (event) {
+        if (event.source !== window.parent) return;
+        var msg = event.data;
+        if (!msg || typeof msg !== "object" || msg.v !== BRIDGE_VERSION) return;
+        // 宿主接管拖拽后的结束通知：复位本地拖拽状态（无 pending，不走应答表）
+        if (msg.type === "window.dragEnd") {
+          dragActive = null;
+          return;
+        }
+        if (!pending.has(msg.id)) return;
+        var task = pending.get(msg.id);
+        pending.delete(msg.id);
+        if (msg.ok) {
+          task.resolve(msg.data);
+        } else {
+          task.reject(new Error(msg.error || "桥调用失败"));
+        }
+      });
+
+      /* ===== 农历内核：经典压缩查表法（1900-2100，每年一项） =====
+         位含义：bit3..0 = 闰月月份（0 = 无闰月）；bit15..4 = 平月 1..12 的大小
+         （1 = 30 天）；bit16 = 闰月是否 30 天。
+         表由 lunar-javascript 官方数据生成，并经 4.2 万个抽样日期（含全部春节
+         边界、闰月首尾、大月 30 日）双向换算交叉验证 0 误差。 */
+      var LUNAR_MIN_YEAR = 1900;
+      var LUNAR_MAX_YEAR = 2100;
+      var LUNAR_BASE_MS = Date.UTC(1900, 0, 31);
+      var LUNAR_INFO = [
+        0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,
+        0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,
+        0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,
+        0x06566,0x0d4a0,0x0ea50,0x16a95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,
+        0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557,
+        0x06ca0,0x0b550,0x15355,0x04da0,0x0a5b0,0x14573,0x052b0,0x0a9a8,0x0e950,0x06aa0,
+        0x0aea6,0x0ab50,0x04b60,0x0aae4,0x0a570,0x05260,0x0f263,0x0d950,0x05b57,0x056a0,
+        0x096d0,0x04dd5,0x04ad0,0x0a4d0,0x0d4d4,0x0d250,0x0d558,0x0b540,0x0b6a0,0x195a6,
+        0x095b0,0x049b0,0x0a974,0x0a4b0,0x0b27a,0x06a50,0x06d40,0x0af46,0x0ab60,0x09570,
+        0x04af5,0x04970,0x064b0,0x074a3,0x0ea50,0x06b58,0x05ac0,0x0ab60,0x096d5,0x092e0,
+        0x0c960,0x0d954,0x0d4a0,0x0da50,0x07552,0x056a0,0x0abb7,0x025d0,0x092d0,0x0cab5,
+        0x0a950,0x0b4a0,0x0baa4,0x0ad50,0x055d9,0x04ba0,0x0a5b0,0x15176,0x052b0,0x0a930,
+        0x07954,0x06aa0,0x0ad50,0x05b52,0x04b60,0x0a6e6,0x0a4e0,0x0d260,0x0ea65,0x0d530,
+        0x05aa0,0x076a3,0x096d0,0x04afb,0x04ad0,0x0a4d0,0x1d0b6,0x0d250,0x0d520,0x0dd45,
+        0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0,
+        0x14b63,0x09370,0x049f8,0x04970,0x064b0,0x168a6,0x0ea50,0x06b20,0x1a6c4,0x0aae0,
+        0x092e0,0x0d2e3,0x0c960,0x0d557,0x0d4a0,0x0da50,0x05d55,0x056a0,0x0a6d0,0x055d4,
+        0x052d0,0x0a9b8,0x0a950,0x0b4a0,0x0b6a6,0x0ad50,0x055a0,0x0aba4,0x0a5b0,0x052b0,
+        0x0b273,0x06930,0x07337,0x06aa0,0x0ad50,0x14b55,0x04b60,0x0a570,0x054e4,0x0d160,
+        0x0e968,0x0d520,0x0daa0,0x16aa6,0x056d0,0x04ae0,0x0a9d4,0x0a2d0,0x0d150,0x0f252,
+        0x0d520
+      ];
+
+      function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+      function lunarInfoAt(year) { return LUNAR_INFO[year - LUNAR_MIN_YEAR]; }
+
+      function lunarLeapMonth(year) { return lunarInfoAt(year) & 0xf; }
+
+      function lunarLeapDays(year) {
+        var m = lunarLeapMonth(year);
+        return m ? ((lunarInfoAt(year) & 0x10000) ? 30 : 29) : 0;
+      }
+
+      function lunarMonthDays(year, month) {
+        return (lunarInfoAt(year) & (0x10000 >> month)) ? 30 : 29;
+      }
+
+      function lunarYearDays(year) {
+        var sum = 348;
+        for (var i = 0x8000; i > 0x8; i >>= 1) sum += (lunarInfoAt(year) & i) ? 1 : 0;
+        return sum + lunarLeapDays(year);
+      }
+
+      /* 公历 -> 农历；1900-01-31 之前或表范围之外返回 null */
+      function solar2lunar(y, m, d) {
+        if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+        var offset = Math.round((Date.UTC(y, m - 1, d) - LUNAR_BASE_MS) / 86400000);
+        if (offset < 0) return null;
+        var i, temp = 0;
+        for (i = LUNAR_MIN_YEAR; i <= LUNAR_MAX_YEAR && offset > 0; i++) {
+          temp = lunarYearDays(i);
+          offset -= temp;
+        }
+        if (offset < 0) { offset += temp; i--; }
+        if (i > LUNAR_MAX_YEAR) return null;
+        var year = i;
+        var leap = lunarLeapMonth(year);
+        var isLeap = false;
+        for (i = 1; i < 13 && offset > 0; i++) {
+          if (leap > 0 && i === (leap + 1) && isLeap === false) {
+            --i;
+            isLeap = true;
+            temp = lunarLeapDays(year);
+          } else {
+            temp = lunarMonthDays(year, i);
+          }
+          if (isLeap === true && i === (leap + 1)) isLeap = false;
+          offset -= temp;
+        }
+        if (offset === 0 && leap > 0 && i === leap + 1) {
+          if (isLeap) { isLeap = false; } else { isLeap = true; --i; }
+        }
+        if (offset < 0) { offset += temp; --i; }
+        return { year: year, month: i, day: offset + 1, leap: isLeap };
+      }
+
+      /* 农历 -> 公历 "YYYY-MM-DD"；该农历日不存在（无此闰月、小月无三十）返回 null */
+      function lunar2solar(ly, lm, ld, isLeap) {
+        if (!Number.isFinite(ly) || !Number.isFinite(lm) || !Number.isFinite(ld)) return null;
+        if (ly < LUNAR_MIN_YEAR || ly > LUNAR_MAX_YEAR) return null;
+        var leap = lunarLeapMonth(ly);
+        if (isLeap && leap !== lm) return null;
+        var maxDay = isLeap ? lunarLeapDays(ly) : lunarMonthDays(ly, lm);
+        if (ld < 1 || ld > maxDay) return null;
+        var offset = 0, y, m;
+        for (y = LUNAR_MIN_YEAR; y < ly; y++) offset += lunarYearDays(y);
+        for (m = 1; m < lm; m++) {
+          offset += lunarMonthDays(ly, m);
+          if (leap === m) offset += lunarLeapDays(ly); // 目标月在其后时跳过闰月位
+        }
+        if (isLeap) offset += lunarMonthDays(ly, lm); // 闰月紧随平月之后
+        offset += ld - 1;
+        if (offset < 0) return null;
+        var dt = new Date(LUNAR_BASE_MS + offset * 86400000);
+        return dt.getUTCFullYear() + "-" + pad2(dt.getUTCMonth() + 1) + "-" + pad2(dt.getUTCDate());
+      }
+
+      var LUNAR_MONTH_NAMES = ["正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "冬", "腊"];
+
+      function lunarMonthName(month, leap) {
+        return (leap ? "闰" : "") + (LUNAR_MONTH_NAMES[month - 1] || String(month)) + "月";
+      }
+
+      function lunarDayName(day) {
+        var nums = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+        if (day <= 0) return String(day);
+        if (day <= 10) return "初" + nums[day - 1];
+        if (day < 20) return "十" + nums[day - 11];
+        if (day === 20) return "二十";
+        if (day < 30) return "廿" + nums[day - 21];
+        return "三十";
+      }
+
+      /* ===== 节气与农历节日：日历格第二行的标签 =====
+         标签优先级：节气 > 农历节日 > 除夕 > 初一月名 > 农历日名。
+         公历节日不参与显示（与参考日历一致：10 月 1 日仍显示农历廿一）。 */
+      var SOLAR_TERM_NAMES = [
+        "小寒", "大寒", "立春", "雨水", "惊蛰", "春分", "清明", "谷雨",
+        "立夏", "小满", "芒种", "夏至", "小暑", "大暑", "立秋", "处暑",
+        "白露", "秋分", "寒露", "霜降", "立冬", "小雪", "大雪", "冬至"
+      ];
+      /* 1900-2100 每年 24 个节气日：每个字符 charCode - 48 = 日期（1-24），
+         顺序同上（小寒、大寒、立春……冬至）。表由 lunar-javascript 逐日生成。 */
+      var SOLAR_TERM_DAYS = [
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C6E6E6F7F8H8H8H9H8G8G",
+        "6E5D7F6E7F7F8H9H9H9H8G8G",
+        "7E5D6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C6E6E6F6F8H8H8H9H8G8G",
+        "6E5D7F6E7F7F8H9H9H9H8G8G",
+        "7E5D6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C6E6E6F6F8H8H8H9H8G8G",
+        "6E5D7F6E7F7F8H9H9H9H8G8G",
+        "7E5D6E5D6E6F7G8G8G9H8F7F",
+        "6D4C6E5E6F6F8G8H8G9H8G8F",
+        "6E4C6E5E6F6F8H8H8H9H8G8G",
+        "6E5D6F6E6F7F8H8H9H9H8G8G",
+        "6E5D6E5D6E6F7G8G8G8H8F7F",
+        "6D4C6E5E6E6F8G8H8G9H8G8F",
+        "6E4C6E5E6F6F8H8H8H9H8G8F",
+        "6E5D6F6E6F7F8H8H9H9H8G8G",
+        "6E5D6E5D6E6F7G8G8G8H8F7F",
+        "6D4C6E5D6E6F8G8H8G9H8G7F",
+        "6E4C6E5E6F6F8H8H8H9H8G8F",
+        "6E5C6E6E6F7F8H8H9H9H8G8G",
+        "6E5D6E5D6E6F7G8G8G8H8F7F",
+        "6D4C6E5D6E6F8G8H8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C6E6E6F7F8H8H9H9H8G8G",
+        "6E5D6E5D6E6F7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C6E6E6F7F8H8H8H9H8G8G",
+        "6E5D6E5D6E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C6E6E6F6F8H8H8H9H8G8G",
+        "6E5D6E5D6E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C6E6E6F6F8H8H8H9H8G8G",
+        "6E5D6E5D6E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C6E6E6F6F8H8H8H9H8G8G",
+        "6E5D6E5D5E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G8H8F7F",
+        "6D4C6E5E6F6F8G8H8G9H8G8F",
+        "6E4C6E5E6F6F8H8H8H9H8G8G",
+        "6E5D5E5D5E6E7G7G8G8G7F7F",
+        "5D4C6E5D6E6F7G8G8G8H8F7F",
+        "6D4C6E5D6E6F8G8H8G9H8G8F",
+        "6E4C6E5E6F6F8H8H8H9H8G8G",
+        "6E5D5E5D5E6E7G7G8G8G7F7F",
+        "5D4C6E5D6E6F7G8G8G8H8F7F",
+        "6D4C6E5D6E6F8G8H8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5D5D5D5E6E7G7G8G8G7F7F",
+        "5D4C6E5D6E6F7G8G8G8H8F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C5D5D5E6E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C5D5D5E6E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C5D5D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8H9H8G8F",
+        "6E5C5D5D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D5E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C6E5E6F6F8G8H8G9H8G8F",
+        "6E5C5D4D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D5E6E7G7G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G8H8G7F",
+        "6D4C6E5E6E6F8G8H8G9H8G8F",
+        "6E5C5D4D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D5E6E7G7G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G8H8F7F",
+        "6D4C6E5D6E6F8G8H8G9H8G8F",
+        "6E4C5D4D5E5E7F7G7G8G7F7F",
+        "5D4C5E5D5E6E7G7G8G8G7F7F",
+        "5D4C6E5D6E6F7G8G8G8H8F7F",
+        "6D4C6E5D6E6F7G8H8G9H8G7F",
+        "6E4C5D4D5E5E7F7G7G8G7F7E",
+        "5D4C5D5D5E6E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8H8F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E6E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D5E6E7G7G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G9H8G7F",
+        "6E4C5D4D5E5E7F7G7F8G7F7E",
+        "5D4B5D4D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D5E6E7G7G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G8H8G7F",
+        "6E4C5D4D5D5E7F7G7F8G7F7E",
+        "5D4B5D4D5E5E7F7G7G8G7F7F",
+        "5D4C6E5D5E6E7G7G8G8G7F7F",
+        "6D4C6E5D6E6F7G8G8G8H8F7F",
+        "6D4C5D4C5D5E7F7G7F8G7F7E",
+        "5D3B5D4D5E5E7F7G7G8G7F7F",
+        "5D4C5E5D5E6E7G7G8G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8H8F7F",
+        "6D4C5D4C5D5E6F7F7F8G7F7E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4C5D5D5E6E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8H8F7F",
+        "6D4C5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8G7F7F",
+        "6D4C5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D6E6E7G8G8G8G7F7F",
+        "6D4C5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D5E6E7G7G8G8G7F7F",
+        "6D4C5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D5E6E7G7G8G8G7F7F",
+        "6D4C5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5D5E7F7G7F8G7F7E",
+        "5D4B5D4D5E5E7G7G7G8G7F7F",
+        "5D4C6E5D5E6E7G7G8G8G7F7F",
+        "6D4C5D4C5D5E6F7F7F7G7F6E",
+        "5D3B5D4C5D5E7F7G7F8G7F7E",
+        "5D4B5D4D5E5E7F7G7G8G7F7F",
+        "5D4C6E5D5E6E7G7G8G8G7F7F",
+        "6D4C5D4C5D5D6F7F7F7G7E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F7E",
+        "5D3B5D4D5E5E7F7G7G8G7F7F",
+        "5D4C5D5D5E6E7G7G7G8G7F7F",
+        "5D4C5D4C5D5D6F7F7F7G7E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F7E",
+        "5D3B5D4D5E5E7F7G7G8G7F7F",
+        "5D4C5D5D5E5E7G7G7G8G7F7F",
+        "5D4C5D4C5D5D6F7F7F7G7E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4C5D5D5E5E7G7G7G8G7F7F",
+        "5D4C5D4C5D5D6F7F7F7F6E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C5D4C5D5D6F7F7F7F6E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C5D4C4D5D6F6F7F7F6E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5D5E7F7G7F8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+        "5D4C5D4C4D5D6F6F7F7F6E6E",
+        "5C3B5D4C5D5E6F7F7F7G7F6E",
+        "5D3B5D4D5D5E7F7G7F8G7F7E",
+        "5D4B5D4D5E5E7F7G7G8G7F7F",
+        "5D4C5D4C4D5D6F6F7F7F6E6E",
+        "5C3B5D4C5D5E6F7F7F7G7F6E",
+        "5D3B5D4C5D5E6F7G7F8G7F7E",
+        "5D4B5D4D5E5E7F7G7G8G7F7F",
+        "5D4C5D4C4D5D6F6F7F7F6E6E",
+        "5C3B5D4C5D5D6F7F7F7G7E6E",
+        "5D3B5D4C5D5E6F7F7F8G7F7E",
+        "5D3B5D4D5E5E7F7G7G8G7F7F",
+        "5D4C4C4C4D5D6F6F6F7F6E6E",
+        "4C3B5D4C5D5D6F7F7F7G7E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F7E",
+        "5D3B5D4D5E5E7F7G7G8G7F7F",
+        "5D4C4C4C4D4D6F6F6F7F6E6E",
+        "4C3B5D4C5D5D6F7F7F7G7E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4C4C4C4D4D6F6F6F7F6E6E",
+        "4C3B5D4C5D5D6F7F7F7F6E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4B4C4C4D4D6F6F6F7F6E6E",
+        "4C3B5D4C5D5D6F6F7F7F6E6E",
+        "5C3B5D4C5D5E6F7F7F8G7F6E",
+        "5D3B5D4D5E5E7F7G7G8G7F7E",
+        "5D4B5D5D5E5E7G7G7G8G7F7F",
+      ];
+
+      var LUNAR_FESTIVALS = {
+        "1-1": "春节",
+        "1-15": "元宵节",
+        "2-2": "龙头节",
+        "5-5": "端午节",
+        "7-7": "七夕节",
+        "8-15": "中秋节",
+        "9-9": "重阳节",
+        "12-8": "腊八节"
+      };
+
+      function solarTermName(y, m, d) {
+        if (y < LUNAR_MIN_YEAR || y > LUNAR_MAX_YEAR) return "";
+        var row = SOLAR_TERM_DAYS[y - LUNAR_MIN_YEAR];
+        if (!row || row.length < 24) return "";
+        var i = (m - 1) * 2;
+        if (row.charCodeAt(i) - 48 === d) return SOLAR_TERM_NAMES[i];
+        if (row.charCodeAt(i + 1) - 48 === d) return SOLAR_TERM_NAMES[i + 1];
+        return "";
+      }
+
+      function lunarFestivalName(l) {
+        if (!l) return "";
+        // 固定农历节日只认平月：闰月的同名日期不是节日（与参考实现一致）
+        var fixed = l.leap ? "" : LUNAR_FESTIVALS[l.month + "-" + l.day];
+        if (fixed) return fixed;
+        // 除夕：农历年最后一天（腊月廿九或三十），逐年动态判断
+        if (l.month === 12 && !l.leap && l.day === lunarMonthDays(l.year, 12)) return "除夕";
+        return "";
+      }
+
+      function cellLabel(y, m, d, l) {
+        if (!l) return { text: "", kind: "" };
+        var term = solarTermName(y, m, d);
+        if (term) return { text: term, kind: "term" };
+        var fest = lunarFestivalName(l);
+        if (fest) return { text: fest, kind: "festival" };
+        if (l.day === 1) return { text: lunarMonthName(l.month, l.leap), kind: "month" };
+        return { text: lunarDayName(l.day), kind: "lunar" };
+      }
+
+      /* ===== 日期工具：全程 "YYYY-MM-DD" 字符串运算，避开时区混淆 ===== */
+      var MIN_SELECT_DATE = "1900-01-31"; // 农历表起点（1900 正月初一）
+      var MAX_SELECT_DATE = "2100-12-31";
+
+      function isValidSolar(y, m, d) {
+        if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+        var dt = new Date(Date.UTC(y, m - 1, d));
+        return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+      }
+
+      function isValidDateString(s) {
+        return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+      }
+
+      function todayStr() {
+        var n = new Date();
+        return n.getFullYear() + "-" + pad2(n.getMonth() + 1) + "-" + pad2(n.getDate());
+      }
+
+      function currentYear() { return new Date().getFullYear(); }
+
+      function currentLunarYear() {
+        var t = todayStr().split("-");
+        var l = solar2lunar(+t[0], +t[1], +t[2]);
+        return l ? l.year : +t[0];
+      }
+
+      /* a 晚于 b 的天数差 */
+      function diffDays(a, b) {
+        var pa = a.split("-"), pb = b.split("-");
+        return Math.round(
+          (Date.UTC(+pa[0], pa[1] - 1, +pa[2]) - Date.UTC(+pb[0], pb[1] - 1, +pb[2])) / 86400000
+        );
+      }
+
+      function countdownText(days) {
+        if (days === 0) return "今天";
+        if (days === 1) return "明天";
+        if (days === 2) return "后天";
+        return days + " 天";
+      }
+
+      function solarKeyOfDate(dateStr) {
+        var p = dateStr.split("-");
+        return { month: +p[1], day: +p[2], leap: false };
+      }
+
+      function solarKeyLabel(key) {
+        return key.month + "月" + key.day + "日";
+      }
+
+      function lunarKeyLabel(key) {
+        return lunarMonthName(key.month, key.leap) + lunarDayName(key.day);
+      }
+
+      function fullDateLabel(dateStr) {
+        var p = dateStr.split("-");
+        return (+p[0]) + "年" + (+p[1]) + "月" + (+p[2]) + "日";
+      }
+
+      function shortDateLabel(dateStr, today) {
+        var p = dateStr.split("-");
+        var prefix = (+p[0] === +today.slice(0, 4)) ? "" : (+p[0]) + "年";
+        return prefix + (+p[1]) + "月" + (+p[2]) + "日";
+      }
+
+      function weekdayName(dateStr) {
+        var p = dateStr.split("-");
+        var week = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay();
+        return "星期" + ["日", "一", "二", "三", "四", "五", "六"][week];
+      }
+
+      /* ===== 纪念日条目：月日键编解码与"下一次发生"求解 =====
+         dateKey 只含月日（每年重复）：公历 "MM-DD"；农历 "MM-DD"，
+         闰月预留 "L{0|1}-MM-DD" 编码（0 = 平月，1 = 闰月）。 */
+      function parseDateKey(calendar, raw) {
+        var s = String(raw == null ? "" : raw).trim();
+        var m;
+        if (calendar === "lunar") {
+          m = /^L([01])-?(\d{1,2})-?(\d{1,2})$/i.exec(s);
+          if (m) return { month: +m[2], day: +m[3], leap: m[1] === "1" };
+        }
+        m = /^(\d{1,2})-(\d{1,2})$/.exec(s);
+        if (!m) return null;
+        return { month: +m[1], day: +m[2], leap: false };
+      }
+
+      /* 存储编码：公历 "MM-DD"；农历 "L{0|1}-MM-DD"（0 = 平月，1 = 闰月） */
+      function encodeDateKey(calendar, month, day, leap) {
+        var mm = pad2(month), dd = pad2(day);
+        return calendar === "lunar" ? "L" + (leap ? 1 : 0) + "-" + mm + "-" + dd : mm + "-" + dd;
+      }
+
+      function isValidSolarKey(key) {
+        if (!key) return false;
+        if (key.month < 1 || key.month > 12 || key.day < 1 || key.day > 31) return false;
+        // 用闰年 2000 探测：允许 02-29，拒绝 02-30、04-31 等不存在的月日
+        return isValidSolar(2000, key.month, key.day);
+      }
+
+      function isValidLunarKey(key) {
+        return Boolean(key) && key.month >= 1 && key.month <= 12 && key.day >= 1 && key.day <= 30;
+      }
+
+      /* 把公历日期换成"平月"的农历日期键。
+         选中的公历日若落在闰月（如 2025 闰六月），直接取闰月键会让每年都要求
+         该闰月存在；用户本意通常只是过这个农历日期，因此改取平月同日；该平月
+         没有三十时退到廿九。 */
+      function regularMonthKeyOf(solarDate) {
+        var p = solarDate.split("-");
+        var l = solar2lunar(+p[0], +p[1], +p[2]);
+        if (!l) return null;
+        if (!l.leap) return { month: l.month, day: l.day, leap: false };
+        var day = l.day;
+        for (var i = 0; i < 3 && day >= 1; i++) {
+          var converted = lunar2solar(l.year, l.month, day, false);
+          if (converted) {
+            var cp = converted.split("-");
+            var normal = solar2lunar(+cp[0], +cp[1], +cp[2]);
+            if (normal && !normal.leap) {
+              return { month: normal.month, day: normal.day, leap: false };
+            }
+          }
+          day -= 1; // 该平月是廿九的小月
+        }
+        // 兜底：保留闰月标记，至少有结果
+        return { month: l.month, day: l.day, leap: true };
+      }
+
+      /* 某个农历年的发生日。闰月缺失时回退平月；闰月/平月没有三十时退廿九。
+         闰月存在但只有廿九时，优先保留闰月（按廿九），而不是跳到平月。 */
+      function lunarOccurrenceInYear(year, key) {
+        var leapMonth = lunarLeapMonth(year);
+        if (key.leap && leapMonth === key.month) {
+          var leapDate = lunar2solar(year, key.month, key.day, true);
+          if (leapDate) {
+            return { date: leapDate, usedDay: key.day, usedLeap: true, fallbackDay: false, fallbackLeap: false };
+          }
+          if (key.day === 30) {
+            leapDate = lunar2solar(year, key.month, 29, true);
+            if (leapDate) {
+              return { date: leapDate, usedDay: 29, usedLeap: true, fallbackDay: true, fallbackLeap: false };
+            }
+          }
+        }
+        var maxDay = lunarMonthDays(year, key.month);
+        var day = Math.min(key.day, maxDay);
+        var date = lunar2solar(year, key.month, day, false);
+        if (!date) return null;
+        return {
+          date: date,
+          usedDay: day,
+          usedLeap: false,
+          fallbackDay: day !== key.day,
+          fallbackLeap: Boolean(key.leap)
+        };
+      }
+
+      /* 下一次发生（含今天）。公历按公历年逐年前推；农历按农历年逐年前推，
+         因此春节前后的农历纪念日不会算错年。 */
+      function nextOccurrenceInfo(calendar, key, today) {
+        if (!key) return null;
+        if (calendar !== "lunar") {
+          var ty = +today.slice(0, 4);
+          for (var y = ty; y <= ty + 8; y++) {
+            if (!isValidSolar(y, key.month, key.day)) continue; // 如平年的 02-29
+            var s = y + "-" + pad2(key.month) + "-" + pad2(key.day);
+            if (s >= today) {
+              return { date: s, usedDay: key.day, usedLeap: false, fallbackDay: false, fallbackLeap: false };
+            }
+          }
+          return null;
+        }
+        var tp = today.split("-");
+        var tl = solar2lunar(+tp[0], +tp[1], +tp[2]);
+        var base = tl ? tl.year : +tp[0];
+        for (var ly = base; ly <= base + 3 && ly <= LUNAR_MAX_YEAR; ly++) {
+          var info = lunarOccurrenceInYear(ly, key);
+          if (info && info.date >= today) return info;
+        }
+        return null;
+      }
+
+      /* 为没有 originDate 的旧数据找一个参考公历日：
+         优先取"下一次发生"，这样编辑旧条目时日历直接落在下一次纪念日附近；
+         超出可选范围时再退到表内任意一个合法年份。 */
+      function findReferenceSolarDate(month, day, fromYear) {
+        var start = Math.max(LUNAR_MIN_YEAR, fromYear);
+        var y, s;
+        for (y = start; y <= LUNAR_MAX_YEAR; y++) {
+          if (!isValidSolar(y, month, day)) continue;
+          s = y + "-" + pad2(month) + "-" + pad2(day);
+          if (solar2lunar(y, month, day)) return s;
+        }
+        for (y = start - 1; y >= LUNAR_MIN_YEAR; y--) {
+          if (!isValidSolar(y, month, day)) continue;
+          s = y + "-" + pad2(month) + "-" + pad2(day);
+          if (solar2lunar(y, month, day)) return s;
+        }
+        return null;
+      }
+
+      function findReferenceLunarDate(month, day, leap, fromLunarYear) {
+        var start = Math.max(LUNAR_MIN_YEAR, fromLunarYear);
+        var y, d, s;
+        if (leap) {
+          for (y = start; y <= LUNAR_MAX_YEAR; y++) {
+            if (lunarLeapMonth(y) !== month) continue;
+            s = lunar2solar(y, month, day, true);
+            if (!s && day === 30) s = lunar2solar(y, month, 29, true);
+            if (s) return s;
+          }
+          for (y = start - 1; y >= LUNAR_MIN_YEAR; y--) {
+            if (lunarLeapMonth(y) !== month) continue;
+            s = lunar2solar(y, month, day, true);
+            if (!s && day === 30) s = lunar2solar(y, month, 29, true);
+            if (s) return s;
+          }
+        }
+        for (y = start; y <= LUNAR_MAX_YEAR; y++) {
+          d = Math.min(day, lunarMonthDays(y, month));
+          s = lunar2solar(y, month, d, false);
+          if (s) return s;
+        }
+        for (y = start - 1; y >= LUNAR_MIN_YEAR; y--) {
+          d = Math.min(day, lunarMonthDays(y, month));
+          s = lunar2solar(y, month, d, false);
+          if (s) return s;
+        }
+        return null;
+      }
+
+      function originFromKey(calendar, key) {
+        if (!key) return null;
+        var info = nextOccurrenceInfo(calendar, key, todayStr());
+        if (info && info.date >= MIN_SELECT_DATE && info.date <= MAX_SELECT_DATE) return info.date;
+        if (calendar === "solar") return findReferenceSolarDate(key.month, key.day, currentYear());
+        return findReferenceLunarDate(key.month, key.day, key.leap, currentLunarYear());
+      }
+
+      function occurrencesForItem(item, today) {
+        var models = [];
+        if (item.remindSolar && item.solarKey) {
+          var si = nextOccurrenceInfo("solar", item.solarKey, today);
+          if (si) models.push({ calendar: "solar", key: item.solarKey, info: si, days: diffDays(si.date, today) });
+        }
+        if (item.remindLunar && item.lunarKey) {
+          var li = nextOccurrenceInfo("lunar", item.lunarKey, today);
+          if (li) models.push({ calendar: "lunar", key: item.lunarKey, info: li, days: diffDays(li.date, today) });
+        }
+        return models;
+      }
+
+      /* ===== 数据模型 v2 =====
+         每条存 originDate（用户点中的具体公历日）、solarKey、lunarKey、
+         remindSolar、remindLunar；同时写旧字段 calendar/dateKey，让旧客户端
+         至少能显示一条时间线。旧数据（只有 calendar/dateKey）读取时自动迁移，
+         无法解析的条目原样保留并在设置中显示为"数据异常"，不静默丢弃。 */
+      function genId() {
+        return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      }
+
+      function normalizeItem(raw) {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { reason: "条目格式异常" };
+        var name = typeof raw.name === "string" ? raw.name.trim() : "";
+        if (!name) return { reason: "名称为空" };
+        var id = typeof raw.id === "string" && raw.id ? raw.id.slice(0, 64) : genId();
+
+        var solarKey = null;
+        var lunarKey = null;
+        if (typeof raw.solarKey === "string") {
+          var sk = parseDateKey("solar", raw.solarKey);
+          if (sk && isValidSolarKey(sk)) solarKey = { month: sk.month, day: sk.day, leap: false };
+        }
+        if (typeof raw.lunarKey === "string") {
+          var lk = parseDateKey("lunar", raw.lunarKey);
+          if (lk && isValidLunarKey(lk)) lunarKey = { month: lk.month, day: lk.day, leap: lk.leap };
+        }
+
+        var legacyCal = raw.calendar === "lunar" ? "lunar" : "solar";
+        var legacyKey = parseDateKey(legacyCal, raw.dateKey);
+        if (legacyKey) {
+          if (legacyCal === "solar" && !isValidSolarKey(legacyKey)) legacyKey = null;
+          if (legacyCal === "lunar" && !isValidLunarKey(legacyKey)) legacyKey = null;
+        }
+
+        var hasV2 = Object.prototype.hasOwnProperty.call(raw, "solarKey") ||
+          Object.prototype.hasOwnProperty.call(raw, "lunarKey") ||
+          Object.prototype.hasOwnProperty.call(raw, "remindSolar") ||
+          Object.prototype.hasOwnProperty.call(raw, "remindLunar") ||
+          Object.prototype.hasOwnProperty.call(raw, "originDate");
+        var originDate = null;
+        if (typeof raw.originDate === "string" && isValidDateString(raw.originDate) &&
+            raw.originDate >= MIN_SELECT_DATE && raw.originDate <= MAX_SELECT_DATE) {
+          originDate = raw.originDate;
+        }
+
+        if (!hasV2) {
+          // 旧数据：只有单历法 + 月日键
+          if (!legacyKey) return { reason: "日期格式错误" };
+          if (legacyCal === "solar") {
+            originDate = originDate || originFromKey("solar", legacyKey);
+            if (!originDate) return { reason: "日期无效" };
+            solarKey = { month: legacyKey.month, day: legacyKey.day, leap: false };
+            lunarKey = lunarKey || regularMonthKeyOf(originDate);
+            return { item: { id: id, name: name, originDate: originDate, solarKey: solarKey, lunarKey: lunarKey, remindSolar: true, remindLunar: false } };
+          }
+          originDate = originDate || originFromKey("lunar", legacyKey);
+          if (!originDate) return { reason: "日期无效" };
+          lunarKey = { month: legacyKey.month, day: legacyKey.day, leap: legacyKey.leap };
+          solarKey = solarKey || solarKeyOfDate(originDate);
+          return { item: { id: id, name: name, originDate: originDate, solarKey: solarKey, lunarKey: lunarKey, remindSolar: false, remindLunar: true } };
+        }
+
+        var remindSolar;
+        var remindLunar;
+        var hasFlags = typeof raw.remindSolar === "boolean" || typeof raw.remindLunar === "boolean";
+        if (hasFlags) {
+          remindSolar = raw.remindSolar === true;
+          remindLunar = raw.remindLunar === true;
+        } else if (legacyKey) {
+          remindSolar = legacyCal === "solar";
+          remindLunar = legacyCal === "lunar";
+        } else {
+          remindSolar = Boolean(solarKey);
+          remindLunar = !remindSolar && Boolean(lunarKey);
+        }
+
+        if (!originDate) {
+          var prefer = remindSolar ? "solar" : (remindLunar ? "lunar" : (solarKey ? "solar" : "lunar"));
+          if (prefer === "solar" && solarKey) originDate = originFromKey("solar", solarKey);
+          if (!originDate && prefer === "lunar" && lunarKey) originDate = originFromKey("lunar", lunarKey);
+          if (!originDate && solarKey) originDate = originFromKey("solar", solarKey);
+          if (!originDate && lunarKey) originDate = originFromKey("lunar", lunarKey);
+          if (!originDate && legacyKey) originDate = originFromKey(legacyCal, legacyKey);
+        }
+        if (!originDate) return { reason: "日期无法解析" };
+
+        if (!solarKey) solarKey = solarKeyOfDate(originDate);
+        if (!lunarKey) lunarKey = regularMonthKeyOf(originDate);
+
+        if (remindSolar && !solarKey) remindSolar = false;
+        if (remindLunar && !lunarKey) remindLunar = false;
+        if (!remindSolar && !remindLunar) {
+          if (solarKey) remindSolar = true;
+          else if (lunarKey) remindLunar = true;
+        }
+        if (!remindSolar && !remindLunar) return { reason: "未启用历法" };
+        if (!solarKey && !lunarKey) return { reason: "日期无效" };
+        return { item: { id: id, name: name, originDate: originDate, solarKey: solarKey, lunarKey: lunarKey, remindSolar: remindSolar, remindLunar: remindLunar } };
+      }
+
+      function normalizeList(raw) {
+        var items = [];
+        var damaged = [];
+        if (!Array.isArray(raw)) return { invalid: true, items: items, damaged: damaged };
+        for (var i = 0; i < raw.length; i++) {
+          var result = normalizeItem(raw[i]);
+          if (result.item) {
+            items.push(result.item);
+          } else {
+            var source = raw[i];
+            var display = source && typeof source === "object" && typeof source.name === "string" && source.name.trim()
+              ? source.name.trim().slice(0, 50)
+              : "数据异常";
+            damaged.push({ raw: source, name: display, reason: result.reason || "无法解析" });
+          }
+        }
+        return { invalid: false, items: items, damaged: damaged };
+      }
+
+      function serializeItems() {
+        var out = [];
+        for (var i = 0; i < state.items.length; i++) {
+          var it = state.items[i];
+          var sk = it.solarKey ? encodeDateKey("solar", it.solarKey.month, it.solarKey.day, false) : null;
+          var lk = it.lunarKey ? encodeDateKey("lunar", it.lunarKey.month, it.lunarKey.day, it.lunarKey.leap) : null;
+          var legacyCal;
+          var legacyKey;
+          if (it.remindSolar && sk) {
+            legacyCal = "solar";
+            legacyKey = sk;
+          } else if (it.remindLunar && lk) {
+            legacyCal = "lunar";
+            legacyKey = lk;
+          } else if (sk) {
+            legacyCal = "solar";
+            legacyKey = sk;
+          } else {
+            legacyCal = "lunar";
+            legacyKey = lk;
+          }
+          var obj = {
+            id: it.id || genId(),
+            name: it.name,
+            originDate: it.originDate,
+            remindSolar: it.remindSolar,
+            remindLunar: it.remindLunar,
+            calendar: legacyCal,
+            dateKey: legacyKey
+          };
+          if (sk) obj.solarKey = sk;
+          if (lk) obj.lunarKey = lk;
+          out.push(obj);
+        }
+        for (var j = 0; j < state.damaged.length; j++) {
+          var raw = state.damaged[j].raw;
+          out.push(raw === undefined ? null : raw);
+        }
+        return out;
+      }
+
+      /* 无数据时的展示样例（只渲染不落盘；设置界面保存后即被真实数据替换）。
+         故意混用旧格式与 v2 格式，顺带展示迁移与双历法两条时间线。 */
+      var DEMO_RAW = [
+        { name: "王五的婚礼", calendar: "solar", dateKey: "11-11" },
+        { name: "新年元旦", calendar: "solar", dateKey: "01-01" },
+        { name: "李四的生日", calendar: "lunar", dateKey: "L0-05-17" },
+        {
+          name: "结婚纪念日",
+          originDate: "2026-11-11",
+          solarKey: "11-11",
+          lunarKey: "L0-10-03",
+          remindSolar: true,
+          remindLunar: true
+        }
+      ];
+      function demoItems() {
+        return normalizeList(DEMO_RAW).items;
+      }
+
+      // state.mode："demo" = 尚无数据（展示示例，首次修改后转为真实数据）；
+      // "real" = 渲染 storage 数据；"error" = 数据损坏
+      var state = { mode: "demo", items: demoItems(), damaged: [] };
+
+      /* ===== 渲染 ===== */
+      function showHint(text) {
+        root.textContent = "";
+        var hint = document.createElement("div");
+        hint.className = "bridge-hint";
+        hint.textContent = text;
+        root.appendChild(hint);
+      }
+
+      function el(tag, className) {
+        var node = document.createElement(tag);
+        if (className) node.className = className;
+        return node;
+      }
+
+      var listBox = null;
+      var toastEl = null;
+      var toastTimer = null;
+
+      function countdownClass(days) {
+        return days === 0 ? " today" : "";
+      }
+
+      function lineTitle(model, today) {
+        var parts = [];
+        if (model.calendar === "lunar") {
+          parts.push("农历 " + lunarKeyLabel(model.key));
+          parts.push("下一次 " + fullDateLabel(model.info.date));
+          parts.push(countdownText(model.days));
+          if (model.info.fallbackLeap) {
+            parts.push("该年无闰" + lunarMonthName(model.key.month, false) + "，按平月" + lunarDayName(model.info.usedDay));
+          }
+          if (model.info.fallbackDay) {
+            parts.push("该农历月没有" + lunarDayName(model.key.day) + "，按" + lunarDayName(model.info.usedDay));
+          }
+        } else {
+          parts.push("公历 " + solarKeyLabel(model.key));
+          parts.push("下一次 " + fullDateLabel(model.info.date));
+          parts.push(countdownText(model.days));
+          if (model.key.month === 2 && model.key.day === 29) parts.push("仅在闰年发生");
+        }
+        return parts.join(" · ");
+      }
+
+      function rowCountdownText(days) {
+        if (days === 0) return "今天";
+        return "还有 " + days + "天";
+      }
+
+      /* 列表第二行：按启用的历法并列展示固定月日（与图片一致，不标"下一次"年份） */
+      function itemDateSummary(item) {
+        var parts = [];
+        if (item.remindSolar && item.solarKey) parts.push(solarKeyLabel(item.solarKey));
+        if (item.remindLunar && item.lunarKey) parts.push("农历 " + lunarKeyLabel(item.lunarKey));
+        return parts.length ? parts.join("  ") : "未启用历法";
+      }
+
+      function buildRow(item, today) {
+        var models = occurrencesForItem(item, today);
+        if (!models.length) return null;
+        var nearestDays = models[0].days;
+        for (var i = 1; i < models.length; i++) {
+          if (models[i].days < nearestDays) nearestDays = models[i].days;
+        }
+
+        var row = el("div", "anniv-row");
+        row.dataset.days = String(nearestDays);
+
+        var main = el("div", "anniv-row-main");
+        var name = el("span", "anniv-name");
+        name.textContent = item.name;
+        name.title = item.name;
+        var count = el("span", "anniv-count" + countdownClass(nearestDays));
+        count.textContent = rowCountdownText(nearestDays);
+        main.appendChild(name);
+        main.appendChild(count);
+
+        var sub = el("div", "anniv-sub");
+        sub.textContent = itemDateSummary(item);
+        sub.title = sub.textContent;
+
+        row.appendChild(main);
+        row.appendChild(sub);
+
+        // 闰月缺失/小月无三十只在发生年份提示，平时保持两行样式
+        var fallbackParts = [];
+        for (var k = 0; k < models.length; k++) {
+          var model = models[k];
+          if (model.info.fallbackLeap) {
+            fallbackParts.push("本年无闰" + lunarMonthName(model.key.month, false) + "，按平月" + lunarDayName(model.info.usedDay));
+          } else if (model.info.fallbackDay) {
+            fallbackParts.push("本年" + lunarMonthName(model.key.month, model.key.leap) + "没有" + lunarDayName(model.key.day) + "，按" + lunarDayName(model.info.usedDay));
+          }
+        }
+        if (fallbackParts.length) {
+          var fallback = el("div", "anniv-fallback");
+          fallback.textContent = fallbackParts.join("；");
+          row.appendChild(fallback);
+        }
+
+        var titleParts = [item.name, itemDateSummary(item)];
+        for (var j = 0; j < models.length; j++) titleParts.push(lineTitle(models[j], today));
+        row.title = titleParts.join("\n");
+        return row;
+      }
+
+      function render() {
+        if (!listBox) return;
+        var today = todayStr();
+        listBox.textContent = "";
+        var items = state.mode === "error" ? [] : state.items;
+        var rows = [];
+        for (var i = 0; i < items.length; i++) {
+          var row = buildRow(items[i], today);
+          if (row) rows.push(row);
+        }
+        rows.sort(function (a, b) {
+          var diff = (+a.dataset.days) - (+b.dataset.days);
+          if (diff !== 0) return diff;
+          return String(a.title).localeCompare(String(b.title), "zh-Hans-CN");
+        });
+        if (!rows.length) {
+          var empty = el("div", "anniv-empty");
+          if (state.mode === "error") {
+            empty.textContent = "数据读取失败，请重新打开窗口重试";
+          } else if (state.mode === "real" && state.damaged.length) {
+            empty.textContent = "暂无可用纪念日，设置中有 " + state.damaged.length + " 条数据异常";
+          } else {
+            empty.textContent = "暂无纪念日，点右上角 ⚙ 添加";
+          }
+          listBox.appendChild(empty);
+        } else {
+          for (var k = 0; k < rows.length; k++) listBox.appendChild(rows[k]);
+        }
+        if (state.mode === "real" && state.damaged.length) {
+          var dataHint = el("div", "anniv-data-hint");
+          dataHint.textContent = "有 " + state.damaged.length + " 条数据异常，点此在设置中处理";
+          dataHint.addEventListener("click", function () { togglePanel(true); });
+          listBox.appendChild(dataHint);
+        }
+      }
+
+      function showToast(text) {
+        if (!toastEl) return;
+        toastEl.textContent = text;
+        toastEl.hidden = false;
+        if (toastTimer) window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(function () {
+          toastEl.hidden = true;
+          toastTimer = null;
+        }, 1600);
+      }
+
+      /* ===== 设置面板：列表管理与月历选择 =====
+         数据经现有 storage 桥存单键 "list"（插件级 globalStorage，关窗保留）。
+         全程 createElement 构建、不碰 innerHTML（与便签同款渲染卫生）。 */
+      var panelEl = null;
+      var panelList = null;  // 列表视图容器
+      var panelForm = null;  // 编辑视图容器
+      // editingIndex：null = 列表视图；-1 = 新增；>=0 = 编辑对应项
+      var editingIndex = null;
+      var deleteArmTarget = null; // { kind: "item"|"damaged", index } 二次确认目标
+      var saveTimer = null;
+      var dirtyList = false;
+      var listFailureAt = 0;
+      var saveInFlight = null; // 在途保存 Promise<boolean>：关窗流程靠它等到真实结果
+      var closeForceArmed = false; // 保存失败/超时后置位：再点一次 × 即按原意强制关闭
+
+      function togglePanel(force) {
+        if (!panelEl) return;
+        var open = typeof force === "boolean" ? force : panelEl.hidden;
+        panelEl.hidden = !open;
+        if (open) {
+          deleteArmTarget = null;
+          exitForm();
+          renderPanelList();
+        } else {
+          deleteArmTarget = null;
+          exitForm();
+        }
+      }
+
+      function scheduleSave() {
+        if (saveTimer) window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(flushSave, 400);
+      }
+
+      /* 返回 Promise<boolean>：true = 可以安全关闭（已落库，或本来就没有待存内容），
+         false = 保存失败（dirtyList 保持 true，变更仍留在窗口内可重试）。
+         在途请求复用 saveInFlight，关窗流程靠它等到真实结果。 */
+      function flushSave() {
+        if (saveTimer) {
+          window.clearTimeout(saveTimer);
+          saveTimer = null;
+        }
+        // 桥不可用 / 数据处于损坏态：没有可丢的内容，不该拦住关窗
+        if (!bridgeOk || state.mode === "error") return Promise.resolve(true);
+        if (!dirtyList) return saveInFlight || Promise.resolve(true);
+        var text;
+        try {
+          text = JSON.stringify(serializeItems());
+        } catch (error) {
+          dirtyList = true; // 变更仍在，等下次变更或页面隐藏时重试
+          showToast("保存失败：数据序列化异常");
+          return Promise.resolve(false);
+        }
+        dirtyList = false;
+        var task = callBridge("storage.set", { key: LIST_KEY, value: text }).then(function () {
+          if (saveInFlight === task) saveInFlight = null;
+          closeForceArmed = false; // 保存通路已恢复，撤销"强制关闭"豁免
+          return true;
+        }).catch(function () {
+          if (saveInFlight === task) saveInFlight = null;
+          dirtyList = true; // 失败恢复待存，下次变更或页面隐藏时重试
+          showSaveFailureHint();
+          return false;
+        });
+        saveInFlight = task;
+        return task;
+      }
+
+      function showSaveFailureHint() {
+        var now = Date.now();
+        if (now - listFailureAt < 60000) return;
+        listFailureAt = now;
+        showToast("保存失败：与导航页的连接已中断，变更暂留窗口内");
+      }
+
+      /* 关窗：先冲刷待存变更，成功才真正关闭。
+         宿主收到 window.close 会先解绑桥再拆窗口，因此"先冲刷再关窗"是
+         保存不丢的唯一保证；失败（宿主应答错误，或 1.2s 无响应）则取消关闭
+         并置强制开关，用户再点一次 × 即按原意关闭——既不静默丢数据，
+         也不把窗口锁死。 */
+      function requestClose() {
+        if (closeForceArmed) {
+          callBridge("window.close", {}).catch(function () {});
+          return;
+        }
+        var settled = false;
+        var timer = window.setTimeout(function () {
+          if (settled) return;
+          settled = true;
+          closeForceArmed = true;
+          showToast("保存超时：窗口未关闭，再点一次 × 可强制关闭");
+        }, 1200);
+        flushSave().then(function (ok) {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          if (!ok) {
+            closeForceArmed = true;
+            showToast("保存失败：已取消关闭，再点一次 × 可强制关闭");
+            return;
+          }
+          callBridge("window.close", {}).catch(function () {});
+        });
+      }
+
+      /* state.items 变更后的统一入口：标记脏 + 防抖落盘 + 刷新主列表 */
+      function persistItems() {
+        if (state.mode === "error") return;
+        if (state.mode === "demo") state.mode = "real"; // 首条真实数据落定，脱离示例
+        dirtyList = true;
+        scheduleSave();
+        render();
+      }
+
+      function panelRowSummary(item) {
+        var parts = [];
+        if (item.remindSolar && item.solarKey) parts.push("公历 " + solarKeyLabel(item.solarKey));
+        if (item.remindLunar && item.lunarKey) parts.push("农历 " + lunarKeyLabel(item.lunarKey));
+        return parts.length ? parts.join(" · ") : "未启用历法";
+      }
+
+      function renderPanelList() {
+        panelList.textContent = "";
+        panelList.hidden = false;
+        panelForm.hidden = true;
+        editingIndex = null;
+        if (state.mode === "error") {
+          var err = el("div", "panel-error");
+          err.textContent = "数据读取失败，无法管理纪念日。请刷新页面或检查插件存储数据。";
+          panelList.appendChild(err);
+          return;
+        }
+        if (!state.items.length && !state.damaged.length) {
+          var empty = el("div", "panel-empty");
+          empty.textContent = "还没有纪念日，添加第一个吧";
+          panelList.appendChild(empty);
+        }
+        state.items.forEach(function (item, index) {
+          var row = el("div", "panel-row");
+          var main = el("div", "panel-row-main");
+          var name = el("span", "panel-row-name");
+          name.textContent = item.name;
+          name.title = item.name;
+          var date = el("span", "panel-row-date");
+          date.textContent = panelRowSummary(item);
+          date.title = date.textContent;
+          main.appendChild(name);
+          main.appendChild(date);
+          var armed = deleteArmTarget && deleteArmTarget.kind === "item" && deleteArmTarget.index === index;
+          var del = el("button", "panel-row-del" + (armed ? " confirm" : ""));
+          del.type = "button";
+          del.textContent = armed ? "确认删除" : "×";
+          del.setAttribute("aria-label", "删除" + item.name);
+          del.addEventListener("click", function (event) {
+            event.stopPropagation();
+            if (!armed) {
+              deleteArmTarget = { kind: "item", index: index };
+              renderPanelList();
+              return;
+            }
+            state.items.splice(index, 1);
+            deleteArmTarget = null;
+            persistItems();
+            renderPanelList();
+          });
+          row.appendChild(main);
+          row.appendChild(del);
+          row.addEventListener("click", function () {
+            openForm(index);
+          });
+          panelList.appendChild(row);
+        });
+
+        state.damaged.forEach(function (entry, index) {
+          var row = el("div", "panel-row warn");
+          var main = el("div", "panel-row-main");
+          var name = el("span", "panel-row-name");
+          name.textContent = entry.name;
+          name.title = entry.name;
+          var date = el("span", "panel-row-date");
+          date.textContent = entry.reason + " · 原始数据已保留";
+          date.title = entry.reason + "。该条目不会在列表中显示，删除后不再保留。";
+          main.appendChild(name);
+          main.appendChild(date);
+          var armed = deleteArmTarget && deleteArmTarget.kind === "damaged" && deleteArmTarget.index === index;
+          var del = el("button", "panel-row-del" + (armed ? " confirm" : ""));
+          del.type = "button";
+          del.textContent = armed ? "确认删除" : "×";
+          del.setAttribute("aria-label", "删除数据异常条目 " + entry.name);
+          del.addEventListener("click", function (event) {
+            event.stopPropagation();
+            if (!armed) {
+              deleteArmTarget = { kind: "damaged", index: index };
+              renderPanelList();
+              return;
+            }
+            state.damaged.splice(index, 1);
+            deleteArmTarget = null;
+            persistItems();
+            renderPanelList();
+          });
+          row.title = "数据异常：" + entry.reason + "。该条目会原样保留，删除后不再保留。";
+          row.appendChild(main);
+          row.appendChild(del);
+          panelList.appendChild(row);
+        });
+
+        if (state.damaged.length) {
+          var note = el("div", "panel-note");
+          note.textContent = "数据异常条目会原样保留在存储中，不会参与列表倒计时。";
+          panelList.appendChild(note);
+        }
+
+        var add = el("button", "panel-add");
+        add.type = "button";
+        add.textContent = "+ 添加纪念日";
+        add.addEventListener("click", function () {
+          openForm(-1);
+        });
+        panelList.appendChild(add);
+      }
+
+      function openForm(index) {
+        if (state.mode === "error") return;
+        editingIndex = index;
+        deleteArmTarget = null;
+        panelList.hidden = true;
+        panelForm.hidden = false;
+        var item = index >= 0 && state.items[index] ? state.items[index] : null;
+        buildForm(item);
+      }
+
+      function exitForm() {
+        editingIndex = null;
+        deleteArmTarget = null;
+        if (formState.deleteTimer) {
+          window.clearTimeout(formState.deleteTimer);
+          formState.deleteTimer = null;
+        }
+        formState = createFormState();
+        if (panelForm) panelForm.hidden = true;
+        if (panelList) panelList.hidden = false;
+      }
+
+      /* ===== 编辑表单：名称 + 月历 + 纪念历法复选框 + 实时预览 ===== */
+      function createFormState() {
+        return {
+          item: null,
+          selectedDate: "",
+          initialDate: "",
+          solarKey: null,
+          lunarKey: null,
+          initialSolarKey: null,
+          initialLunarKey: null,
+          keysDirty: false,
+          remindSolar: true,
+          remindLunar: false,
+          viewYear: currentYear(),
+          viewMonth: 1,
+          deleteArmed: false,
+          deleteTimer: null
+        };
+      }
+
+      var formState = createFormState();
+      var formRefs = {};
+
+      function buildForm(item) {
+        panelForm.textContent = "";
+        panelForm.scrollTop = 0;
+        formRefs = {};
+        var today = todayStr();
+
+        formState = createFormState();
+        formState.item = item || null;
+        formState.selectedDate = item ? item.originDate : today;
+        if (!isValidDateString(formState.selectedDate) ||
+            formState.selectedDate < MIN_SELECT_DATE || formState.selectedDate > MAX_SELECT_DATE) {
+          formState.selectedDate = today;
+        }
+        formState.initialDate = formState.selectedDate;
+        formState.solarKey = item ? item.solarKey : solarKeyOfDate(formState.selectedDate);
+        formState.lunarKey = item ? item.lunarKey : regularMonthKeyOf(formState.selectedDate);
+        formState.initialSolarKey = formState.solarKey;
+        formState.initialLunarKey = formState.lunarKey;
+        formState.keysDirty = !item;
+        formState.remindSolar = item ? item.remindSolar : true;
+        formState.remindLunar = item ? item.remindLunar : false;
+        if (formState.remindSolar && !formState.solarKey) formState.remindSolar = false;
+        if (formState.remindLunar && !formState.lunarKey) formState.remindLunar = false;
+        if (!formState.remindSolar && !formState.remindLunar) formState.remindSolar = true;
+        formState.viewYear = +formState.selectedDate.slice(0, 4);
+        formState.viewMonth = +formState.selectedDate.slice(5, 7);
+
+        var fName = el("div", "form-field");
+        var lName = el("label", "form-label");
+        lName.textContent = "名称";
+        lName.setAttribute("for", "anniv-name-input");
+        var nameInput = el("input", "form-input");
+        nameInput.type = "text";
+        nameInput.id = "anniv-name-input";
+        nameInput.maxLength = 50;
+        nameInput.placeholder = "如：张三的生日";
+        nameInput.value = item ? item.name : "";
+        nameInput.addEventListener("keydown", function (event) {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            submitForm();
+          }
+        });
+        fName.appendChild(lName);
+        fName.appendChild(nameInput);
+        panelForm.appendChild(fName);
+        formRefs.nameInput = nameInput;
+
+        var fDate = el("div", "form-field");
+        var lDate = el("span", "form-label");
+        lDate.textContent = "日期（每年重复）";
+        var cal = el("div", "cal");
+        var head = el("div", "cal-head");
+
+        var prev = el("button", "cal-nav");
+        prev.type = "button";
+        prev.textContent = "\u2039";
+        prev.title = "上一月";
+        prev.setAttribute("aria-label", "上一月");
+        prev.addEventListener("click", function () { shiftView(-1); });
+
+        var yearInput = el("input", "form-input cal-year");
+        yearInput.type = "text";
+        yearInput.maxLength = 4;
+        yearInput.setAttribute("inputmode", "numeric");
+        yearInput.setAttribute("aria-label", "年份");
+        yearInput.title = "年份（1900–2100）";
+        yearInput.addEventListener("change", applyYearInput);
+        yearInput.addEventListener("blur", applyYearInput);
+        yearInput.addEventListener("keydown", function (event) {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            applyYearInput();
+            yearInput.blur();
+          }
+        });
+        yearInput.addEventListener("focus", function () { yearInput.select(); });
+
+        var yearUnit = el("span", "cal-unit");
+        yearUnit.textContent = "年";
+
+        var monthSel = el("select", "form-select cal-month");
+        monthSel.setAttribute("aria-label", "月份");
+        for (var m = 1; m <= 12; m++) {
+          var opt = document.createElement("option");
+          opt.value = String(m);
+          opt.textContent = m + "月";
+          monthSel.appendChild(opt);
+        }
+        monthSel.addEventListener("change", function () {
+          formState.viewMonth = +monthSel.value;
+          renderCalendarAll();
+        });
+
+        var todayBtn = el("button", "cal-today");
+        todayBtn.type = "button";
+        todayBtn.textContent = "今天";
+        todayBtn.title = "回到今天并选中";
+        todayBtn.addEventListener("click", function () {
+          var now = todayStr();
+          pickDate(now, +now.slice(0, 4), +now.slice(5, 7));
+        });
+
+        var next = el("button", "cal-nav");
+        next.type = "button";
+        next.textContent = "\u203A";
+        next.title = "下一月";
+        next.setAttribute("aria-label", "下一月");
+        next.addEventListener("click", function () { shiftView(1); });
+
+        head.appendChild(prev);
+        head.appendChild(yearInput);
+        head.appendChild(yearUnit);
+        head.appendChild(monthSel);
+        head.appendChild(todayBtn);
+        head.appendChild(next);
+
+        var week = el("div", "cal-week");
+        ["一", "二", "三", "四", "五", "六", "日"].forEach(function (label) {
+          var span = document.createElement("span");
+          span.textContent = label;
+          week.appendChild(span);
+        });
+
+        var grid = el("div", "cal-grid");
+        var selected = el("div", "cal-selected");
+        cal.appendChild(head);
+        cal.appendChild(week);
+        cal.appendChild(grid);
+        cal.appendChild(selected);
+        fDate.appendChild(lDate);
+        fDate.appendChild(cal);
+        panelForm.appendChild(fDate);
+        formRefs.yearInput = yearInput;
+        formRefs.monthSelect = monthSel;
+        formRefs.grid = grid;
+        formRefs.selected = selected;
+
+        var fCal = el("div", "form-field");
+        var lCal = el("span", "form-label");
+        lCal.textContent = "纪念历法";
+        var checks = el("div", "cal-checks");
+        var solarLine = el("label", "check-line");
+        var solarCheck = document.createElement("input");
+        solarCheck.type = "checkbox";
+        solarCheck.checked = formState.remindSolar;
+        solarCheck.addEventListener("change", function () { handleCheckChange("solar"); });
+        var solarText = document.createElement("span");
+        solarText.textContent = "公历";
+        solarLine.appendChild(solarCheck);
+        solarLine.appendChild(solarText);
+        var lunarLine = el("label", "check-line");
+        var lunarCheck = document.createElement("input");
+        lunarCheck.type = "checkbox";
+        lunarCheck.checked = formState.remindLunar;
+        lunarCheck.addEventListener("change", function () { handleCheckChange("lunar"); });
+        var lunarText = document.createElement("span");
+        lunarText.textContent = "农历";
+        lunarLine.appendChild(lunarCheck);
+        lunarLine.appendChild(lunarText);
+        checks.appendChild(solarLine);
+        checks.appendChild(lunarLine);
+        var checkHint = el("div", "form-hint");
+        checkHint.textContent = "纪念日按☑️公历 ☑️农历设定，最终会按对应的公历日计时。";
+        var checkHint2 = el("div", "form-hint");
+        checkHint2.textContent = "至少选择一种；列表按两种历法中最近的一次倒计时。";
+        fCal.appendChild(lCal);
+        fCal.appendChild(checks);
+        fCal.appendChild(checkHint);
+        fCal.appendChild(checkHint2);
+        panelForm.appendChild(fCal);
+        formRefs.checkSolar = solarCheck;
+        formRefs.checkLunar = lunarCheck;
+
+        var preview = el("div", "form-preview");
+        panelForm.appendChild(preview);
+        formRefs.preview = preview;
+
+        var actions = el("div", "form-actions");
+        if (item) {
+          var delBtn = el("button", "form-btn danger");
+          delBtn.type = "button";
+          delBtn.textContent = "删除";
+          delBtn.addEventListener("click", armDelete);
+          actions.appendChild(delBtn);
+          formRefs.delBtn = delBtn;
+        }
+        actions.appendChild(el("span", "form-spacer"));
+        var cancel = el("button", "form-btn");
+        cancel.type = "button";
+        cancel.textContent = "取消";
+        cancel.addEventListener("click", function () {
+          exitForm();
+          renderPanelList();
+        });
+        var save = el("button", "form-btn primary");
+        save.type = "button";
+        save.textContent = "保存";
+        save.addEventListener("click", submitForm);
+        actions.appendChild(cancel);
+        actions.appendChild(save);
+        panelForm.appendChild(actions);
+
+        renderCalendarAll();
+        updatePreview();
+        nameInput.focus();
+      }
+
+      function renderCalendarAll() {
+        renderCalendarHeader();
+        renderCalendarGrid();
+        renderSelected();
+      }
+
+      function renderCalendarHeader() {
+        if (!formRefs.yearInput || !formRefs.monthSelect) return;
+        formRefs.yearInput.value = String(formState.viewYear);
+        formRefs.monthSelect.value = String(formState.viewMonth);
+      }
+
+      function renderCalendarGrid() {
+        if (!formRefs.grid) return;
+        var grid = formRefs.grid;
+        grid.textContent = "";
+        var today = todayStr();
+        var first = new Date(Date.UTC(formState.viewYear, formState.viewMonth - 1, 1));
+        var lead = (first.getUTCDay() + 6) % 7; // 周一为一周起点
+        var start = Date.UTC(formState.viewYear, formState.viewMonth - 1, 1 - lead);
+        var fragment = document.createDocumentFragment();
+
+        for (var i = 0; i < 42; i++) {
+          var dt = new Date(start + i * 86400000);
+          var y = dt.getUTCFullYear();
+          var m = dt.getUTCMonth() + 1;
+          var d = dt.getUTCDate();
+          var dateStr = y + "-" + pad2(m) + "-" + pad2(d);
+          var l = solar2lunar(y, m, d);
+          var label = cellLabel(y, m, d, l);
+          var inMonth = y === formState.viewYear && m === formState.viewMonth;
+          var disabled = dateStr < MIN_SELECT_DATE || dateStr > MAX_SELECT_DATE;
+          var selected = dateStr === formState.selectedDate;
+          var classes = ["cal-cell"];
+          if (!inMonth) classes.push("out");
+          if (dateStr === today) classes.push("today");
+          if (selected) classes.push("selected");
+          if (label.kind) classes.push(label.kind);
+
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = classes.join(" ");
+          btn.disabled = disabled;
+          btn.setAttribute("aria-pressed", selected ? "true" : "false");
+          var aria = y + "年" + m + "月" + d + "日";
+          if (l) aria += "，农历" + lunarMonthName(l.month, l.leap) + lunarDayName(l.day);
+          if (label.text && label.kind === "term") aria += "，" + label.text;
+          if (label.text && label.kind === "festival") aria += "，" + label.text;
+          btn.setAttribute("aria-label", aria);
+          btn.title = aria;
+
+          var solarSpan = el("span", "cal-solar");
+          solarSpan.textContent = String(d);
+          var lunarSpan = el("span", "cal-lunar");
+          lunarSpan.textContent = label.text || "";
+          btn.appendChild(solarSpan);
+          btn.appendChild(lunarSpan);
+
+          (function (dateValue, cellYear, cellMonth) {
+            btn.addEventListener("click", function () {
+              if (disabled) return;
+              pickDate(dateValue, cellYear, cellMonth);
+            });
+          })(dateStr, y, m);
+
+          fragment.appendChild(btn);
+        }
+        grid.appendChild(fragment);
+      }
+
+      function renderSelected() {
+        if (!formRefs.selected) return;
+        var box = formRefs.selected;
+        box.textContent = "";
+        var strong = document.createElement("strong");
+        strong.textContent = fullDateLabel(formState.selectedDate) + " " + weekdayName(formState.selectedDate);
+        box.appendChild(strong);
+        var p = formState.selectedDate.split("-");
+        var l = solar2lunar(+p[0], +p[1], +p[2]);
+        if (!l) {
+          box.appendChild(document.createTextNode(" · 超出农历范围"));
+          return;
+        }
+        box.appendChild(document.createTextNode(" · 农历" + lunarMonthName(l.month, l.leap) + lunarDayName(l.day)));
+        var label = cellLabel(+p[0], +p[1], +p[2], l);
+        if (label.kind === "term" || label.kind === "festival") {
+          box.appendChild(document.createTextNode(" · " + label.text));
+        }
+        if (formState.keysDirty && l.leap) {
+          var note = el("span", "cal-leap-note");
+          note.textContent = " · 闰月按平月纪念";
+          box.appendChild(note);
+        }
+      }
+
+      function applySelection(dateStr) {
+        formState.selectedDate = dateStr;
+        if (formState.item && dateStr === formState.initialDate) {
+          formState.solarKey = formState.initialSolarKey;
+          formState.lunarKey = formState.initialLunarKey;
+          formState.keysDirty = false;
+        } else {
+          formState.solarKey = solarKeyOfDate(dateStr);
+          formState.lunarKey = regularMonthKeyOf(dateStr);
+          formState.keysDirty = true;
+        }
+      }
+
+      function pickDate(dateStr, y, m) {
+        if (dateStr < MIN_SELECT_DATE || dateStr > MAX_SELECT_DATE) {
+          showToast("可选日期范围 1900-01-31 至 2100-12-31");
+          return;
+        }
+        applySelection(dateStr);
+        if (y !== formState.viewYear || m !== formState.viewMonth) {
+          formState.viewYear = y;
+          formState.viewMonth = m;
+          renderCalendarAll();
+        } else {
+          renderCalendarGrid();
+          renderSelected();
+        }
+        updatePreview();
+      }
+
+      function shiftView(delta) {
+        var y = formState.viewYear;
+        var m = formState.viewMonth + delta;
+        if (m < 1) { m = 12; y -= 1; }
+        else if (m > 12) { m = 1; y += 1; }
+        if (y < LUNAR_MIN_YEAR || y > LUNAR_MAX_YEAR) {
+          showToast("已到可选年份边界");
+          return;
+        }
+        formState.viewYear = y;
+        formState.viewMonth = m;
+        renderCalendarAll();
+      }
+
+      function applyYearInput() {
+        if (!formRefs.yearInput) return;
+        var raw = formRefs.yearInput.value.trim();
+        var y = /^\d{4}$/.test(raw) ? +raw : NaN;
+        if (!Number.isFinite(y) || y < LUNAR_MIN_YEAR || y > LUNAR_MAX_YEAR) {
+          formRefs.yearInput.value = String(formState.viewYear);
+          showToast("年份范围 1900–2100");
+          return;
+        }
+        formState.viewYear = y;
+        renderCalendarAll();
+      }
+
+      function handleCheckChange(which) {
+        var s = formRefs.checkSolar.checked;
+        var l = formRefs.checkLunar.checked;
+        if (!s && !l) {
+          if (which === "solar") formRefs.checkSolar.checked = true;
+          else formRefs.checkLunar.checked = true;
+          showToast("至少保留一种历法");
+          return;
+        }
+        formState.remindSolar = s;
+        formState.remindLunar = l;
+        updatePreview();
+      }
+
+      function updatePreview() {
+        if (!formRefs.preview) return;
+        var box = formRefs.preview;
+        box.textContent = "";
+        box.className = "form-preview";
+        var today = todayStr();
+        var entries = [];
+
+        function invalid(message) {
+          box.className = "form-preview invalid";
+          box.textContent = message;
+        }
+
+        if (!formState.remindSolar && !formState.remindLunar) {
+          invalid("请至少选择一种历法");
+          return;
+        }
+        if (formState.remindSolar) {
+          if (!formState.solarKey) { invalid("公历日期无效，请重新选择"); return; }
+          var si = nextOccurrenceInfo("solar", formState.solarKey, today);
+          if (!si) { invalid("公历下一次发生超出支持范围"); return; }
+          entries.push({ calendar: "solar", key: formState.solarKey, info: si, days: diffDays(si.date, today) });
+        }
+        if (formState.remindLunar) {
+          if (!formState.lunarKey) { invalid("农历日期无效，请重新选择"); return; }
+          var li = nextOccurrenceInfo("lunar", formState.lunarKey, today);
+          if (!li) { invalid("农历下一次发生超出支持范围"); return; }
+          entries.push({ calendar: "lunar", key: formState.lunarKey, info: li, days: diffDays(li.date, today) });
+        }
+        if (!entries.length) { invalid("请至少选择一种历法"); return; }
+
+        var nearestDays = entries[0].days;
+        for (var i = 1; i < entries.length; i++) {
+          if (entries[i].days < nearestDays) nearestDays = entries[i].days;
+        }
+        var notes = [];
+        for (var k = 0; k < entries.length; k++) {
+          var entry = entries[k];
+          var line = el("div", "preview-line" + (entry.days === nearestDays ? " nearest" : ""));
+          var tag = el("span", "preview-tag" + (entry.calendar === "lunar" ? " lunar" : ""));
+          tag.textContent = entry.calendar === "lunar" ? "农历" : "公历";
+          var date = el("span", "preview-date");
+          if (entry.calendar === "lunar") {
+            date.textContent = lunarKeyLabel(entry.key) + " → " + shortDateLabel(entry.info.date, today);
+          } else {
+            // 公历同一年只显示月日；跨年补年份，避免重复的"10月26日 → 10月26日"
+            var solarNext = entry.info.date;
+            date.textContent = solarKeyLabel(entry.key) +
+              (solarNext.slice(0, 4) !== today.slice(0, 4) ? " → " + shortDateLabel(solarNext, today) : "");
+          }
+          date.title = date.textContent + "（" + fullDateLabel(entry.info.date) + "）";
+          var days = el("span", "preview-days");
+          days.textContent = countdownText(entry.days);
+          line.appendChild(tag);
+          line.appendChild(date);
+          line.appendChild(days);
+          box.appendChild(line);
+
+          if (entry.calendar === "solar" && entry.key.month === 2 && entry.key.day === 29) {
+            notes.push("公历 2 月 29 日仅在闰年发生");
+          }
+          if (entry.calendar === "lunar") {
+            if (entry.info.fallbackLeap) {
+              notes.push("该年无闰" + lunarMonthName(entry.key.month, false) + "，按平月" + lunarDayName(entry.info.usedDay));
+            }
+            if (entry.info.fallbackDay) {
+              notes.push("该农历月没有" + lunarDayName(entry.key.day) + "，按" + lunarDayName(entry.info.usedDay));
+            }
+          }
+        }
+        if (entries.length === 2 && entries[0].info.date === entries[1].info.date) {
+          notes.push("两条时间线落在同一天");
+        }
+        var p = formState.selectedDate.split("-");
+        var selLunar = solar2lunar(+p[0], +p[1], +p[2]);
+        if (formState.keysDirty && selLunar && selLunar.leap) {
+          notes.push("所选日期为闰" + lunarMonthName(selLunar.month, false) + "，农历纪念按平月同日");
+        }
+        if (formState.lunarKey && formState.lunarKey.leap) {
+          notes.push("闰月纪念：无该闰月的年份按平月，月小无三十按廿九");
+        }
+        for (var n = 0; n < notes.length; n++) {
+          var noteEl = el("div", "preview-note");
+          noteEl.textContent = notes[n];
+          box.appendChild(noteEl);
+        }
+      }
+
+      function submitForm() {
+        if (state.mode === "error") {
+          showToast("数据读取失败，无法保存");
+          return;
+        }
+        var name = formRefs.nameInput ? formRefs.nameInput.value.trim() : "";
+        if (!name) {
+          if (formRefs.nameInput) formRefs.nameInput.focus();
+          showToast("请填写纪念日名称");
+          return;
+        }
+        if (!formState.remindSolar && !formState.remindLunar) {
+          showToast("请至少选择一种历法");
+          return;
+        }
+        if (formState.remindSolar && !formState.solarKey) {
+          showToast("公历日期无效，请重新选择");
+          return;
+        }
+        if (formState.remindLunar && !formState.lunarKey) {
+          showToast("农历日期无效，请重新选择");
+          return;
+        }
+        if (!isValidDateString(formState.selectedDate) ||
+            formState.selectedDate < MIN_SELECT_DATE || formState.selectedDate > MAX_SELECT_DATE) {
+          showToast("日期超出可选范围");
+          return;
+        }
+        var item = {
+          id: formState.item ? formState.item.id : genId(),
+          name: name,
+          originDate: formState.selectedDate,
+          solarKey: formState.solarKey,
+          lunarKey: formState.lunarKey,
+          remindSolar: formState.remindSolar,
+          remindLunar: formState.remindLunar
+        };
+        if (editingIndex >= 0 && state.items[editingIndex]) state.items[editingIndex] = item;
+        else state.items.push(item);
+        persistItems();
+        exitForm();
+        renderPanelList();
+      }
+
+      function armDelete() {
+        if (!formState.item) return;
+        if (!formState.deleteArmed) {
+          formState.deleteArmed = true;
+          updateDeleteButton();
+          showToast("再次点击确认删除");
+          if (formState.deleteTimer) window.clearTimeout(formState.deleteTimer);
+          formState.deleteTimer = window.setTimeout(function () {
+            if (formState.deleteArmed) {
+              formState.deleteArmed = false;
+              formState.deleteTimer = null;
+              updateDeleteButton();
+            }
+          }, 4000);
+          return;
+        }
+        if (formState.deleteTimer) {
+          window.clearTimeout(formState.deleteTimer);
+          formState.deleteTimer = null;
+        }
+        var index = editingIndex;
+        if (index >= 0 && state.items[index]) {
+          state.items.splice(index, 1);
+          persistItems();
+          exitForm();
+          renderPanelList();
+        }
+      }
+
+      function updateDeleteButton() {
+        if (!formRefs.delBtn) return;
+        formRefs.delBtn.textContent = formState.deleteArmed ? "确认删除" : "删除";
+        formRefs.delBtn.classList.toggle("confirm", formState.deleteArmed);
+      }
+
+      function buildPanel() {
+        panelEl = el("div", "anniv-panel");
+        panelEl.hidden = true;
+        var head = el("div", "panel-head");
+        var title = el("span", "panel-head-title");
+        title.textContent = "纪念日设置";
+        var close = el("button", "anniv-btn close");
+        close.type = "button";
+        close.setAttribute("aria-label", "关闭设置");
+        close.title = "返回列表";
+        close.textContent = "×";
+        close.addEventListener("click", function () {
+          togglePanel(false);
+        });
+        head.appendChild(title);
+        head.appendChild(close);
+        panelList = el("div", "panel-body");
+        panelForm = el("div", "panel-body panel-form");
+        panelForm.hidden = true;
+        panelEl.appendChild(head);
+        panelEl.appendChild(panelList);
+        panelEl.appendChild(panelForm);
+        appEl.appendChild(panelEl);
+
+        document.addEventListener("keydown", function (event) {
+          if (event.key !== "Escape" || panelEl.hidden) return;
+          if (editingIndex !== null) {
+            if (formState.deleteArmed) {
+              formState.deleteArmed = false;
+              if (formState.deleteTimer) {
+                window.clearTimeout(formState.deleteTimer);
+                formState.deleteTimer = null;
+              }
+              updateDeleteButton();
+              return;
+            }
+            exitForm();
+            renderPanelList();
+          } else {
+            togglePanel(false);
+          }
+        });
+      }
+
+      var appEl = null;
+
+      function buildApp() {
+        appEl = el("div", "anniv");
+
+        var bar = el("div", "anniv-bar");
+        var title = el("span", "anniv-title");
+        title.textContent = "纪念日";
+        var actions = el("span", "anniv-actions");
+        var settings = el("button", "anniv-btn");
+        settings.type = "button";
+        settings.setAttribute("aria-label", "纪念日设置");
+        settings.title = "设置";
+        settings.textContent = "\u2699"; // ⚙ 单色齿轮，与玻璃白字风格一致
+        settings.addEventListener("click", function () {
+          togglePanel();
+        });
+        var close = el("button", "anniv-btn close");
+        close.type = "button";
+        close.setAttribute("aria-label", "关闭窗口");
+        close.title = "关闭";
+        close.textContent = "×";
+        close.addEventListener("click", requestClose); // 先冲刷保存再关窗，见 requestClose
+        actions.appendChild(settings);
+        actions.appendChild(close);
+        bar.appendChild(title);
+        bar.appendChild(actions);
+
+        listBox = el("div", "anniv-list");
+
+        var grip = el("div", "anniv-grip");
+        grip.setAttribute("aria-label", "调整窗口大小");
+
+        toastEl = el("div", "anniv-toast");
+        toastEl.hidden = true;
+
+        appEl.appendChild(bar);
+        appEl.appendChild(listBox);
+        appEl.appendChild(grip);
+        appEl.appendChild(toastEl);
+        root.appendChild(appEl);
+
+        attachDrag(bar, "move");
+        attachDrag(grip, "resize");
+
+        buildPanel();
+      }
+
+      /* 点击窗口任意处置顶（宿主据此调整层级） */
+      document.addEventListener("pointerdown", function () {
+        if (bridgeOk) notifyBridge("window.focus", {});
+      }, true);
+
+      /* ===== 拖拽/缩放：pointerdown 上报 + 宿主接管指针 =====
+         沙箱 iframe 只能收到指针位于其范围内的事件（setPointerCapture 不跨文档
+         边界），插件侧自行跟踪快速拖拽必丢 move/up。因此插件只在 pointerdown
+         上报起始抓取点（iframe 局部坐标 + pointerId），由宿主接管；结束时宿主
+         回推 window.dragEnd 复位 dragActive。本地 pointerup/pointercancel 仅作
+         宿主未接管的兜底。 */
+      function attachDrag(handle, mode) {
+        handle.addEventListener("pointerdown", function (event) {
+          if (event.button !== 0 && event.pointerType === "mouse") return;
+          // dragActive 仍挂着说明上一场拖拽的结束通知丢了（僵局）：直接复位重启
+          if (event.target && event.target.closest && event.target.closest("button")) return;
+          event.preventDefault();
+          dragActive = { mode: mode };
+          callBridge("window.drag", {
+            phase: "start",
+            mode: mode,
+            x: event.clientX,
+            y: event.clientY,
+            pointerId: event.pointerId,
+          }).catch(function () {
+            if (dragActive && dragActive.mode === mode) dragActive = null;
+          });
+        });
+
+        // 兜底：宿主未接管而指针在 iframe 内释放时通知结束
+        function finish(event) {
+          if (!dragActive || dragActive.mode !== mode) return;
+          dragActive = null;
+          notifyBridge("window.drag", { phase: "end", mode: mode, x: event.clientX, y: event.clientY });
+        }
+        handle.addEventListener("pointerup", finish);
+        handle.addEventListener("pointercancel", finish);
+      }
+
+      /* ===== 初始化：握手（重试避开竞态）→ 取回列表 → 渲染 =====
+         每 60s 重算倒计时（跨午夜自动更新），页面可见性恢复时立即重算。 */
+      function handshake(tries) {
+        return callBridge("hello", {}).then(function (data) {
+          bridgeOk = true;
+          return data;
+        }).catch(function (error) {
+          if (tries <= 1) throw error;
+          return new Promise(function (resolve) {
+            window.setTimeout(resolve, 250);
+          }).then(function () {
+            return handshake(tries - 1);
+          });
+        });
+      }
+
+      function init() {
+        if (window.top === window.self) {
+          // 被直接导航打开（CSP sandbox 生效，无宿主桥）：插件只能在导航页内使用
+          showHint("这是一个导航页插件。请在导航页的插件库中安装并启用「纪念日」后使用。");
+          return;
+        }
+        handshake(4).then(function () {
+          return callBridge("storage.get", { key: LIST_KEY });
+        }).then(function (data) {
+          buildApp();
+          var value = data && typeof data.value === "string" ? data.value : null;
+          if (value === null) {
+            state = { mode: "demo", items: demoItems(), damaged: [] };
+          } else {
+            var parsed = null;
+            try {
+              parsed = JSON.parse(value);
+            } catch (error) {
+              parsed = undefined;
+            }
+            if (parsed === undefined) {
+              state = { mode: "error", items: [], damaged: [] };
+            } else {
+              var norm = normalizeList(parsed);
+              if (norm.invalid) {
+                state = { mode: "error", items: [], damaged: [] };
+              } else {
+                state = { mode: "real", items: norm.items, damaged: norm.damaged };
+              }
+            }
+          }
+          render();
+          window.setInterval(render, 60000);
+          document.addEventListener("visibilitychange", function () {
+            flushSave(); // 隐藏时冲刷待存变更，防丢
+            render();
+          });
+          window.addEventListener("pagehide", flushSave);
+        }).catch(function (error) {
+          showHint("初始化失败：" + (error && error.message ? error.message : "无法连接导航页宿主") + "。请刷新页面重试。");
+        });
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>

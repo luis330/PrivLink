@@ -457,7 +457,7 @@ class PluginsTestCase(unittest.TestCase):
                     value = default_size.get(key)
                     self.assertIsInstance(value, int, plugin_id)
                     self.assertGreater(value, 0, plugin_id)
-            for flag in ("singleton", "autoOpen"):
+            for flag in ("singleton", "autoOpen", "globalStorage"):
                 if flag in entry:
                     self.assertIsInstance(entry[flag], bool, f"{plugin_id}: {flag} 必须是布尔")
             for label_key in ("launchLabel", "backgroundLabel"):
@@ -480,6 +480,19 @@ class PluginsTestCase(unittest.TestCase):
         self.assertIs(entry.get("autoOpen"), False)
         self.assertTrue(str(entry.get("launchLabel", "")).strip())
         self.assertTrue(str(entry.get("backgroundLabel", "")).strip())
+
+    def test_anniversary_float_config(self) -> None:
+        # 纪念日：单实例自动浮出；列表数据必须插件级共享（关窗不丢），
+        # 依赖宿主 globalStorage 机制，未声明则数据会随窗口关闭被清除
+        registry = self._load_builtin_registry()
+        entry = next(
+            (item for item in registry["plugins"] if item.get("id") == "anniversary"), None
+        )
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.get("slot"), "float")
+        self.assertIs(entry.get("singleton"), True)
+        self.assertIs(entry.get("globalStorage"), True)
+        self.assertIn("storage", entry.get("permissions", []))
 
     def test_builtin_bridge_version_matches_host(self) -> None:
         registry = self._load_builtin_registry()

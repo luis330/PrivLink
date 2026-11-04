@@ -10,6 +10,7 @@ on:
       - 'pylock.toml'
       - 'wrangler.jsonc'
       - 'assets/**'
+      - 'plugins/**'
       - 'index.html'
       - 'favicon.ico'
       - '*.png'

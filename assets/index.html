@@ -3705,6 +3705,13 @@
         return (pluginRegistry || []).find((entry) => entry && entry.id === pluginId) || null;
       }
 
+      // float 插件声明 globalStorage 时，storage 数据为插件级共享：
+      // 键不加密例前缀、关闭窗口不清理（registry 可选元数据，见 docs/plugins.md）
+      function pluginGlobalStorage(pluginId) {
+        const entry = registryEntryFor(pluginId);
+        return Boolean(entry && entry.globalStorage);
+      }
+
       function hasPluginPermission(entry, permission) {
         return Boolean(entry) && Array.isArray(entry.permissions) && entry.permissions.includes(permission);
       }
@@ -4142,15 +4149,18 @@
             notePersistFailure("窗口关闭结果未能保存——刷新后该窗口可能出现，再次关闭即可", error);
           }
         }
-        try {
-          await apiFetch(
-            getPluginsApiUrl(encodeURIComponent(pluginId) + "/data?prefix=" +
-              encodeURIComponent(instId + ":")),
-            { method: "DELETE" }
-          );
-        } catch (error) {
-          // 孤儿数据键无害（占配额不影响功能），仅留痕不弹警告条
-          console.error("便签数据清理失败", error);
+        if (!pluginGlobalStorage(pluginId)) {
+          // 声明 globalStorage 的插件数据不随实例清除（键本身无实例前缀）
+          try {
+            await apiFetch(
+              getPluginsApiUrl(encodeURIComponent(pluginId) + "/data?prefix=" +
+                encodeURIComponent(instId + ":")),
+              { method: "DELETE" }
+            );
+          } catch (error) {
+            // 孤儿数据键无害（占配额不影响功能），仅留痕不弹警告条
+            console.error("便签数据清理失败", error);
+          }
         }
       }
 
@@ -4371,8 +4381,12 @@
           return;
         }
         // float 实例的键由宿主透明加实例前缀（<instId>:key），插件代码无感；
-        // 实例关闭时按前缀清理（见 closeFloatWindow）
-        const storageKey = bridge.instId ? bridge.instId + ":" + key : key;
+        // 实例关闭时按前缀清理（见 closeFloatWindow）。声明 globalStorage 的
+        // 插件（如"纪念日"）数据为插件级共享：不加密例前缀、关窗不清理
+        const storageKey =
+          bridge.instId && !pluginGlobalStorage(bridge.id)
+            ? bridge.instId + ":" + key
+            : key;
         const dataUrl = getPluginsApiUrl(encodeURIComponent(pluginId) + "/data");
         if (type === "storage.get") {
           apiFetch(dataUrl + "?key=" + encodeURIComponent(storageKey), { cache: "no-store" })
