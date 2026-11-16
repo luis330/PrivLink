@@ -14,6 +14,54 @@
 - **轻量自部署**：单实例 uvicorn + SQLite + 本地图标目录；全部数据只有 `data/`、`ICON/` 与 `background/` 三个目录，备份即拷贝。Docker 与源码部署共用同一份 `.env` 配置；Cloudflare 部署由 Secrets / 变量承载同款配置。
 - **顺手的细节**：首页 ETag/304 协商缓存 + gzip，二次打开秒级渲染（localStorage 本地缓存）；面板顶栏显示公网 IP 并可点击刷新（自部署显示服务端出口 IP，Cloudflare 部署显示访问者自己的 IP）；Linux 下自动启用 uvloop/httptools，Windows 开发环境自动兼容。
 
+## 界面预览
+
+![PrivLink 首页](docs/images/home.png)
+
+33 个站点、5 个标签，私有站点右上角带小锁；底部停靠「添加网站」面板。
+
+### 一键收录：粘贴网址即自动解析
+
+![一键收录](docs/images/add-site.gif)
+
+服务端抓取站名（`og:site_name > title > 域名`）与 favicon，收录时可直接打标签；保存后按标签筛选即可看到新条目。
+
+### 多标签筛选与拖拽排序
+
+![筛选与拖拽排序](docs/images/filter-drag.gif)
+
+标签可多选，拖拽换位后顺序即时落库。
+
+### 编辑：标签、公开属性与内置图标库
+
+![右键菜单](docs/images/context-menu.png)
+
+![编辑与图标库](docs/images/edit-modal.png)
+
+### 插件：便签与多边形渐变
+
+![插件库](docs/images/plugin-market.png)
+
+![便签与渐变窗口](docs/images/plugin-windows.png)
+
+![多边形渐变设为背景](docs/images/gradient-bg.gif)
+
+插件运行在 `sandbox="allow-scripts"` 的 iframe 中，只能使用清单里声明的能力（`storage` / `export`），接触不到 Token 与书签数据。
+
+### 访客只读与 Token 门禁
+
+![Token 门禁](docs/images/token-gate.png)
+
+未持 Token 的访客可直接浏览公开站点（只读、可点击跳转、不弹窗）；触发管理动作时才提示保存 Token。
+
+### 书签导入 / 导出
+
+![书签导入导出](docs/images/transfer.png)
+
+### 移动端
+
+<img src="docs/images/mobile.png" width="320" alt="移动端 390px 宽">
+
 ## 快速开始
 
 三种部署方式运行同一份 Python 代码（`src/privlink/`），按基础设施选择：
