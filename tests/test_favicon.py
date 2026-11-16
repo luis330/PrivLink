@@ -106,7 +106,7 @@ class RootAssetRouteTest(unittest.TestCase):
 
     def test_manifest_is_valid_json_on_disk(self) -> None:
         # 与线上响应同源校验，避免只在内存里改对
-        with open("manifest.json", encoding="utf-8") as handle:
+        with open("brand/manifest.json", encoding="utf-8") as handle:
             self.assertEqual(json.load(handle)["short_name"], "PrivLink")
 
 

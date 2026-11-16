@@ -39,8 +39,9 @@ PLUGINS_DIR = Path("plugins")
 # 插件 id 同时用作 URL 段与数据命名空间：小写字母数字与连字符，禁止点（registry.json 不是插件）
 PLUGIN_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 FRONTEND_PATH = Path("index.html")
-# 根路径品牌资源（图标 + PWA manifest）所在目录，与 index.html 同级
-ROOT_ASSET_DIR = Path(".")
+# 品牌资源（favicon / PWA 图标 / manifest.json）目录：仓库根 brand/，
+# 路由仍按 /favicon.ico 之类的根路径对外，只是文件落盘位置收拢到一处
+ROOT_ASSET_DIR = Path("brand")
 ICON_MAX_BYTES = 2 * 1024 * 1024
 ICON_UPLOAD_MAX_BYTES = 1024 * 1024
 BACKGROUND_UPLOAD_MAX_BYTES = 5 * 1024 * 1024

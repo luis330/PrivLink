@@ -34,7 +34,8 @@ PrivLink/
 │       ├── storage.py               # 文件存储抽象：本地目录 / R2
 │       ├── config.py                # 配置与 IS_WORKERS 平台判断
 │       └── data/simple_icons_data.py  # 图标库内嵌模块（Workers 读不到 JSON，见 3.1）
-├── index.html / favicon.ico / *.png / manifest.json   # 前端与品牌图标（唯一来源）
+├── index.html                       # 前端单文件（唯一来源）
+├── brand/                           # favicon / PWA 图标 / manifest.json（唯一来源）
 ├── plugins/                         # 内置插件源（registry.json + <id>/index.html）
 ├── assets/                          # Workers Assets 目录（由 sync-frontend.py 从根目录同步）
 ├── wrangler.jsonc                   # Workers 配置（D1 / R2 / Assets 绑定）
@@ -79,7 +80,7 @@ PrivLink/
 
 | 内容 | 性质 | 存储位置 |
 |---|---|---|
-| `index.html`、favicon、`manifest.json`、`plugins/<id>/index.html` 与 `plugins/registry.json` | 部署时固定 | Workers Assets |
+| `index.html`、`brand/`（favicon 与 `manifest.json`）、`plugins/<id>/index.html` 与 `plugins/registry.json` | 部署时固定 | Workers Assets |
 | `ICON/<file>` | 运行时上传或抓取 | R2 |
 | `background/<file>` | 运行时上传 | R2 |
 
@@ -165,7 +166,7 @@ uv run pywrangler dev                       # http://127.0.0.1:8787，使用本�
 
 ### 4.3 前端与品牌图标
 
-仓库根目录的 `index.html`、品牌图标和 `manifest.json` 是唯一来源。本地部署直接读取它们；Workers 部署前需同步到 `assets/`：
+仓库根目录的 `index.html` 与 `brand/`（品牌图标、`manifest.json`）是唯一来源。本地部署直接读取它们；Workers 部署前需同步到 `assets/`：
 
 ```bash
 python scripts/sync-frontend.py            # 同步
@@ -174,20 +175,20 @@ python scripts/sync-frontend.py --check    # 仅校验是否漂移，有差异�
 
 CI 部署前会自动执行同步。
 
-图标是一整套位图，全部放在仓库根目录：
+图标是一整套位图，全部放在 `brand/`：
 
 | 文件 | 用途 |
 |---|---|
-| `favicon.ico` | 多尺寸 ICO（16/32）。覆盖对 `/favicon.ico` 的隐式请求——浏览器与爬虫不解析 `<link rel="icon">`，会直接请求这个路径 |
-| `favicon-16x16.png`、`favicon-32x32.png` | `<link rel="icon">` 显式声明，现代浏览器优先使用 |
-| `apple-touch-icon.png` | iOS 主屏图标。同样存在隐式请求：Safari 没看到声明时会直接请求根路径 |
-| `android-chrome-192x192.png`、`android-chrome-512x512.png` | 由 `manifest.json` 引用，用于 PWA 安装与 Android 主屏 |
+| `brand/favicon.ico` | 多尺寸 ICO（16/32）。覆盖对 `/favicon.ico` 的隐式请求——浏览器与爬虫不解析 `<link rel="icon">`，会直接请求这个路径 |
+| `brand/favicon-16x16.png`、`brand/favicon-32x32.png` | `<link rel="icon">` 显式声明，现代浏览器优先使用 |
+| `brand/apple-touch-icon.png` | iOS 主屏图标。同样存在隐式请求：Safari 没看到声明时会直接请求根路径 |
+| `brand/android-chrome-192x192.png`、`brand/android-chrome-512x512.png` | 由 `manifest.json` 引用，用于 PWA 安装与 Android 主屏 |
 
 在线 favicon 生成器导出的 `favicon.ico` 常常是改了扩展名的 PNG，直接使用会与 `Content-Type: image/x-icon` 名实不符。更换图标时先确认格式，必要时重新打包成真正的 ICO：
 
 ```bash
-python scripts/build-favicon.py --inspect favicon.ico                  # 查看是 ICO 还是裸 PNG
-python scripts/build-favicon.py favicon-16x16.png favicon-32x32.png    # 打包成 favicon.ico
+python scripts/build-favicon.py --inspect brand/favicon.ico            # 查看是 ICO 还是裸 PNG
+python scripts/build-favicon.py brand/favicon-16x16.png brand/favicon-32x32.png -o brand/favicon.ico
 python scripts/sync-frontend.py                                        # 再同步到 assets/
 ```
 

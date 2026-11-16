@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """同步前端静态文件到 Workers Assets 目录。
 
-将仓库根目录的 index.html、品牌图标（favicon.ico / favicon-*.png /
+将仓库根目录的 index.html、brand/ 下的品牌图标（favicon.ico / favicon-*.png /
 apple-touch-icon.png / android-chrome-*.png）与 manifest.json
 复制到 assets/（wrangler.jsonc 的 Workers Assets 目录），并输出差异说明；
 plugins/ 目录整体镜像到 assets/plugins/（多出的目标文件会被删除）。
@@ -25,13 +25,13 @@ PLUGINS = ROOT / "plugins"
 FILES = {
     ROOT / "index.html": "index.html",
     ROOT / "_headers": "_headers",
-    ROOT / "favicon.ico": "favicon.ico",
-    ROOT / "favicon-16x16.png": "favicon-16x16.png",
-    ROOT / "favicon-32x32.png": "favicon-32x32.png",
-    ROOT / "apple-touch-icon.png": "apple-touch-icon.png",
-    ROOT / "android-chrome-192x192.png": "android-chrome-192x192.png",
-    ROOT / "android-chrome-512x512.png": "android-chrome-512x512.png",
-    ROOT / "manifest.json": "manifest.json",
+    ROOT / "brand" / "favicon.ico": "favicon.ico",
+    ROOT / "brand" / "favicon-16x16.png": "favicon-16x16.png",
+    ROOT / "brand" / "favicon-32x32.png": "favicon-32x32.png",
+    ROOT / "brand" / "apple-touch-icon.png": "apple-touch-icon.png",
+    ROOT / "brand" / "android-chrome-192x192.png": "android-chrome-192x192.png",
+    ROOT / "brand" / "android-chrome-512x512.png": "android-chrome-512x512.png",
+    ROOT / "brand" / "manifest.json": "manifest.json",
 }
 
 

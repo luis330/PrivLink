@@ -173,12 +173,13 @@ def build_workspace(work: Path) -> None:
         shutil.rmtree(work)
     for sub in ("data", "ICON", "background"):
         (work / sub).mkdir(parents=True, exist_ok=True)
+    shutil.copy2(REPO / "index.html", work / "index.html")
+    (work / "brand").mkdir(parents=True, exist_ok=True)
     for name in (
-        "index.html", "manifest.json", "favicon.ico", "favicon-32x32.png",
-        "favicon-16x16.png", "apple-touch-icon.png", "android-chrome-192x192.png",
-        "android-chrome-512x512.png",
+        "manifest.json", "favicon.ico", "favicon-32x32.png", "favicon-16x16.png",
+        "apple-touch-icon.png", "android-chrome-192x192.png", "android-chrome-512x512.png",
     ):
-        shutil.copy2(REPO / name, work / name)
+        shutil.copy2(REPO / "brand" / name, work / "brand" / name)
     shutil.copytree(REPO / "plugins", work / "plugins")
     shutil.copy2(REPO / "data" / "sites.db", work / "data" / "sites.db")
 

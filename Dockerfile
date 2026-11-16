@@ -14,7 +14,9 @@ RUN uv sync --frozen --no-dev --no-install-project && uv cache clean
 
 COPY main.py ./
 COPY src/privlink/ ./src/privlink/
-COPY index.html simple-icons.json manifest.json LICENSE favicon.ico favicon-16x16.png favicon-32x32.png apple-touch-icon.png android-chrome-192x192.png android-chrome-512x512.png ./
+COPY index.html simple-icons.json LICENSE ./
+# 品牌资源（favicon / PWA 图标 / manifest.json）：FastAPI 由 /favicon.ico 等根路径对外
+COPY brand/ ./brand/
 # 内置插件市场：本地路由由 /plugins/{id}/{path} 直接读取该目录（Workers 走 Assets）
 COPY plugins/ ./plugins/
 # --no-editable：项目以普通 wheel 安装（uv 官方生产镜像建议）。editable 安装在 uv cache clean
