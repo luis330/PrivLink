@@ -96,6 +96,14 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 
 打开 `http://127.0.0.1:8000/` 即可使用（同上）。
 
+> **国内网络**：仓库里的 `uv.lock` 固定使用官方 PyPI——GitHub Actions 与 Docker 构建都在境外 runner 上跑，锁里写境内镜像会直接超时。国内本地安装可以换源，脚本只在安装期间临时改锁、装完立即还原：
+>
+> ```bash
+> python scripts/uv-sync.py --mirror cn     # 清华；也可用 cn-aliyun / cn-ustc
+> ```
+>
+> 本地 Docker 构建同理：`docker compose build --build-arg UV_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple`，或在 `.env` 里设 `UV_INDEX=`。
+
 ## Cloudflare 一键部署
 
 免费上云：同一份 Python 代码以 Cloudflare Python Workers 运行（D1 数据库 + R2 存储 + Workers Assets 静态资源），免费层覆盖个人使用，无需服务器。**无需预先创建任何资源**——D1 数据库与 R2 桶在首次部署时按名称自动创建，表结构由首个请求自动建立。

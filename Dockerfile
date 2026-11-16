@@ -9,8 +9,12 @@ ENV PYTHONUNBUFFERED=1
 ENV UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock README.md ./
+# 国内构建可传 --build-arg UV_INDEX=<镜像源>（如 https://pypi.tuna.tsinghua.edu.cn/simple）：
+# 只在构建阶段把锁临时指向镜像，产物与仓库锁文件都不受影响；不传则走官方 PyPI
+ARG UV_INDEX=
 # cache clean 必须与 sync 同层：Docker 层是增量的，单独 RUN 清不掉前一层已固化的缓存（实测 ~27MB/层）
-RUN uv sync --frozen --no-dev --no-install-project && uv cache clean
+RUN if [ -n "$UV_INDEX" ]; then uv lock --default-index "$UV_INDEX"; fi \
+    && uv sync --frozen --no-dev --no-install-project && uv cache clean
 
 COPY main.py ./
 COPY src/privlink/ ./src/privlink/

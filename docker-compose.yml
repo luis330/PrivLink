@@ -8,6 +8,8 @@ services:
       args:
         # 基础镜像可在 .env 中用 DOCKER_BASE_IMAGE 覆盖（如私有代理源），默认官方源
         BASE_IMAGE: ${DOCKER_BASE_IMAGE:-ghcr.io/astral-sh/uv:python3.12-bookworm-slim}
+        # 国内构建可在 .env 设 UV_INDEX=<镜像源>，依赖下载走镜像；留空则用官方 PyPI
+        UV_INDEX: ${UV_INDEX:-}
     container_name: privlink
     restart: unless-stopped
     ports:

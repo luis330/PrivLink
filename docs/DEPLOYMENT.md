@@ -135,6 +135,7 @@ cp .env.example .env   # 编辑 .env：至少设置 NAV_TOKEN
 uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
+- **国内网络**：`uv.lock` 固定官方 PyPI（CI 在境外 runner 上跑，锁里写境内镜像会超时）。本地换源用 `python scripts/uv-sync.py --mirror cn`——只在安装期间临时改锁，装完自动还原；Docker 构建加 `--build-arg UV_INDEX=<镜像源>` 即可。
 - 服务启动时自动加载项目根目录 `.env`（真实环境变量优先）。
 - Linux 下自动启用 uvloop / httptools；Windows 开发环境自动跳过 uvloop，启动命令不变。
 - 生产环境建议用 systemd 托管（开机自启、崩溃自动拉起）：
