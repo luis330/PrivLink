@@ -1614,7 +1614,11 @@
           gap: var(--sp-1);
         }
 
-        .add-panel {
+        /* 收起态默认是 width: fit-content，窄屏会把「访问 Token / 背景 / 导入导出 / 插件」
+           顶出面板右边界（390px 下按钮排到 x≈514）。窄屏一律占满可用宽度，
+           工具组换到标题下一行并从头排。 */
+        .add-panel,
+        .add-panel.collapsed {
           width: calc(100% - 12px);
           bottom: 8px;
           max-height: calc(100vh - 16px);
@@ -1624,10 +1628,13 @@
           align-items: center;
           flex-direction: row;
           flex-wrap: wrap;
+          row-gap: var(--sp-2);
         }
 
         .add-head-tools {
           margin-left: auto;
+          flex: 1 1 auto;
+          min-width: 0;
           gap: var(--sp-2);
         }
 

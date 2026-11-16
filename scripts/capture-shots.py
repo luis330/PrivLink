@@ -696,7 +696,7 @@ async def shot_s7(browser, out: Path) -> None:
     box = await page.locator(".nav-item").nth(3).bounding_box()
     await page.mouse.move(box["x"] + 40, box["y"] + 26, steps=10)
     await page.wait_for_timeout(600)
-    await page.screenshot(path=str(out / "mobile.png"), clip={"x": 0, "y": 0, "width": 390, "height": 700})
+    await page.screenshot(path=str(out / "mobile.png"))
     await ctx.close()
 
 
